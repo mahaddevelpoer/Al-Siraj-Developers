@@ -6,6 +6,7 @@
 -- 3) Replace the placeholders below, then run this SQL in Supabase SQL Editor.
 
 CREATE EXTENSION IF NOT EXISTS pg_net;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 ALTER TABLE public.daily_entries
   ADD COLUMN IF NOT EXISTS review_status VARCHAR(20) DEFAULT 'pending',
@@ -142,6 +143,57 @@ BEGIN
 END;
 $$;
 
+GRANT EXECUTE ON FUNCTION public.ceo_review_appeal(UUID, TEXT) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.ceo_review_daily_entry(entry_uuid UUID, new_status TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  entry_row public.daily_entries%ROWTYPE;
+BEGIN
+  IF NOT public.is_ceo() THEN
+    RAISE EXCEPTION 'Only CEO can review daily entries';
+  END IF;
+
+  IF new_status NOT IN ('approved', 'rejected') THEN
+    RAISE EXCEPTION 'Invalid review status: %', new_status;
+  END IF;
+
+  SELECT * INTO entry_row
+  FROM public.daily_entries
+  WHERE id = entry_uuid
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Daily entry not found';
+  END IF;
+
+  UPDATE public.daily_entries
+  SET review_status = new_status,
+      reviewed_by = auth.uid(),
+      reviewed_at = NOW(),
+      rejection_reason = CASE
+        WHEN new_status = 'approved' THEN NULL
+        ELSE COALESCE(rejection_reason, 'Rejected from CEO mobile app')
+      END
+  WHERE id = entry_uuid;
+
+  RETURN jsonb_build_object(
+    'success', TRUE,
+    'status', new_status,
+    'entry_id', entry_uuid,
+    'message', CASE
+      WHEN new_status = 'approved' THEN 'approved'
+      ELSE 'rejected'
+    END
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.ceo_review_daily_entry(UUID, TEXT) TO authenticated;
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'appeals') THEN
@@ -178,12 +230,11 @@ CREATE TABLE IF NOT EXISTS public.ceo_push_config (
 INSERT INTO public.ceo_push_config (id, function_url, webhook_secret)
 VALUES (
   TRUE,
-  'https://YOUR_PROJECT_REF.functions.supabase.co/send-ceo-push',
-  'REPLACE_WITH_CEO_PUSH_WEBHOOK_SECRET'
+  'https://wdislbdftnwmaexqtfmn.functions.supabase.co/send-ceo-push',
+  COALESCE((SELECT webhook_secret FROM public.ceo_push_config WHERE id = TRUE), 'REPLACE_WITH_CEO_PUSH_WEBHOOK_SECRET')
 )
 ON CONFLICT (id) DO UPDATE SET
   function_url = EXCLUDED.function_url,
-  webhook_secret = EXCLUDED.webhook_secret,
   updated_at = NOW();
 
 CREATE OR REPLACE FUNCTION public.notify_ceo_mobile_push()
@@ -211,6 +262,7 @@ BEGIN
   PERFORM net.http_post(
     url := cfg.function_url,
     headers := jsonb_build_object(
+      'authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkaXNsYmRmdG53bWFleHF0Zm1uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODY0MzksImV4cCI6MjA4NTE2MjQzOX0.hSUYRs4scWmUNZGK0slHeX9t--Of5CZclAhoCRbcXmc',
       'content-type', 'application/json',
       'x-ceo-push-secret', cfg.webhook_secret
     ),
@@ -255,3 +307,5 @@ DROP TRIGGER IF EXISTS expenses_ceo_mobile_push ON public.expenses;
 CREATE TRIGGER expenses_ceo_mobile_push
 AFTER INSERT OR UPDATE ON public.expenses
 FOR EACH ROW EXECUTE FUNCTION public.notify_ceo_mobile_push();
+
+NOTIFY pgrst, 'reload schema';

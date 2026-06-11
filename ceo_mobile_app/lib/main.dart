@@ -427,6 +427,8 @@ class _CeoShellState extends State<CeoShell> {
           ? OverviewPage(pushStatus: _pushStatus, realtimeStatus: _realtimeStatus)
           : pages[_tab],
       bottomNavigationBar: NavigationBar(
+        height: 70,
+        labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
         destinations: const [
@@ -630,13 +632,12 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   Future<void> _mark(Map<String, dynamic> row, String status) async {
     setState(() => _reviewing = true);
     try {
-      await supabase.from('daily_entries').update({
-        'review_status': status,
-        'reviewed_by': supabase.auth.currentUser?.id,
-        'reviewed_at': DateTime.now().toIso8601String(),
-      }).eq('id', row['id']);
+      final result = await supabase.rpc('ceo_review_daily_entry', params: {
+        'entry_uuid': row['id'],
+        'new_status': status,
+      });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Entry $status')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Entry $status: ${result?['message'] ?? 'done'}')));
         setState(() {});
       }
     } catch (e) {
@@ -811,25 +812,30 @@ class MetricGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.06,
-      children: metrics.map((m) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(m.icon, color: m.color),
-            const Spacer(),
-            Text(m.value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            Text(m.label, style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700)),
-          ]),
-        ),
-      )).toList(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 360;
+        return GridView.count(
+          crossAxisCount: narrow ? 1 : 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: narrow ? 2.7 : 1.2,
+          children: metrics.map((m) => Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(m.icon, color: m.color),
+                const Spacer(),
+                Text(m.value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 6),
+                Text(m.label, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          )).toList(),
+        );
+      },
     );
   }
 }
@@ -849,11 +855,11 @@ class InfoCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+          Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
           const SizedBox(height: 5),
-          Text(subtitle, style: const TextStyle(fontWeight: FontWeight.w700)),
+          Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
-          Text(meta, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+          Text(meta, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
           if (body.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(body, maxLines: 5, overflow: TextOverflow.ellipsis),
