@@ -180,8 +180,10 @@ class _CeoShellState extends State<CeoShell> {
   String _realtimeStatus = 'Connecting realtime...';
   final pages = const [OverviewPage(), AppealsPage(), DailyEntriesPage(), ActivityPage(), NotificationsPage(), TownsPage()];
   final List<dynamic> _channels = [];
+  final Set<String> _seenAlertKeys = {};
   StreamSubscription<RemoteMessage>? _foregroundPushSub;
   StreamSubscription<RemoteMessage>? _openedPushSub;
+  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -191,6 +193,8 @@ class _CeoShellState extends State<CeoShell> {
     _listenForFcmMessages();
     _routeInitialPushMessage();
     _subscribeToLiveAlerts();
+    _primeSeenAlerts();
+    _pollTimer = Timer.periodic(const Duration(seconds: 12), (_) => _pollForNewAlerts());
   }
 
   void _applySelectedTab() {
@@ -350,11 +354,56 @@ class _CeoShellState extends State<CeoShell> {
     _channels.add(channel);
   }
 
+  Future<void> _primeSeenAlerts() async {
+    try {
+      final latest = await _loadRecentAlertKeys();
+      _seenAlertKeys.addAll(latest.keys);
+    } catch (_) {}
+  }
+
+  Future<void> _pollForNewAlerts() async {
+    try {
+      final latest = await _loadRecentAlertKeys();
+      for (final entry in latest.entries) {
+        if (_seenAlertKeys.add(entry.key)) {
+          await CeoNotificationService.show(entry.value.$1, entry.value.$2, payload: entry.value.$3);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<Map<String, (String, String, String)>> _loadRecentAlertKeys() async {
+    final appeals = await supabase.from('appeals').select('id,appeal_type,created_at,status').order('created_at', ascending: false).limit(5);
+    final sales = await supabase.from('all_sales').select('id,sale_id,town_name,plot_shop_number,created_at').order('created_at', ascending: false).limit(5);
+    final entries = await supabase.from('daily_entries').select('id,entry_id,type,amount,town_name,created_at').order('created_at', ascending: false).limit(5);
+    final notes = await supabase.from('notifications').select('id,notification_id,type,message,created_date').order('created_date', ascending: false).limit(5);
+    final out = <String, (String, String, String)>{};
+
+    for (final row in List<Map<String, dynamic>>.from(appeals)) {
+      final id = '${row['id']}';
+      out['appeals:$id:${row['status']}'] = ('Appeal update', '${pretty(row['appeal_type'])} needs CEO review', 'appeals');
+    }
+    for (final row in List<Map<String, dynamic>>.from(sales)) {
+      final id = '${row['id'] ?? row['sale_id']}';
+      out['all_sales:$id'] = ('Property sale update', '${rowVal(row, 'Town_Name') ?? 'Town'} ${rowVal(row, 'Plot_Shop_Number') ?? ''} sold', 'activity');
+    }
+    for (final row in List<Map<String, dynamic>>.from(entries)) {
+      final id = '${row['id'] ?? row['entry_id']}';
+      out['daily_entries:$id'] = ('Daily entry update', '${rowVal(row, 'Type') ?? 'Entry'} ${money.format(asNum(rowVal(row, 'Amount')))}', 'entries');
+    }
+    for (final row in List<Map<String, dynamic>>.from(notes)) {
+      final id = '${row['id'] ?? row['notification_id']}';
+      out['notifications:$id'] = ('${rowVal(row, 'Type') ?? 'Notification'}', '${rowVal(row, 'Message') ?? 'Open CEO app for details'}', 'notifications');
+    }
+    return out;
+  }
+
   @override
   void dispose() {
     selectedTabNotifier.removeListener(_applySelectedTab);
     _foregroundPushSub?.cancel();
     _openedPushSub?.cancel();
+    _pollTimer?.cancel();
     for (final channel in _channels) {
       supabase.removeChannel(channel);
     }
@@ -509,19 +558,31 @@ class AppealsPage extends StatefulWidget {
 }
 
 class _AppealsPageState extends State<AppealsPage> {
+  bool _reviewing = false;
+
   Future<List<Map<String, dynamic>>> _load() async {
     final data = await supabase.from('appeals').select('*, requested_by_user_id(full_name,email,agent_town)').eq('status', 'pending').order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(data);
   }
 
   Future<void> _review(String id, String status) async {
-    final userId = supabase.auth.currentUser?.id;
-    await supabase.from('appeals').update({
-      'status': status,
-      'reviewed_at': DateTime.now().toIso8601String(),
-      'reviewed_by_user_id': userId,
-    }).eq('id', id);
-    if (mounted) setState(() {});
+    setState(() => _reviewing = true);
+    try {
+      final result = await supabase.rpc('ceo_review_appeal', params: {
+        'appeal_id': id,
+        'new_status': status,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Appeal $status: ${result?['message'] ?? 'done'}')));
+        setState(() {});
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Review failed: $e'), backgroundColor: const Color(0xFFB91C1C)));
+      }
+    } finally {
+      if (mounted) setState(() => _reviewing = false);
+    }
   }
 
   @override
@@ -540,8 +601,8 @@ class _AppealsPageState extends State<AppealsPage> {
               meta: '${a['requested_by_user_id']?['full_name'] ?? 'User'} - ${formatDate(a['created_at'])}',
               body: '${a['reason'] ?? a['requested_data'] ?? ''}',
               actions: [
-                OutlinedButton.icon(onPressed: () => _review(a['id'], 'rejected'), icon: const Icon(Icons.close), label: const Text('Reject')),
-                FilledButton.icon(onPressed: () => _review(a['id'], 'approved'), icon: const Icon(Icons.check), label: const Text('Approve')),
+                OutlinedButton.icon(onPressed: _reviewing ? null : () => _review(a['id'], 'rejected'), icon: const Icon(Icons.close), label: const Text('Reject')),
+                FilledButton.icon(onPressed: _reviewing ? null : () => _review(a['id'], 'approved'), icon: const Icon(Icons.check), label: const Text('Approve')),
               ],
             ),
           if (snap.hasData && snap.data!.isEmpty) const EmptyBlock(text: 'No pending appeals.'),
@@ -559,18 +620,32 @@ class DailyEntriesPage extends StatefulWidget {
 }
 
 class _DailyEntriesPageState extends State<DailyEntriesPage> {
+  bool _reviewing = false;
+
   Future<List<Map<String, dynamic>>> _load() async {
     final data = await supabase.from('daily_entries').select('*').order('date', ascending: false).limit(80);
     return List<Map<String, dynamic>>.from(data);
   }
 
   Future<void> _mark(Map<String, dynamic> row, String status) async {
-    await supabase.from('daily_entries').update({
-      'review_status': status,
-      'reviewed_by': supabase.auth.currentUser?.id,
-      'reviewed_at': DateTime.now().toIso8601String(),
-    }).eq('id', row['id']);
-    if (mounted) setState(() {});
+    setState(() => _reviewing = true);
+    try {
+      await supabase.from('daily_entries').update({
+        'review_status': status,
+        'reviewed_by': supabase.auth.currentUser?.id,
+        'reviewed_at': DateTime.now().toIso8601String(),
+      }).eq('id', row['id']);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Entry $status')));
+        setState(() {});
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Entry review failed: $e'), backgroundColor: const Color(0xFFB91C1C)));
+      }
+    } finally {
+      if (mounted) setState(() => _reviewing = false);
+    }
   }
 
   @override
@@ -589,8 +664,8 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
               meta: '${formatDate(rowVal(e, 'Date'))} - ${e['review_status'] ?? 'pending'}',
               body: '${rowVal(e, 'Description') ?? ''}',
               actions: [
-                OutlinedButton.icon(onPressed: () => _mark(e, 'rejected'), icon: const Icon(Icons.report), label: const Text('Reject')),
-                FilledButton.icon(onPressed: () => _mark(e, 'approved'), icon: const Icon(Icons.verified), label: const Text('Approve')),
+                OutlinedButton.icon(onPressed: _reviewing ? null : () => _mark(e, 'rejected'), icon: const Icon(Icons.report), label: const Text('Reject')),
+                FilledButton.icon(onPressed: _reviewing ? null : () => _mark(e, 'approved'), icon: const Icon(Icons.verified), label: const Text('Approve')),
               ],
             ),
           if (snap.hasData && snap.data!.isEmpty) const EmptyBlock(text: 'No daily entries found.'),

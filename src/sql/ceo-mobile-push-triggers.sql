@@ -7,6 +7,15 @@
 
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
+ALTER TABLE public.daily_entries
+  ADD COLUMN IF NOT EXISTS review_status VARCHAR(20) DEFAULT 'pending',
+  ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES public.users(id),
+  ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP WITH TIME ZONE,
+  ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_daily_entries_review_status
+  ON public.daily_entries (review_status);
+
 DROP POLICY IF EXISTS "CEO mobile read appeals" ON public.appeals;
 CREATE POLICY "CEO mobile read appeals" ON public.appeals
 FOR SELECT USING (public.is_ceo());
@@ -42,6 +51,96 @@ FOR UPDATE USING (public.is_ceo()) WITH CHECK (public.is_ceo());
 DROP POLICY IF EXISTS "CEO mobile update daily_entries" ON public.daily_entries;
 CREATE POLICY "CEO mobile update daily_entries" ON public.daily_entries
 FOR UPDATE USING (public.is_ceo()) WITH CHECK (public.is_ceo());
+
+CREATE OR REPLACE FUNCTION public.ceo_review_appeal(appeal_id UUID, new_status TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  appeal_row public.appeals%ROWTYPE;
+  rd JSONB;
+  new_entry_id TEXT;
+BEGIN
+  IF NOT public.is_ceo() THEN
+    RAISE EXCEPTION 'Only CEO can review appeals';
+  END IF;
+
+  IF new_status NOT IN ('approved', 'rejected') THEN
+    RAISE EXCEPTION 'Invalid review status: %', new_status;
+  END IF;
+
+  SELECT * INTO appeal_row
+  FROM public.appeals
+  WHERE id = appeal_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Appeal not found';
+  END IF;
+
+  UPDATE public.appeals
+  SET status = new_status,
+      reviewed_at = NOW(),
+      reviewed_by_user_id = auth.uid(),
+      otp_code = NULL,
+      otp_expires_at = NULL
+  WHERE id = appeal_id;
+
+  IF new_status = 'approved' AND appeal_row.appeal_type = 'agent_registration' THEN
+    UPDATE public.users
+    SET is_active = TRUE,
+        updated_at = NOW()
+    WHERE id = appeal_row.requested_by_user_id;
+  END IF;
+
+  IF new_status = 'approved'
+     AND appeal_row.appeal_type IN ('backdated_daily_entry', 'future_daily_entry') THEN
+    rd := COALESCE(appeal_row.requested_data, '{}'::jsonb);
+    new_entry_id := 'MOB-' || replace(gen_random_uuid()::text, '-', '');
+
+    INSERT INTO public.daily_entries (
+      entry_id,
+      town_name,
+      date,
+      type,
+      category,
+      amount,
+      description,
+      reference,
+      created_by,
+      review_status,
+      reviewed_by,
+      reviewed_at
+    )
+    VALUES (
+      new_entry_id,
+      COALESCE(rd->>'townName', rd->>'Town_Name', rd->>'town_name', ''),
+      COALESCE(NULLIF(rd->>'date', ''), CURRENT_DATE::text)::date,
+      COALESCE(rd->>'type', rd->>'Type', 'Expense'),
+      COALESCE(rd->>'category', rd->>'Category', ''),
+      COALESCE(NULLIF(rd->>'amount', ''), '0')::numeric,
+      COALESCE(rd->>'description', rd->>'Description', ''),
+      appeal_row.id::text,
+      'CEO Mobile',
+      'approved',
+      auth.uid(),
+      NOW()
+    )
+    ON CONFLICT (entry_id) DO NOTHING;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', TRUE,
+    'status', new_status,
+    'appeal_id', appeal_id,
+    'message', CASE
+      WHEN new_status = 'approved' THEN 'approved'
+      ELSE 'rejected'
+    END
+  );
+END;
+$$;
 
 DO $$
 BEGIN

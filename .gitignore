@@ -11,3 +11,5 @@ Towns/
 *.log
 .env
 developer_config.json
+firebase-service-account*.json
+supabase/.temp/
