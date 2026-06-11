@@ -18,8 +18,6 @@ final selectedTabNotifier = ValueNotifier<int>(0);
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  await CeoNotificationService.init();
-  await CeoNotificationService.showFromRemoteMessage(message);
 }
 
 Future<void> main() async {
@@ -180,10 +178,8 @@ class _CeoShellState extends State<CeoShell> {
   String _realtimeStatus = 'Connecting realtime...';
   final pages = const [OverviewPage(), AppealsPage(), DailyEntriesPage(), ActivityPage(), NotificationsPage(), TownsPage()];
   final List<dynamic> _channels = [];
-  final Set<String> _seenAlertKeys = {};
   StreamSubscription<RemoteMessage>? _foregroundPushSub;
   StreamSubscription<RemoteMessage>? _openedPushSub;
-  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -193,8 +189,6 @@ class _CeoShellState extends State<CeoShell> {
     _listenForFcmMessages();
     _routeInitialPushMessage();
     _subscribeToLiveAlerts();
-    _primeSeenAlerts();
-    _pollTimer = Timer.periodic(const Duration(seconds: 12), (_) => _pollForNewAlerts());
   }
 
   void _applySelectedTab() {
@@ -255,11 +249,6 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'appeals',
           callback: (payload) {
-            final row = payload.newRecord;
-            CeoNotificationService.show(
-              'Appeal update',
-              '${pretty(row['appeal_type'])} needs CEO review',
-            );
             if (mounted) setState(() {});
           },
         )
@@ -268,12 +257,6 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'all_sales',
           callback: (payload) {
-            final row = payload.newRecord;
-            CeoNotificationService.show(
-              'Property sale update',
-              '${rowVal(row, 'Town_Name') ?? 'Town'} ${rowVal(row, 'Plot_Shop_Number') ?? ''} sold',
-              payload: 'activity',
-            );
             if (mounted) setState(() {});
           },
         )
@@ -282,12 +265,6 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'properties',
           callback: (payload) {
-            final row = payload.newRecord;
-            CeoNotificationService.show(
-              'Property update',
-              '${rowVal(row, 'Town_Name') ?? 'Town'} ${rowVal(row, 'Property_Number') ?? ''}',
-              payload: 'activity',
-            );
             if (mounted) setState(() {});
           },
         )
@@ -296,12 +273,6 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'installments',
           callback: (payload) {
-            final row = payload.newRecord;
-            CeoNotificationService.show(
-              'Installment update',
-              '${rowVal(row, 'Customer_Name') ?? 'Customer'} - ${rowVal(row, 'Town_Name') ?? 'Town'}',
-              payload: 'notifications',
-            );
             if (mounted) setState(() {});
           },
         )
@@ -310,12 +281,6 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'expenses',
           callback: (payload) {
-            final row = payload.newRecord;
-            CeoNotificationService.show(
-              'Expense update',
-              '${rowVal(row, 'Town_Name') ?? 'Town'} - ${money.format(asNum(rowVal(row, 'Amount_PKR')))}',
-              payload: 'activity',
-            );
             if (mounted) setState(() {});
           },
         )
@@ -324,11 +289,6 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'notifications',
           callback: (payload) {
-            final row = payload.newRecord;
-            CeoNotificationService.show(
-              '${rowVal(row, 'Type') ?? 'New notification'}',
-              '${rowVal(row, 'Message') ?? 'Open CEO app for details'}',
-            );
             if (mounted) setState(() {});
           },
         )
@@ -337,11 +297,6 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'daily_entries',
           callback: (payload) {
-            final row = payload.newRecord;
-            CeoNotificationService.show(
-              'Daily entry update',
-              '${rowVal(row, 'Type') ?? 'Entry'} ${money.format(asNum(rowVal(row, 'Amount')))} for ${rowVal(row, 'Town_Name') ?? 'town'}',
-            );
             if (mounted) setState(() {});
           },
         )
@@ -354,56 +309,11 @@ class _CeoShellState extends State<CeoShell> {
     _channels.add(channel);
   }
 
-  Future<void> _primeSeenAlerts() async {
-    try {
-      final latest = await _loadRecentAlertKeys();
-      _seenAlertKeys.addAll(latest.keys);
-    } catch (_) {}
-  }
-
-  Future<void> _pollForNewAlerts() async {
-    try {
-      final latest = await _loadRecentAlertKeys();
-      for (final entry in latest.entries) {
-        if (_seenAlertKeys.add(entry.key)) {
-          await CeoNotificationService.show(entry.value.$1, entry.value.$2, payload: entry.value.$3);
-        }
-      }
-    } catch (_) {}
-  }
-
-  Future<Map<String, (String, String, String)>> _loadRecentAlertKeys() async {
-    final appeals = await supabase.from('appeals').select('id,appeal_type,created_at,status').order('created_at', ascending: false).limit(5);
-    final sales = await supabase.from('all_sales').select('id,sale_id,town_name,plot_shop_number,created_at').order('created_at', ascending: false).limit(5);
-    final entries = await supabase.from('daily_entries').select('id,entry_id,type,amount,town_name,created_at').order('created_at', ascending: false).limit(5);
-    final notes = await supabase.from('notifications').select('id,notification_id,type,message,created_date').order('created_date', ascending: false).limit(5);
-    final out = <String, (String, String, String)>{};
-
-    for (final row in List<Map<String, dynamic>>.from(appeals)) {
-      final id = '${row['id']}';
-      out['appeals:$id:${row['status']}'] = ('Appeal update', '${pretty(row['appeal_type'])} needs CEO review', 'appeals');
-    }
-    for (final row in List<Map<String, dynamic>>.from(sales)) {
-      final id = '${row['id'] ?? row['sale_id']}';
-      out['all_sales:$id'] = ('Property sale update', '${rowVal(row, 'Town_Name') ?? 'Town'} ${rowVal(row, 'Plot_Shop_Number') ?? ''} sold', 'activity');
-    }
-    for (final row in List<Map<String, dynamic>>.from(entries)) {
-      final id = '${row['id'] ?? row['entry_id']}';
-      out['daily_entries:$id'] = ('Daily entry update', '${rowVal(row, 'Type') ?? 'Entry'} ${money.format(asNum(rowVal(row, 'Amount')))}', 'entries');
-    }
-    for (final row in List<Map<String, dynamic>>.from(notes)) {
-      final id = '${row['id'] ?? row['notification_id']}';
-      out['notifications:$id'] = ('${rowVal(row, 'Type') ?? 'Notification'}', '${rowVal(row, 'Message') ?? 'Open CEO app for details'}', 'notifications');
-    }
-    return out;
-  }
-
   @override
   void dispose() {
     selectedTabNotifier.removeListener(_applySelectedTab);
     _foregroundPushSub?.cancel();
     _openedPushSub?.cancel();
-    _pollTimer?.cancel();
     for (final channel in _channels) {
       supabase.removeChannel(channel);
     }
