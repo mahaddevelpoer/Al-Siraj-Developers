@@ -1,0 +1,1 @@
+Ensure there are rows in Supabase properties for this town, or properties have been synced.

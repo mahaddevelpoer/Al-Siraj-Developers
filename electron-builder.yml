@@ -1,0 +1,37 @@
+appId: com.zameenkhata.erp
+productName: Zameen Khata
+copyright: "Zameen Khata Real Estate ERP"
+
+directories:
+  output: dist_electron
+
+files:
+  - dist/**/*
+  - src/main/**/*
+  - node_modules/**/*
+  - package.json
+
+win:
+  icon: public/logo.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "Zameen Khata"
+  installerIcon: public/logo.png
+  uninstallerIcon: public/logo.png
+  deleteAppDataOnUninstall: false
+  menuCategory: "Zameen Khata"
+  installerLanguages:
+    - en_US
+  multiLanguageInstaller: false
+  perMachine: false
+  runAfterFinish: true
+  include: installer.nsh

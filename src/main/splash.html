@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; img-src 'self' data: ../../public/;" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AL SIRAJ DEVELOPERS</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;background:#0b1220;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden;position:relative}
+      body::before{content:'';position:absolute;inset:0;background:url('../../public/splash.png') center/cover no-repeat;opacity:.15}
+      body::after{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 30%,rgba(34,197,94,.06),transparent 70%)}
+      .wrap{position:relative;width:420px;max-width:88vw;padding:36px 28px;border-radius:18px;background:rgba(11,18,32,.85);border:1px solid rgba(255,255,255,.08);box-shadow:0 24px 64px rgba(0,0,0,.6);text-align:center;z-index:1}
+      .logo{width:72px;height:72px;margin:0 auto 18px;border-radius:18px;background:linear-gradient(135deg,#f59e0b,#d97706);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#fff;box-shadow:0 8px 28px rgba(245,158,11,.3)}
+      .title{font-weight:800;font-size:22px;letter-spacing:.3px;margin-bottom:2px;color:#fbbf24}
+      .subtitle{font-size:11px;color:rgba(229,231,235,.35);margin-bottom:28px;letter-spacing:1px;text-transform:uppercase}
+      .bar{height:5px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden;border:none;margin-bottom:14px}
+      .fill{height:100%;width:0%;background:linear-gradient(90deg,#f59e0b,#d97706);border-radius:999px;transition:width .35s ease}
+      .msg{font-size:12.5px;color:rgba(229,231,235,.5);min-height:20px;letter-spacing:.15px}
+      .brand{margin-top:28px;font-size:9.5px;color:rgba(229,231,235,.15);letter-spacing:.8px;text-transform:uppercase}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="logo">ASD</div>
+      <div class="title">AL SIRAJ DEVELOPERS</div>
+      <div class="subtitle">Real Estate ERP</div>
+      <div class="bar"><div class="fill" id="fill"></div></div>
+      <div class="msg" id="msg">Starting...</div>
+      <div class="brand">MAHAD AND MAHDI DEVELOPERS</div>
+    </div>
+    <script>
+      const { ipcRenderer } = require('electron');
+      var fill = document.getElementById('fill');
+      var msg = document.getElementById('msg');
+      ipcRenderer.on('startup-progress', function (_event, data) {
+        if (fill && data.percent !== undefined) {
+          fill.style.width = Math.max(0, Math.min(100, Number(data.percent))) + '%';
+        }
+        if (msg && data.message) {
+          msg.textContent = String(data.message);
+        }
+      });
+      ipcRenderer.on('startup-complete', function () {
+        if (msg) msg.textContent = 'Ready \u2713';
+      });
+    </script>
+  </body>
+</html>

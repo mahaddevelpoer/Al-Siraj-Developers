@@ -1,0 +1,368 @@
+const ExcelJS = require('exceljs');
+const path = require('path');
+const fs = require('fs');
+
+let DB_PATH = '';
+let MIRRORS = {
+  enabled: false,
+  desktopRoot: '',
+  immutableRoot: '',
+};
+
+// Prevent concurrent modifications to the same Excel file.
+// Without this, two IPC calls can read the same workbook state and the last write wins.
+const writeChains = new Map(); // filePath -> Promise
+
+function setDbPath(p) { DB_PATH = p; }
+function getDbPath() { return DB_PATH; }
+
+// Sub-directories
+function getPropertiesPath() { return path.join(DB_PATH, 'Properties'); }
+function getTownsPath() { return path.join(DB_PATH, 'Towns'); }
+function getGlobalsPath() { return path.join(DB_PATH, 'Global'); }
+function getBackupInfoPath() { return path.join(DB_PATH, 'backup_info.json'); }
+
+function ensureDir(dirPath) {
+  if (!dirPath) return;
+  if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function withFileWriteLock(filePath, fn) {
+  const key = String(filePath || '');
+  const prev = writeChains.get(key) || Promise.resolve();
+  const next = prev.then(() => fn());
+  // Keep the chain moving even if this operation fails.
+  writeChains.set(key, next.catch(() => {}));
+  return next;
+}
+
+async function writeWorkbookAtomic(targetPath, workbook) {
+  ensureDir(path.dirname(targetPath));
+  const base = path.basename(targetPath);
+  // Temp file name includes a recognizable marker so backup can ignore it.
+  const tempPath = path.join(
+    path.dirname(targetPath),
+    `${base}.__tmp_write__${process.pid}__${Date.now()}`
+  );
+
+  await workbook.xlsx.writeFile(tempPath);
+  try {
+    if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
+    fs.renameSync(tempPath, targetPath);
+  } catch (e) {
+    try { if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true }); } catch (_) {}
+    throw e;
+  }
+}
+
+function relFromDb(filePath) {
+  const rel = path.relative(DB_PATH, filePath);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return rel;
+}
+
+function timestampSlug(d = new Date()) {
+  return d.toISOString().replace(/[:.]/g, '-');
+}
+
+function configureMirrors({ desktopRoot, immutableRoot }) {
+  MIRRORS.desktopRoot = desktopRoot || '';
+  MIRRORS.immutableRoot = immutableRoot || '';
+  MIRRORS.enabled = !!(MIRRORS.desktopRoot && MIRRORS.immutableRoot);
+  if (!MIRRORS.enabled) return;
+  ensureDir(MIRRORS.desktopRoot);
+  ensureDir(path.join(MIRRORS.immutableRoot, 'Base'));
+  ensureDir(path.join(MIRRORS.immutableRoot, 'Edited'));
+}
+
+function syncMirrorsForFile(filePath) {
+  if (!MIRRORS.enabled) return;
+  if (!filePath || !fs.existsSync(filePath)) return;
+  const rel = relFromDb(filePath);
+  if (!rel) return;
+
+  // Desktop mirror always updated
+  const desktopDest = path.join(MIRRORS.desktopRoot, rel);
+  ensureDir(path.dirname(desktopDest));
+  fs.copyFileSync(filePath, desktopDest);
+
+  // Immutable base never overwritten; edits go to Edited snapshots
+  const baseDest = path.join(MIRRORS.immutableRoot, 'Base', rel);
+  ensureDir(path.dirname(baseDest));
+  if (!fs.existsSync(baseDest)) {
+    fs.copyFileSync(filePath, baseDest);
+  } else {
+    const day = new Date().toISOString().split('T')[0];
+    const ext = path.extname(rel);
+    const baseName = path.basename(rel, ext);
+    const dir = path.dirname(rel);
+    const editedDest = path.join(
+      MIRRORS.immutableRoot,
+      'Edited',
+      day,
+      dir,
+      `${baseName}__${timestampSlug()}${ext}`
+    );
+    ensureDir(path.dirname(editedDest));
+    fs.copyFileSync(filePath, editedDest);
+  }
+}
+
+function toFriendlyHeader(key) {
+  return String(key || '')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map(w => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : ''))
+    .join(' ');
+}
+
+function sheetUsesKeyRow2(sheet) {
+  if (!sheet || sheet.rowCount < 2) return false;
+  const row2 = sheet.getRow(2);
+  let hits = 0;
+  row2.eachCell((cell) => {
+    const v = cell.value;
+    if (typeof v === 'string' && /[A-Za-z]+_[A-Za-z]+/.test(v)) hits += 1;
+  });
+  return hits >= 2; // enough signal this is the internal key row
+}
+
+function getHeaderKeys(sheet) {
+  const keys = [];
+  const keyRowNumber = sheetUsesKeyRow2(sheet) ? 2 : 1;
+  sheet.getRow(keyRowNumber).eachCell((cell, colNumber) => {
+    keys[colNumber] = cell.value;
+  });
+  return { keys, keyRowNumber, firstDataRowNumber: keyRowNumber + 1 };
+}
+
+function styleHeaderRow(sheet, rowNumber) {
+  const row = sheet.getRow(rowNumber);
+  row.font = { bold: true, color: { argb: 'FF111827' }, size: 12 };
+  row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+  row.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+  row.height = 20;
+}
+
+function createSheetWithFriendlyHeaders(workbook, sheetName, keys) {
+  const sheet = workbook.addWorksheet(sheetName || 'Data');
+  // Row 1: Friendly headers (visible)
+  sheet.addRow(keys.map(toFriendlyHeader));
+  // Row 2: Internal keys (hidden) used by code
+  sheet.addRow(keys);
+  sheet.getRow(2).hidden = true;
+
+  // Column widths
+  keys.forEach((k, idx) => {
+    sheet.getColumn(idx + 1).width = Math.max(14, Math.min(28, String(toFriendlyHeader(k)).length + 8));
+  });
+
+  styleHeaderRow(sheet, 1);
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  return sheet;
+}
+
+async function initializeDatabase(dbPath) {
+  setDbPath(dbPath);
+
+  const dirs = [
+    getPropertiesPath(),
+    getTownsPath(),
+    getGlobalsPath(),
+  ];
+
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  }
+
+  // Create global files if they don't exist
+  // Migrate old CEO_Admin_Expenses.xlsx to CEO_Expenses.xlsx
+  const oldCeoPath = path.join(getGlobalsPath(), 'CEO_Admin_Expenses.xlsx');
+  const newCeoPath = path.join(getGlobalsPath(), 'CEO_Expenses.xlsx');
+  if (fs.existsSync(oldCeoPath) && !fs.existsSync(newCeoPath)) {
+    fs.renameSync(oldCeoPath, newCeoPath);
+  }
+
+  const globalFiles = [
+  { name: 'All_Sales.xlsx', columns: ['Sale_ID','Plot_Shop_Number','Type','Town_Name','Customer_Name','CNIC','Phone_Number','Sell_Date','Total_Amount_PKR','Advance_Amount_PKR','Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount','Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount','Company_Income','Expense_Total','Profit_Loss','Receipt_Number','File_Status','Status','Sale_Type','Payment_Method','Cheque_Number','Cheque_Bank','Transaction_ID','Transfer_Bank'] },
+  { name: 'All_Expenses.xlsx', columns: ['Expense_ID','Town_Name','Expense_Name','Amount_PKR','Description','Category','Date','Added_By'] },
+  { name: 'Installments_Tracker.xlsx', columns: ['Tracker_ID','Plot_Shop_Number','Type','Town_Name','Customer_Name','Phone_Number','Monthly_Amount','Due_Date','Status','Paid_Date','Month_Number','Total_Months','Received_Amount','Remaining_Amount','Agent_Name'] },
+  { name: 'CEO_Expenses.xlsx', columns: ['Expense_ID','Town_Name','Expense_Name','Amount_PKR','Description','Category','Date','Town_Income','Expense_Limit','Is_Over_Limit'] },
+  { name: 'CEO_Salary.xlsx', columns: ['Salary_ID','Town_Name','Month_Year','Amount_PKR','Date_Recorded','Notes'] },
+  { name: 'Salary_Records.xlsx', columns: ['Receipt_Number','Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By'] },
+  { name: 'Commissions.xlsx', columns: ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Status','Paid_Date','Created_At'] },
+  { name: 'Resell_History.xlsx', columns: ['Resell_ID','Plot_Shop_Number','Type','Town_Name','Original_Customer','Original_Sell_Date','Original_Amount','Resell_Amount','Refund_Amount','Resell_Date','Receipt_Number','Agent_Name','Profit_Loss'] },
+
+    { name: 'Notifications_Log.xlsx', columns: ['Notification_ID','Type','Message','Plot_Shop_Number','Town_Name','Customer_Name','Due_Date','Created_Date','Status','Dismissed'] },
+    { name: 'Profit_Loss_Report.xlsx', columns: ['Report_ID','Town_Name','Total_Income','Total_Expenses','CEO_Expenses','CEO_Salary','Commissions','Net_Profit_Loss','Report_Date'] },
+    { name: 'Employees.xlsx', columns: ['Employee_ID','Employee_Name','CNIC','Phone_Number','Date_Added','Status'] },
+  ];
+
+  for (const gf of globalFiles) {
+    const filePath = path.join(getGlobalsPath(), gf.name);
+    if (!fs.existsSync(filePath)) {
+      const workbook = new ExcelJS.Workbook();
+      createSheetWithFriendlyHeaders(workbook, 'Data', gf.columns);
+      await workbook.xlsx.writeFile(filePath);
+    }
+  }
+}
+
+async function readExcelFile(filePath, sheetName) {
+  if (!fs.existsSync(filePath)) return [];
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const sheet = workbook.getWorksheet(sheetName || 1);
+  if (!sheet) return [];
+  
+  const rows = [];
+  const { keys, firstDataRowNumber } = getHeaderKeys(sheet);
+
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber < firstDataRowNumber) return;
+    const rowData = {};
+    row.eachCell((cell, colNumber) => {
+      const key = keys[colNumber];
+      if (key) {
+        rowData[key] = cell.value;
+      }
+    });
+    if (Object.keys(rowData).length > 0) {
+      rowData._rowNumber = rowNumber;
+      rows.push(rowData);
+    }
+  });
+
+  return rows;
+}
+
+async function appendToExcel(filePath, sheetName, rowData) {
+  return withFileWriteLock(filePath, async () => {
+    const workbook = new ExcelJS.Workbook();
+    if (fs.existsSync(filePath)) {
+      await workbook.xlsx.readFile(filePath);
+    }
+    let sheet = workbook.getWorksheet(sheetName || 'Data');
+    if (!sheet) {
+      sheet = workbook.addWorksheet(sheetName || 'Data');
+    }
+    
+    // If sheet is empty (shouldn't happen), create keys from rowData
+    if (sheet.rowCount < 1) {
+      const keys = Object.keys(rowData).filter(k => !k.startsWith('_'));
+      createSheetWithFriendlyHeaders(workbook, sheetName || 'Data', keys);
+      sheet = workbook.getWorksheet(sheetName || 'Data');
+    }
+
+    const { keys, keyRowNumber } = getHeaderKeys(sheet);
+    if (keyRowNumber === 1 && sheet.rowCount === 1) {
+      // Legacy sheet with only a single header row; still ok.
+    }
+
+    // Add row
+    const newRow = [];
+    for (let i = 1; i <= keys.length; i++) {
+      const key = keys[i];
+      newRow.push(rowData[key] !== undefined ? rowData[key] : '');
+    }
+    sheet.addRow(newRow);
+    await writeWorkbookAtomic(filePath, workbook);
+    syncMirrorsForFile(filePath);
+  });
+}
+
+async function updateExcelRow(filePath, sheetName, rowNumber, updates) {
+  return withFileWriteLock(filePath, async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    const sheet = workbook.getWorksheet(sheetName || 'Data');
+    if (!sheet) return;
+
+    const { keys } = getHeaderKeys(sheet);
+    const headers = {};
+    keys.forEach((k, idx) => {
+      if (k) headers[k] = idx;
+    });
+
+    const row = sheet.getRow(rowNumber);
+    for (const [key, value] of Object.entries(updates)) {
+      if (headers[key]) {
+        row.getCell(headers[key]).value = value;
+      }
+    }
+    await writeWorkbookAtomic(filePath, workbook);
+    syncMirrorsForFile(filePath);
+  });
+}
+
+async function deleteExcelRow(filePath, sheetName, rowNumber) {
+  return withFileWriteLock(filePath, async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    const sheet = workbook.getWorksheet(sheetName || 'Data');
+    if (!sheet) return;
+    sheet.spliceRows(rowNumber, 1);
+    await writeWorkbookAtomic(filePath, workbook);
+    syncMirrorsForFile(filePath);
+  });
+}
+
+async function ensureSheetColumns(filePath, sheetName, columns) {
+  return withFileWriteLock(filePath, async () => {
+    if (!fs.existsSync(filePath)) return;
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    const sheet = workbook.getWorksheet(sheetName || 'Data');
+    if (!sheet) return;
+
+    const { keys } = getHeaderKeys(sheet);
+    const existingKeys = new Set(keys.filter(Boolean));
+
+    const missing = columns.filter(c => !existingKeys.has(c));
+    if (missing.length === 0) return;
+
+    const { keyRowNumber } = getHeaderKeys(sheet);
+    const keyRow = sheet.getRow(keyRowNumber);
+    const headerRow = sheet.getRow(keyRowNumber - 1);
+    let nextCol = sheet.columnCount + 1;
+
+    for (const col of missing) {
+      keyRow.getCell(nextCol).value = col;
+      headerRow.getCell(nextCol).value = toFriendlyHeader(col);
+      nextCol++;
+    }
+
+    await writeWorkbookAtomic(filePath, workbook);
+    syncMirrorsForFile(filePath);
+  });
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
+
+module.exports = {
+  setDbPath,
+  getDbPath,
+  getPropertiesPath,
+  getTownsPath,
+  getGlobalsPath,
+  getBackupInfoPath,
+  configureMirrors,
+  syncMirrorsForFile,
+  getHeaderKeys,
+  initializeDatabase,
+  readExcelFile,
+  appendToExcel,
+  // Used by other DB modules for read-modify-write safety.
+  withFileWriteLock,
+  writeWorkbookAtomic,
+  updateExcelRow,
+  deleteExcelRow,
+  generateId,
+  ensureSheetColumns,
+};

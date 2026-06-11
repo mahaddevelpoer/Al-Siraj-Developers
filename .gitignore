@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist_electron/
+dist_electron_*/
+dist_electron_v*/
+build/
+ceo_mobile_app/build/
+ceo_mobile_app/.dart_tool/
+Global/
+Towns/
+*.log
+.env
+developer_config.json

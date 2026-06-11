@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "951213979594",
+    "project_id": "mahad-and-mahdi-developers",
+    "storage_bucket": "mahad-and-mahdi-developers.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:951213979594:android:ade5ef3abcf4dbdab3c133",
+        "android_client_info": {
+          "package_name": "com.mahad.alsiraj.ceo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBP9cYT5_-u6I5mGKI-MarIyqUr-k5IB8c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

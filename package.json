@@ -1,0 +1,97 @@
+{
+  "name": "zameen-khata",
+  "version": "1.0.0",
+  "description": "AL SIRAJ DEVELOPERS - Real Estate ERP System",
+  "main": "src/main/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:ceo": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron . --panel=ceo\"",
+    "dev:employee": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron . --panel=employee\"",
+    "clean": "rimraf dist_electron",
+    "prebuild": "taskkill /IM \"AL SIRAJ DEVELOPERS.exe\" /F || echo no process",
+    "build": "npm run prebuild && npm run clean && vite build && electron-builder --win",
+    "vite:dev": "vite",
+    "electron:dev": "electron .",
+    "electron:ceo": "electron . --panel=ceo",
+    "electron:employee": "electron . --panel=employee"
+  },
+  "author": "MAHAD DEVELOPER",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.107.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "chart.js": "^4.4.1",
+    "exceljs": "^4.4.0",
+    "leaflet": "^1.9.4",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.2.0",
+    "sonner": "^1.2.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "png-to-ico": "^3.0.1",
+    "vite": "^5.0.10",
+    "rimraf": "^5.0.0"
+  },
+  "build": {
+    "appId": "com.zameenkhata.erp",
+    "productName": "AL SIRAJ DEVELOPERS",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "asar": false,
+    "files": [
+      "dist/**/*",
+      "public/**/*",
+      "src/main/**/*",
+      "node_modules/**/*",
+      "developer_config.json"
+    ],
+    "extraFiles": [
+      {
+        "from": ".",
+        "to": ".",
+        "filter": [
+          "Set_CEO_Password.bat",
+          "Forget_CEO_Password.bat"
+        ]
+      }
+    ],
+    "win": {
+      "publisherName": "MAHAD DEVELOPER",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/favicon.ico",
+      "extraResources": [
+        {
+          "from": "node_modules/electron/dist/ffmpeg.dll",
+          "to": "ffmpeg.dll"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/favicon.ico",
+      "uninstallerIcon": "public/favicon.ico",
+      "installerHeaderIcon": "public/favicon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AL SIRAJ DEVELOPERS",
+      "installerSidebar": null,
+      "license": null
+    },
+    "electronDownload": {
+      "cache": "C:\\Users\\HP\\AppData\\Local\\electron\\Cache"
+    }
+  }
+}
