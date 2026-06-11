@@ -29,7 +29,7 @@ function sendSyncWarning(message) {
   }
 }
 
-function scheduleQueuedFileUpload(delayMs = 8000) {
+function scheduleQueuedFileUpload(delayMs = 3000) {
   storage.queueAllLocalFiles();
   if (_queuedUploadTimer) clearTimeout(_queuedUploadTimer);
   _queuedUploadTimer = setTimeout(async () => {
@@ -42,7 +42,7 @@ function scheduleQueuedFileUpload(delayMs = 8000) {
   }, delayMs);
 }
 
-function scheduleQueuedCloudSync(delayMs = 12000) {
+function scheduleQueuedCloudSync(delayMs = 1500) {
   if (_queuedCloudSyncTimer) clearTimeout(_queuedCloudSyncTimer);
   _queuedCloudSyncTimer = setTimeout(async () => {
     _queuedCloudSyncTimer = null;

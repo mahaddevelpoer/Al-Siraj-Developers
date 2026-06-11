@@ -44,7 +44,7 @@ class CeoMobileApp extends StatelessWidget {
     return MaterialApp(
       navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
-      title: 'AL SIRAJ CEO',
+      title: 'AL SIRAJ DEVELOPERS',
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light),
@@ -176,7 +176,9 @@ class CeoShell extends StatefulWidget {
 
 class _CeoShellState extends State<CeoShell> {
   int _tab = 0;
-  final pages = const [OverviewPage(), AppealsPage(), DailyEntriesPage(), NotificationsPage(), TownsPage()];
+  String _pushStatus = 'Checking push setup...';
+  String _realtimeStatus = 'Connecting realtime...';
+  final pages = const [OverviewPage(), AppealsPage(), DailyEntriesPage(), ActivityPage(), NotificationsPage(), TownsPage()];
   final List<dynamic> _channels = [];
   StreamSubscription<RemoteMessage>? _foregroundPushSub;
   StreamSubscription<RemoteMessage>? _openedPushSub;
@@ -211,8 +213,17 @@ class _CeoShellState extends State<CeoShell> {
 
       await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
       await FirebaseMessaging.instance.subscribeToTopic(ceoPushTopic);
+      final token = await FirebaseMessaging.instance.getToken();
+      if (mounted) {
+        setState(() {
+          _pushStatus = token == null || token.isEmpty
+              ? 'Push token missing'
+              : 'Push ready: ${token.substring(0, 10)}...';
+        });
+      }
     } catch (_) {
       await FirebaseMessaging.instance.unsubscribeFromTopic(ceoPushTopic).catchError((_) {});
+      if (mounted) setState(() => _pushStatus = 'Push setup failed. Re-login and allow notifications.');
     }
   }
 
@@ -251,6 +262,62 @@ class _CeoShellState extends State<CeoShell> {
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
+          table: 'all_sales',
+          callback: (payload) {
+            final row = payload.newRecord;
+            CeoNotificationService.show(
+              'Property sale update',
+              '${rowVal(row, 'Town_Name') ?? 'Town'} ${rowVal(row, 'Plot_Shop_Number') ?? ''} sold',
+              payload: 'activity',
+            );
+            if (mounted) setState(() {});
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'properties',
+          callback: (payload) {
+            final row = payload.newRecord;
+            CeoNotificationService.show(
+              'Property update',
+              '${rowVal(row, 'Town_Name') ?? 'Town'} ${rowVal(row, 'Property_Number') ?? ''}',
+              payload: 'activity',
+            );
+            if (mounted) setState(() {});
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'installments',
+          callback: (payload) {
+            final row = payload.newRecord;
+            CeoNotificationService.show(
+              'Installment update',
+              '${rowVal(row, 'Customer_Name') ?? 'Customer'} - ${rowVal(row, 'Town_Name') ?? 'Town'}',
+              payload: 'notifications',
+            );
+            if (mounted) setState(() {});
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'expenses',
+          callback: (payload) {
+            final row = payload.newRecord;
+            CeoNotificationService.show(
+              'Expense update',
+              '${rowVal(row, 'Town_Name') ?? 'Town'} - ${money.format(asNum(rowVal(row, 'Amount_PKR')))}',
+              payload: 'activity',
+            );
+            if (mounted) setState(() {});
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
           table: 'notifications',
           callback: (payload) {
             final row = payload.newRecord;
@@ -274,7 +341,12 @@ class _CeoShellState extends State<CeoShell> {
             if (mounted) setState(() {});
           },
         )
-        .subscribe();
+        .subscribe((status, error) {
+          if (!mounted) return;
+          setState(() {
+            _realtimeStatus = error == null ? 'Realtime: $status' : 'Realtime error: $error';
+          });
+        });
     _channels.add(channel);
   }
 
@@ -293,7 +365,7 @@ class _CeoShellState extends State<CeoShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CEO 24/7'),
+        title: const Text('AL SIRAJ DEVELOPERS'),
         actions: [
           IconButton(
             tooltip: 'Logout',
@@ -302,7 +374,9 @@ class _CeoShellState extends State<CeoShell> {
           ),
         ],
       ),
-      body: pages[_tab],
+      body: _tab == 0
+          ? OverviewPage(pushStatus: _pushStatus, realtimeStatus: _realtimeStatus)
+          : pages[_tab],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
@@ -310,6 +384,7 @@ class _CeoShellState extends State<CeoShell> {
           NavigationDestination(icon: Icon(Icons.space_dashboard_outlined), selectedIcon: Icon(Icons.space_dashboard), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.rule_outlined), selectedIcon: Icon(Icons.rule), label: 'Appeals'),
           NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Entries'),
+          NavigationDestination(icon: Icon(Icons.timeline_outlined), selectedIcon: Icon(Icons.timeline), label: 'Activity'),
           NavigationDestination(icon: Icon(Icons.notifications_outlined), selectedIcon: Icon(Icons.notifications), label: 'Alerts'),
           NavigationDestination(icon: Icon(Icons.location_city_outlined), selectedIcon: Icon(Icons.location_city), label: 'Towns'),
         ],
@@ -319,22 +394,29 @@ class _CeoShellState extends State<CeoShell> {
 }
 
 class OverviewPage extends StatelessWidget {
-  const OverviewPage({super.key});
+  const OverviewPage({super.key, this.pushStatus = '', this.realtimeStatus = ''});
+  final String pushStatus;
+  final String realtimeStatus;
 
   Future<Map<String, dynamic>> _load() async {
     final appeals = await supabase.from('appeals').select('id').eq('status', 'pending');
     final notes = await supabase.from('notifications').select('id').eq('dismissed', 'No');
     final entries = await supabase.from('daily_entries').select();
     final towns = await supabase.from('towns').select('town_name,profit_loss,total_income_pkr,total_expenses_pkr');
+    final sales = await supabase.from('all_sales').select('total_amount_pkr,received_amount,remaining_amount,status');
     final rows = List<Map<String, dynamic>>.from(entries);
     final income = rows.where((e) => rowVal(e, 'Type') == 'Income').fold<num>(0, (s, e) => s + asNum(rowVal(e, 'Amount')));
     final expense = rows.where((e) => rowVal(e, 'Type') == 'Expense').fold<num>(0, (s, e) => s + asNum(rowVal(e, 'Amount')));
+    final saleRows = List<Map<String, dynamic>>.from(sales);
+    final soldValue = saleRows.fold<num>(0, (s, e) => s + asNum(rowVal(e, 'Total_Amount_PKR')));
     return {
       'appeals': appeals.length,
       'notes': notes.length,
       'income': income,
       'expense': expense,
       'towns': towns.length,
+      'sales': sales.length,
+      'soldValue': soldValue,
     };
   }
 
@@ -350,15 +432,70 @@ class OverviewPage extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             children: [
               const HeaderBlock(title: 'Live business pulse', subtitle: 'Fast CEO overview from Supabase. No town, price, plot or shop editing exists in this mobile app.'),
+              StatusStrip(items: [pushStatus, realtimeStatus].where((e) => e.trim().isNotEmpty).toList()),
               MetricGrid(metrics: [
                 Metric('Pending appeals', '${d?['appeals'] ?? '-'}', Icons.rule, const Color(0xFF2563EB)),
                 Metric('Active alerts', '${d?['notes'] ?? '-'}', Icons.notifications_active, const Color(0xFFB45309)),
                 Metric('Net balance', d == null ? '-' : money.format(d['income'] - d['expense']), Icons.account_balance_wallet, const Color(0xFF0F766E)),
-                Metric('Towns tracked', '${d?['towns'] ?? '-'}', Icons.location_city, const Color(0xFF7C3AED)),
+                Metric('Sales value', d == null ? '-' : money.format(d['soldValue']), Icons.sell, const Color(0xFF7C3AED)),
+                Metric('Sales count', '${d?['sales'] ?? '-'}', Icons.receipt_long, const Color(0xFFBE123C)),
+                Metric('Towns tracked', '${d?['towns'] ?? '-'}', Icons.location_city, const Color(0xFF475569)),
               ]),
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class ActivityPage extends StatelessWidget {
+  const ActivityPage({super.key});
+
+  Future<Map<String, List<Map<String, dynamic>>>> _load() async {
+    final sales = await supabase.from('all_sales').select('*').order('created_at', ascending: false).limit(40);
+    final entries = await supabase.from('daily_entries').select('*').order('date', ascending: false).limit(40);
+    final expenses = await supabase.from('expenses').select('*').order('date', ascending: false).limit(40);
+    return {
+      'sales': List<Map<String, dynamic>>.from(sales),
+      'entries': List<Map<String, dynamic>>.from(entries),
+      'expenses': List<Map<String, dynamic>>.from(expenses),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
+      future: _load(),
+      builder: (context, snap) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const HeaderBlock(title: 'Live activity', subtitle: 'Recent sales, accountant entries, and expenses synced from Supabase.'),
+          if (snap.hasError) ErrorBlock(error: '${snap.error}'),
+          if (!snap.hasData && !snap.hasError) const Center(child: Padding(padding: EdgeInsets.all(30), child: CircularProgressIndicator())),
+          for (final s in snap.data?['sales'] ?? [])
+            InfoCard(
+              title: 'Sale - ${money.format(asNum(rowVal(s, 'Total_Amount_PKR')))}',
+              subtitle: '${rowVal(s, 'Town_Name') ?? 'Town'} - ${rowVal(s, 'Type') ?? ''} ${rowVal(s, 'Plot_Shop_Number') ?? ''}',
+              meta: '${formatDate(rowVal(s, 'Sell_Date'))} - ${rowVal(s, 'Status') ?? 'Sold'}',
+              body: 'Agent: ${rowVal(s, 'Agent_Name') ?? '-'}',
+            ),
+          for (final e in snap.data?['entries'] ?? [])
+            InfoCard(
+              title: '${rowVal(e, 'Type') ?? 'Entry'} - ${money.format(asNum(rowVal(e, 'Amount')))}',
+              subtitle: '${rowVal(e, 'Town_Name') ?? 'Town'} - ${rowVal(e, 'Category') ?? 'General'}',
+              meta: formatDate(rowVal(e, 'Date')),
+              body: '${rowVal(e, 'Description') ?? ''}',
+            ),
+          for (final e in snap.data?['expenses'] ?? [])
+            InfoCard(
+              title: 'Expense - ${money.format(asNum(rowVal(e, 'Amount_PKR')))}',
+              subtitle: '${rowVal(e, 'Town_Name') ?? 'Town'} - ${rowVal(e, 'Category') ?? 'General'}',
+              meta: formatDate(rowVal(e, 'Date')),
+              body: '${rowVal(e, 'Expense_Name') ?? rowVal(e, 'Description') ?? ''}',
+            ),
+          if (snap.hasData && (snap.data!['sales']!.isEmpty && snap.data!['entries']!.isEmpty && snap.data!['expenses']!.isEmpty)) const EmptyBlock(text: 'No activity found.'),
+        ],
       ),
     );
   }
@@ -543,6 +680,48 @@ class HeaderBlock extends StatelessWidget {
   }
 }
 
+class StatusStrip extends StatelessWidget {
+  const StatusStrip({super.key, required this.items});
+  final List<String> items;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: items.map((item) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: const Color(0xFFBFDBFE)),
+          ),
+          child: Text(item, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF1E3A8A))),
+        )).toList(),
+      ),
+    );
+  }
+}
+
+class ErrorBlock extends StatelessWidget {
+  const ErrorBlock({super.key, required this.error});
+  final String error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: const Color(0xFFFEF2F2),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Text(error, style: const TextStyle(color: Color(0xFF991B1B), fontWeight: FontWeight.w700)),
+      ),
+    );
+  }
+}
+
 class Metric {
   const Metric(this.label, this.value, this.icon, this.color);
   final String label;
@@ -705,6 +884,10 @@ String routeForTable(dynamic table) {
       return 'notifications';
     case 'daily_entries':
       return 'entries';
+    case 'all_sales':
+    case 'properties':
+    case 'expenses':
+      return 'activity';
     case 'towns':
       return 'towns';
     default:
@@ -717,8 +900,9 @@ void routeFromPushData(Map<String, dynamic> data) {
   final nextTab = switch ('$route') {
     'appeals' => 1,
     'entries' => 2,
-    'notifications' => 3,
-    'towns' => 4,
+    'activity' => 3,
+    'notifications' => 4,
+    'towns' => 5,
     _ => 0,
   };
   selectedTabNotifier.value = nextTab;

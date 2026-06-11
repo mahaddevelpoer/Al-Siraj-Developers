@@ -105,6 +105,38 @@ function buildSafeMessage(payload: PushPayload) {
     };
   }
 
+  if (table === "all_sales") {
+    return {
+      title: event === "UPDATE" ? "Sale updated" : "Property sold",
+      body: "A property sale was recorded",
+      data: { table, event, id, route },
+    };
+  }
+
+  if (table === "properties") {
+    return {
+      title: "Property updated",
+      body: "A plot or shop record changed",
+      data: { table, event, id, route },
+    };
+  }
+
+  if (table === "installments") {
+    return {
+      title: "Installment updated",
+      body: "An installment record needs attention",
+      data: { table, event, id, route },
+    };
+  }
+
+  if (table === "expenses") {
+    return {
+      title: event === "UPDATE" ? "Expense updated" : "Expense added",
+      body: "An expense entry was recorded",
+      data: { table, event, id, route },
+    };
+  }
+
   return {
     title: "CEO alert",
     body: "Open CEO app for details",
@@ -116,6 +148,10 @@ function routeForTable(table: string) {
   if (table === "appeals") return "appeals";
   if (table === "notifications") return "notifications";
   if (table === "daily_entries") return "entries";
+  if (table === "all_sales") return "activity";
+  if (table === "properties") return "activity";
+  if (table === "expenses") return "activity";
+  if (table === "installments") return "notifications";
   return "home";
 }
 
