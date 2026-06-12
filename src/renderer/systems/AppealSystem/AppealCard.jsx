@@ -6,13 +6,7 @@ export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }
   const requesterData = appeal.requested_by_user_id;
 
   return (
-    <div style={{
-      padding: 20,
-      background: 'var(--bg-card)',
-      borderRadius: 'var(--radius-md)',
-      border: '1px solid var(--border-color)',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-    }}>
+    <div className={`appeal-card appeal-card-${appeal.status || 'pending'}`}>
       <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
@@ -125,7 +119,7 @@ export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }
       </div>
 
       {appeal.status === 'pending' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 16 }}>
+        <div className="appeal-action-grid">
           <button
             onClick={() => onReview(appeal.id, 'approved')}
             disabled={reviewing === appeal.id}

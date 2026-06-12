@@ -6,7 +6,7 @@ import AppealCard from './AppealCard';
 const OTP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export default function AppealDashboard() {
-  const { userRole, user } = useAuth();
+  const { userRole } = useAuth();
   const [appeals, setAppeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState('pending');
@@ -126,28 +126,17 @@ export default function AppealDashboard() {
     setToastMsg(null);
     try {
       const appeal = appeals.find(a => a.id === appealId);
-      const updates = {
-        status: newStatus,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by_user_id: user?.id,
-      };
-
-      const { error } = await supabase
-        .from('appeals')
-        .update(updates)
-        .eq('id', appealId);
+      const { data: reviewResult, error } = await supabase.rpc('ceo_review_appeal', {
+        appeal_id: appealId,
+        new_status: newStatus,
+      });
 
       if (error) throw error;
-
-      // If accepting an agent_registration appeal, activate the user (but do NOT add to Employees lists)
-      if (newStatus === 'approved' && appeal?.appeal_type === 'agent_registration') {
-        const userData = appeal.requested_by_user_id;
-        const { error: userErr } = await supabase
-          .from('users')
-          .update({ is_active: true })
-          .eq('id', userData?.id);
-        if (userErr) console.error('Error activating user:', userErr);
+      if (reviewResult?.success === false) {
+        throw new Error(reviewResult?.message || 'Review failed');
       }
+
+      setAppeals((current) => current.filter((item) => item.id !== appealId));
 
       // If accepting a salary_increase appeal, update the employee's base salary in Excel
       if (newStatus === 'approved' && appeal?.appeal_type === 'salary_increase') {
@@ -216,28 +205,22 @@ export default function AppealDashboard() {
   }
 
   return (
-    <div style={{ padding: 20 }}>
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 16 }}>Appeals Dashboard</h2>
+    <div className="appeal-dashboard">
+      <div className="appeal-dashboard-header">
+        <div>
+          <div className="ui-label">CEO approvals</div>
+          <h2>Appeals Dashboard</h2>
+        </div>
 
-        <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+        <div className="appeal-filter-tabs">
           {['pending', 'approved', 'rejected'].map(status => (
             <button
               key={status}
               onClick={() => { setActiveFilter(status); setLoading(true); }}
-              style={{
-                padding: '8px 16px',
-                background: activeFilter === status ? 'var(--accent-blue)' : 'var(--border-color)',
-                color: activeFilter === status ? 'white' : 'var(--text-primary)',
-                border: 'none',
-                borderRadius: 'var(--radius-md)',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: 12,
-                textTransform: 'capitalize',
-              }}
+              className={`appeal-filter-tab${activeFilter === status ? ' active' : ''}`}
             >
-              {status === 'pending' ? '...' : status === 'approved' ? '✓' : '✗'} {status}
+              <span className={`svg-emoji svg-emoji-${status}`} aria-hidden="true" />
+              {status}
             </button>
           ))}
         </div>
@@ -258,11 +241,18 @@ export default function AppealDashboard() {
       )}
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>⏳ Loading appeals...</div>
+        <div className="ui-skeleton-stack">
+          <div className="ui-skeleton-card" />
+          <div className="ui-skeleton-card" />
+        </div>
       ) : appeals.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>No {activeFilter} appeals</div>
+        <div className="empty-state ui-empty-offset">
+          <span className={`svg-emoji svg-emoji-${activeFilter}`} aria-hidden="true" />
+          <h3>No {activeFilter} appeals</h3>
+          <p>Reviewed requests move here automatically after CEO action.</p>
+        </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 16 }}>
+        <div className="appeal-card-grid">
           {appeals.map(appeal => (
             <AppealCard
               key={appeal.id}

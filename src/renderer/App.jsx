@@ -288,37 +288,36 @@ function AppInner() {
   // ─── Workspace Selection (Accountant) ──────────────────────────────────
   if (panel === 'choose') {
     return (
-      <div className="auth-screen">
+      <div className="auth-screen workspace-select-screen">
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
         <div className="auth-screen-bg" />
-        <div className="auth-container auth-enter" style={{ maxWidth: 420 }}>
-          <div className="auth-brand" style={{ marginBottom: 10 }}>
-            <h1 className="auth-title" style={{ fontSize: 22 }}>AL SIRAJ DEVELOPERS</h1>
-            <p className="auth-subtitle">Select Workspace</p>
+        <div className="workspace-select-panel auth-enter">
+          <div className="auth-brand workspace-select-brand">
+            <div className="auth-logo-wrap workspace-select-mark"><span>AS</span></div>
+            <h1 className="auth-title">AL SIRAJ DEVELOPERS</h1>
+            <p className="auth-subtitle">Select the workspace you want to open.</p>
           </div>
-          <div className="auth-roles" style={{ gap: 12 }}>
+          <div className="workspace-cards">
             <button
-              className="auth-role-btn"
+              className="workspace-card workspace-card-ceo"
               onClick={() => { setPanel('ceo'); setPage('dashboard'); }}
-              style={{ '--btn-gradient': 'linear-gradient(135deg, #1e293b, #334155)' }}
             >
-              <span className="auth-role-icon" style={{ fontSize: 28 }}>CEO</span>
-              <span className="auth-role-label">CEO Workspace</span>
-              <span className="auth-role-desc">Dashboard, Towns, Reports & Settings</span>
+              <span className="svg-emoji svg-emoji-ceo" aria-hidden="true" />
+              <span className="workspace-card-title">CEO Workspace</span>
+              <span className="workspace-card-desc">Dashboard, towns, reports, approvals and settings</span>
             </button>
             <button
-              className="auth-role-btn"
+              className="workspace-card workspace-card-employee"
               onClick={() => { setPanel('employee'); setPage('sellFlow'); }}
-              style={{ '--btn-gradient': 'linear-gradient(135deg, #0d9488, #14b8a6)' }}
             >
-              <span className="auth-role-icon" style={{ fontSize: 28 }}>Employee</span>
-              <span className="auth-role-label">Employee Workspace</span>
-              <span className="auth-role-desc">Sales, Properties, Installments</span>
+              <span className="svg-emoji svg-emoji-agent" aria-hidden="true" />
+              <span className="workspace-card-title">Employee Workspace</span>
+              <span className="workspace-card-desc">Sales, properties, collections and installments</span>
             </button>
           </div>
-          <div style={{ marginTop: 20 }}>
+          <div className="workspace-select-footer">
             <button className="btn btn-ghost btn-sm" onClick={() => { localStorage.removeItem('zameen_panel'); localStorage.removeItem('zameen_page'); setLoggedIn(false); setPanel(null); signOut(); }}>
-              ← Logout
+              Logout
             </button>
           </div>
         </div>

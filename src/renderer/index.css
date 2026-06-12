@@ -4927,3 +4927,488 @@ body.dark-mode .btn-ghost {
   45%, 70% { opacity: 1; }
   100% { opacity: 0.38; }
 }
+
+/* 2026 Executive Redesign Layer */
+body.light-mode,
+body.dark-mode {
+  --ui-radius: 8px;
+  --ui-radius-sm: 6px;
+  --ui-shadow-soft: 0 18px 50px rgba(15, 23, 42, 0.10);
+  --ui-shadow-lift: 0 22px 60px rgba(15, 23, 42, 0.16);
+  --ui-panel-border: 1px solid var(--border-color);
+}
+
+body.light-mode {
+  background: linear-gradient(180deg, #f7fafc 0%, #eef4f8 48%, #e8eef5 100%);
+}
+
+body.dark-mode {
+  background: linear-gradient(180deg, #090f1d 0%, #0d1426 52%, #111827 100%);
+}
+
+.app-layout,
+.ui-screen,
+.auth-screen {
+  animation: uiPageIn 220ms ease-out both;
+}
+
+.main-content,
+.ui-scroll {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, white 6%), var(--bg-primary));
+}
+
+.main-header,
+.ui-topbar,
+.ui-town-topbar,
+.table-container,
+.chart-card,
+.quick-actions-panel,
+.ui-card,
+.ui-summary-card,
+.ui-finance-hero,
+.ui-alert-strip,
+.ui-town-content,
+.ui-town-donut-card,
+.ui-town-map-card,
+.auth-container,
+.auth-split,
+.workspace-select-panel {
+  border-radius: var(--ui-radius) !important;
+  border: var(--ui-panel-border) !important;
+  box-shadow: var(--ui-shadow-soft);
+}
+
+.main-header,
+.ui-topbar,
+.ui-town-topbar {
+  min-height: 76px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--bg-card) 92%, transparent), color-mix(in srgb, var(--bg-card) 76%, var(--accent-blue) 6%));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.sidebar,
+.ui-town-sidebar {
+  box-shadow: 18px 0 48px rgba(15, 23, 42, 0.12);
+}
+
+.sidebar-item,
+.ui-town-sidebar-item,
+.btn,
+.quick-action-btn,
+.ui-card,
+.appeal-card,
+.workspace-card,
+.auth-role-btn {
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.sidebar-item:hover,
+.ui-town-sidebar-item:hover,
+.quick-action-btn:hover,
+.ui-card:hover,
+.appeal-card:hover,
+.workspace-card:hover,
+.auth-role-btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn:active,
+.quick-action-btn:active,
+.sidebar-item:active,
+.ui-town-sidebar-item:active,
+.workspace-card:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.kpi-strip,
+.ui-kpi-grid-4,
+.ui-summary-row,
+.charts-grid,
+.dashboard-bottom-grid,
+.ui-card-grid {
+  animation: uiGridIn 260ms ease-out both;
+}
+
+.kpi-item,
+.ui-kpi-card-interactive,
+.ui-summary-card,
+.ui-card,
+.chart-card,
+.table-container,
+.quick-actions-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.kpi-item::after,
+.ui-summary-card::after,
+.ui-card::after,
+.chart-card::after,
+.table-container::after,
+.quick-actions-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-blue), var(--accent-green), transparent);
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.data-table tr {
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.data-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent-blue) 7%, transparent);
+}
+
+.workspace-select-screen {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.workspace-select-panel {
+  width: min(760px, calc(100vw - 40px));
+  padding: 28px;
+  background: color-mix(in srgb, var(--bg-card) 94%, transparent);
+}
+
+.workspace-select-brand {
+  margin-bottom: 20px;
+}
+
+.workspace-select-mark {
+  color: white;
+  background: linear-gradient(135deg, #0f172a, #2563eb);
+  font-weight: 900;
+}
+
+.workspace-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.workspace-card {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--ui-radius);
+  color: var(--text-primary);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--bg-card) 94%, white 6%), color-mix(in srgb, var(--bg-card) 84%, var(--accent-blue) 8%));
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-card-title {
+  display: block;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.workspace-card-desc {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workspace-select-footer {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.appeal-dashboard {
+  padding: 8px;
+}
+
+.appeal-dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border-radius: var(--ui-radius);
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  border: var(--ui-panel-border);
+}
+
+.appeal-dashboard-header h2 {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.appeal-filter-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.appeal-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+.appeal-filter-tab.active {
+  border-color: color-mix(in srgb, var(--accent-blue) 60%, transparent);
+  color: white;
+  background: linear-gradient(135deg, var(--accent-blue), #0f766e);
+}
+
+.appeal-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 16px;
+}
+
+.appeal-card {
+  padding: 18px;
+  background: var(--bg-card);
+  border-radius: var(--ui-radius);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--ui-shadow-soft);
+  animation: uiCardIn 220ms ease-out both;
+}
+
+.appeal-card-approved {
+  border-color: color-mix(in srgb, var(--accent-green) 35%, var(--border-color));
+}
+
+.appeal-card-rejected {
+  border-color: color-mix(in srgb, var(--accent-red) 35%, var(--border-color));
+}
+
+.appeal-action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ui-skeleton-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.ui-skeleton-card {
+  min-height: 150px;
+  border-radius: var(--ui-radius);
+  border: 1px solid var(--border-color);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--bg-card) 88%, var(--border-color)), color-mix(in srgb, var(--bg-card) 72%, var(--accent-blue) 10%), color-mix(in srgb, var(--bg-card) 88%, var(--border-color)));
+  background-size: 220% 100%;
+  animation: uiSkeleton 1200ms ease-in-out infinite;
+}
+
+.svg-emoji {
+  width: 24px;
+  height: 24px;
+  display: inline-block;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  border: 1px solid currentColor;
+  color: var(--accent-blue);
+  position: relative;
+  background: color-mix(in srgb, currentColor 11%, transparent);
+}
+
+.svg-emoji::before,
+.svg-emoji::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+}
+
+.svg-emoji-approved,
+.svg-emoji-ceo {
+  color: var(--accent-green);
+}
+
+.svg-emoji-rejected {
+  color: var(--accent-red);
+}
+
+.svg-emoji-pending,
+.svg-emoji-agent {
+  color: var(--accent-orange);
+}
+
+.svg-emoji-ceo::before {
+  inset: 7px 5px 6px;
+  border-radius: 2px;
+}
+
+.svg-emoji-ceo::after {
+  inset: 5px 8px auto;
+  height: 5px;
+  border-width: 0 2px 2px;
+  border-radius: 0 0 3px 3px;
+}
+
+.svg-emoji-agent::before {
+  inset: 5px 7px 11px;
+  border-radius: 999px;
+}
+
+.svg-emoji-agent::after {
+  inset: 13px 5px 5px;
+  border-radius: 999px 999px 4px 4px;
+}
+
+.svg-emoji-approved::before {
+  inset: 5px;
+  border-radius: 999px;
+}
+
+.svg-emoji-approved::after {
+  inset: auto auto 7px 7px;
+  width: 10px;
+  height: 6px;
+  border-top: 0;
+  border-right: 0;
+  border-radius: 0;
+  transform: rotate(-45deg);
+}
+
+.svg-emoji-rejected::before,
+.svg-emoji-rejected::after {
+  inset: 10px 5px auto;
+  height: 0;
+  border-width: 2px 0 0;
+  border-radius: 0;
+  transform: rotate(45deg);
+}
+
+.svg-emoji-rejected::after {
+  transform: rotate(-45deg);
+}
+
+.svg-emoji-pending::before {
+  inset: 5px;
+  border-radius: 999px;
+}
+
+.svg-emoji-pending::after {
+  inset: 6px auto auto 11px;
+  width: 0;
+  height: 8px;
+  border-width: 0 0 0 2px;
+}
+
+@keyframes uiPageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes uiGridIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes uiCardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes uiSkeleton {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+
+@media (max-width: 760px) {
+  .workspace-cards,
+  .appeal-card-grid,
+  .appeal-action-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .appeal-dashboard-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-layout,
+  .ui-screen,
+  .auth-screen,
+  .kpi-strip,
+  .ui-kpi-grid-4,
+  .ui-summary-row,
+  .charts-grid,
+  .dashboard-bottom-grid,
+  .ui-card-grid,
+  .appeal-card,
+  .ui-skeleton-card {
+    animation: none !important;
+  }
+
+  .sidebar-item,
+  .ui-town-sidebar-item,
+  .btn,
+  .quick-action-btn,
+  .ui-card,
+  .appeal-card,
+  .workspace-card,
+  .auth-role-btn {
+    transition: none !important;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+
+  .theme-toggle,
+  .sidebar,
+  .ui-town-sidebar,
+  .ui-topbar,
+  .main-header,
+  .powered-by-footer,
+  .btn,
+  button {
+    display: none !important;
+  }
+
+  .main-content,
+  .main-body,
+  .ui-scroll,
+  .table-container,
+  .chart-card {
+    box-shadow: none !important;
+    border-color: #d1d5db !important;
+    background: #ffffff !important;
+  }
+
+  .receipt,
+  .print-area,
+  .table-container {
+    color: #111827 !important;
+    font-family: Arial, sans-serif !important;
+  }
+}

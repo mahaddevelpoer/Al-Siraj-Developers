@@ -126,24 +126,22 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           children: [
-            const SizedBox(height: 42),
-            Container(
-              height: 78,
-              width: 78,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(24),
+            const SizedBox(height: 12),
+            const VectorBadge(kind: BadgeKind.brand, size: 72),
+            const SizedBox(height: 18),
+            LayoutBuilder(
+              builder: (context, constraints) => Text(
+                'AL SIRAJ DEVELOPERS',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: constraints.maxWidth < 330 ? 22 : 26, fontWeight: FontWeight.w900),
               ),
-              child: const Text('AS', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
             ),
-            const SizedBox(height: 22),
-            const Text('AL SIRAJ DEVELOPERS', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
             const SizedBox(height: 8),
             const Text('CEO command center for approvals, alerts, balances, and town performance.'),
-            const SizedBox(height: 28),
+            const SizedBox(height: 22),
             TextField(controller: _email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'CEO email', prefixIcon: Icon(Icons.mail_outline))),
             const SizedBox(height: 14),
             TextField(controller: _password, obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline))),
@@ -153,6 +151,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
             const SizedBox(height: 22),
             FilledButton.icon(
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
               onPressed: _busy ? null : _login,
               icon: _busy ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.login),
               label: const Text('Enter CEO App'),
@@ -177,7 +176,7 @@ class _CeoShellState extends State<CeoShell> {
   int _tab = 0;
   String _pushStatus = 'Checking push setup...';
   String _realtimeStatus = 'Connecting realtime...';
-  final pages = const [OverviewPage(), AppealsPage(), DailyEntriesPage(), ActivityPage(), NotificationsPage(), TownsPage()];
+  final pages = const [OverviewPage(), AppealsPage(), DailyEntriesPage(), MorePage()];
   final List<dynamic> _channels = [];
   StreamSubscription<RemoteMessage>? _foregroundPushSub;
   StreamSubscription<RemoteMessage>? _openedPushSub;
@@ -325,7 +324,21 @@ class _CeoShellState extends State<CeoShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AL SIRAJ DEVELOPERS'),
+        titleSpacing: 12,
+        title: Row(
+          children: const [
+            VectorBadge(kind: BadgeKind.brand, size: 30),
+            SizedBox(width: 9),
+            Flexible(
+              child: Text(
+                'AL SIRAJ DEVELOPERS',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Logout',
@@ -334,21 +347,36 @@ class _CeoShellState extends State<CeoShell> {
           ),
         ],
       ),
-      body: _tab == 0
-          ? OverviewPage(pushStatus: _pushStatus, realtimeStatus: _realtimeStatus)
-          : pages[_tab],
+      body: SafeArea(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            final offset = Tween<Offset>(begin: const Offset(0.03, 0), end: Offset.zero).animate(animation);
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(position: offset, child: child),
+            );
+          },
+          child: KeyedSubtree(
+            key: ValueKey(_tab),
+            child: _tab == 0
+                ? OverviewPage(pushStatus: _pushStatus, realtimeStatus: _realtimeStatus)
+                : pages[_tab],
+          ),
+        ),
+      ),
       bottomNavigationBar: NavigationBar(
-        height: 70,
+        height: 62,
         labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.space_dashboard_outlined), selectedIcon: Icon(Icons.space_dashboard), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.rule_outlined), selectedIcon: Icon(Icons.rule), label: 'Appeals'),
+          NavigationDestination(icon: Icon(Icons.dashboard_customize_outlined), selectedIcon: Icon(Icons.dashboard_customize), label: 'Home'),
+          NavigationDestination(icon: Icon(Icons.rule_outlined), selectedIcon: Icon(Icons.rule), label: 'Approvals'),
           NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Entries'),
-          NavigationDestination(icon: Icon(Icons.timeline_outlined), selectedIcon: Icon(Icons.timeline), label: 'Activity'),
-          NavigationDestination(icon: Icon(Icons.notifications_outlined), selectedIcon: Icon(Icons.notifications), label: 'Alerts'),
-          NavigationDestination(icon: Icon(Icons.location_city_outlined), selectedIcon: Icon(Icons.location_city), label: 'Towns'),
+          NavigationDestination(icon: Icon(Icons.apps_outlined), selectedIcon: Icon(Icons.apps), label: 'More'),
         ],
       ),
     );
@@ -472,10 +500,27 @@ class AppealsPage extends StatefulWidget {
 
 class _AppealsPageState extends State<AppealsPage> {
   bool _reviewing = false;
+  String _filter = 'pending';
+  List<Map<String, dynamic>>? _items;
+  Object? _error;
 
   Future<List<Map<String, dynamic>>> _load() async {
-    final data = await supabase.from('appeals').select('*, requested_by_user_id(full_name,email,agent_town)').eq('status', 'pending').order('created_at', ascending: false);
+    final data = await supabase.from('appeals').select('*, requested_by_user_id(full_name,email,agent_town)').eq('status', _filter).order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(data);
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final rows = await _load();
+      if (mounted) {
+        setState(() {
+          _items = rows;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = friendlyDbError(e));
+    }
   }
 
   Future<void> _review(String id, String status) async {
@@ -487,11 +532,11 @@ class _AppealsPageState extends State<AppealsPage> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Appeal $status: ${result?['message'] ?? 'done'}')));
-        setState(() {});
+        setState(() => _items = (_items ?? []).where((item) => item['id'] != id).toList());
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Review failed: $e'), backgroundColor: const Color(0xFFB91C1C)));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Review failed: ${friendlyDbError(e)}'), backgroundColor: const Color(0xFFB91C1C)));
       }
     } finally {
       if (mounted) setState(() => _reviewing = false);
@@ -501,26 +546,52 @@ class _AppealsPageState extends State<AppealsPage> {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _load(),
-      builder: (context, snap) => ListView(
+      future: _items == null && _error == null ? _load() : Future.value(_items ?? const <Map<String, dynamic>>[]),
+      builder: (context, snap) {
+        if (snap.hasData && _items == null) {
+          _items = snap.data;
+        }
+        final rows = _items ?? snap.data ?? const <Map<String, dynamic>>[];
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const HeaderBlock(title: 'Appeals', subtitle: 'Approve or reject requests from agents and accountants.'),
-          if (!snap.hasData) const Center(child: Padding(padding: EdgeInsets.all(30), child: CircularProgressIndicator())),
-          for (final a in snap.data ?? [])
-            InfoCard(
-              title: pretty(a['appeal_type']),
-              subtitle: '${a['entity_type'] ?? ''} ${a['entity_id'] ?? ''}',
-              meta: '${a['requested_by_user_id']?['full_name'] ?? 'User'} - ${formatDate(a['created_at'])}',
-              body: '${a['reason'] ?? a['requested_data'] ?? ''}',
+          const HeaderBlock(title: 'Approvals', subtitle: 'Review agent registration, daily-entry, salary, and business requests.'),
+          FilterChips(
+            value: _filter,
+            options: const ['pending', 'approved', 'rejected'],
+            onChanged: (next) => setState(() {
+              _filter = next;
+              _items = null;
+              _error = null;
+            }),
+          ),
+          if (_error != null) ErrorBlock(error: 'Schema/API issue: $_error'),
+          if (!snap.hasData && _error == null) const SkeletonList(),
+          for (var i = 0; i < rows.length; i++)
+            AnimatedEntry(
+              index: i,
+              child: InfoCard(
+              icon: badgeForStatus(_filter),
+              status: _filter,
+              title: pretty(rows[i]['appeal_type']),
+              subtitle: '${rows[i]['entity_type'] ?? ''} ${rows[i]['entity_id'] ?? ''}',
+              meta: '${rows[i]['requested_by_user_id']?['full_name'] ?? 'User'} - ${formatDate(rows[i]['created_at'])}',
+              body: safeSummary(rows[i]['reason'] ?? rows[i]['requested_data']),
               actions: [
-                OutlinedButton.icon(onPressed: _reviewing ? null : () => _review(a['id'], 'rejected'), icon: const Icon(Icons.close), label: const Text('Reject')),
-                FilledButton.icon(onPressed: _reviewing ? null : () => _review(a['id'], 'approved'), icon: const Icon(Icons.check), label: const Text('Approve')),
+                if (_filter == 'pending') ...[
+                  OutlinedButton.icon(onPressed: _reviewing ? null : () => _review(rows[i]['id'], 'rejected'), icon: const Icon(Icons.close), label: const Text('Reject')),
+                  FilledButton.icon(onPressed: _reviewing ? null : () => _review(rows[i]['id'], 'approved'), icon: const Icon(Icons.check), label: const Text('Approve')),
+                ],
               ],
             ),
-          if (snap.hasData && snap.data!.isEmpty) const EmptyBlock(text: 'No pending appeals.'),
+            ),
+          if (snap.hasData && rows.isEmpty && _error == null) EmptyBlock(text: 'No $_filter appeals.'),
         ],
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -534,10 +605,28 @@ class DailyEntriesPage extends StatefulWidget {
 
 class _DailyEntriesPageState extends State<DailyEntriesPage> {
   bool _reviewing = false;
+  String _filter = 'pending';
+  List<Map<String, dynamic>>? _items;
+  Object? _error;
 
   Future<List<Map<String, dynamic>>> _load() async {
     final data = await supabase.from('daily_entries').select('*').order('date', ascending: false).limit(80);
-    return List<Map<String, dynamic>>.from(data);
+    final rows = List<Map<String, dynamic>>.from(data);
+    return rows.where((row) => '${row['review_status'] ?? 'pending'}'.toLowerCase() == _filter).toList();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final rows = await _load();
+      if (mounted) {
+        setState(() {
+          _items = rows;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = friendlyDbError(e));
+    }
   }
 
   Future<void> _mark(Map<String, dynamic> row, String status) async {
@@ -549,11 +638,11 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Entry $status: ${result?['message'] ?? 'done'}')));
-        setState(() {});
+        setState(() => _items = (_items ?? []).where((item) => item['id'] != row['id']).toList());
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Entry review failed: $e'), backgroundColor: const Color(0xFFB91C1C)));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Entry review failed: ${friendlyDbError(e)}'), backgroundColor: const Color(0xFFB91C1C)));
       }
     } finally {
       if (mounted) setState(() => _reviewing = false);
@@ -563,26 +652,52 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _load(),
-      builder: (context, snap) => ListView(
+      future: _items == null && _error == null ? _load() : Future.value(_items ?? const <Map<String, dynamic>>[]),
+      builder: (context, snap) {
+        if (snap.hasData && _items == null) {
+          _items = snap.data;
+        }
+        final rows = _items ?? snap.data ?? const <Map<String, dynamic>>[];
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           const HeaderBlock(title: 'Daily entries review', subtitle: 'Accountant income and expense entries are visible here. Rejecting marks the entry for office correction; it does not change town prices or inventory.'),
-          if (!snap.hasData) const Center(child: Padding(padding: EdgeInsets.all(30), child: CircularProgressIndicator())),
-          for (final e in snap.data ?? [])
-            InfoCard(
-              title: '${rowVal(e, 'Type') ?? 'Entry'} - ${money.format(asNum(rowVal(e, 'Amount')))}',
-              subtitle: '${rowVal(e, 'Town_Name') ?? 'No town'} - ${rowVal(e, 'Category') ?? 'General'}',
-              meta: '${formatDate(rowVal(e, 'Date'))} - ${e['review_status'] ?? 'pending'}',
-              body: '${rowVal(e, 'Description') ?? ''}',
+          FilterChips(
+            value: _filter,
+            options: const ['pending', 'approved', 'rejected'],
+            onChanged: (next) => setState(() {
+              _filter = next;
+              _items = null;
+              _error = null;
+            }),
+          ),
+          if (_error != null) ErrorBlock(error: 'Schema/API issue: $_error'),
+          if (!snap.hasData && _error == null) const SkeletonList(),
+          for (var i = 0; i < rows.length; i++)
+            AnimatedEntry(
+              index: i,
+              child: InfoCard(
+              icon: badgeForStatus('${rows[i]['review_status'] ?? 'pending'}'),
+              status: '${rows[i]['review_status'] ?? 'pending'}',
+              title: '${rowVal(rows[i], 'Type') ?? 'Entry'} - ${money.format(asNum(rowVal(rows[i], 'Amount')))}',
+              subtitle: '${rowVal(rows[i], 'Town_Name') ?? 'No town'} - ${rowVal(rows[i], 'Category') ?? 'General'}',
+              meta: '${formatDate(rowVal(rows[i], 'Date'))} - ${rows[i]['review_status'] ?? 'pending'}',
+              body: '${rowVal(rows[i], 'Description') ?? ''}',
               actions: [
-                OutlinedButton.icon(onPressed: _reviewing ? null : () => _mark(e, 'rejected'), icon: const Icon(Icons.report), label: const Text('Reject')),
-                FilledButton.icon(onPressed: _reviewing ? null : () => _mark(e, 'approved'), icon: const Icon(Icons.verified), label: const Text('Approve')),
+                if (_filter == 'pending') ...[
+                  OutlinedButton.icon(onPressed: _reviewing ? null : () => _mark(rows[i], 'rejected'), icon: const Icon(Icons.report), label: const Text('Reject')),
+                  FilledButton.icon(onPressed: _reviewing ? null : () => _mark(rows[i], 'approved'), icon: const Icon(Icons.verified), label: const Text('Approve')),
+                ],
               ],
             ),
-          if (snap.hasData && snap.data!.isEmpty) const EmptyBlock(text: 'No daily entries found.'),
+            ),
+          if (snap.hasData && rows.isEmpty && _error == null) EmptyBlock(text: 'No $_filter daily entries.'),
         ],
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -649,6 +764,72 @@ class TownsPage extends StatelessWidget {
   }
 }
 
+class MorePage extends StatelessWidget {
+  const MorePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      MoreItem('Live activity', 'Sales, expenses, and synced business movement.', const VectorBadge(kind: BadgeKind.activity), () {
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DetailScaffold(title: 'Live activity', child: ActivityPage())));
+      }),
+      MoreItem('Notifications', 'Installments, file, and business alerts.', const VectorBadge(kind: BadgeKind.alert), () {
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DetailScaffold(title: 'Notifications', child: NotificationsPage())));
+      }),
+      MoreItem('Balance enquiries', 'Read-only town performance and balances.', const VectorBadge(kind: BadgeKind.town), () {
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DetailScaffold(title: 'Balance enquiries', child: TownsPage())));
+      }),
+      MoreItem('Logout', 'Sign out from this CEO device.', const VectorBadge(kind: BadgeKind.reject), () {
+        supabase.auth.signOut();
+      }),
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const HeaderBlock(title: 'More', subtitle: 'Secondary CEO tools grouped here to keep the phone navigation compact.'),
+        for (var i = 0; i < items.length; i++)
+          AnimatedEntry(
+            index: i,
+            child: Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                leading: items[i].icon,
+                title: Text(items[i].title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+                subtitle: Text(items[i].subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: items[i].onTap,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class MoreItem {
+  const MoreItem(this.title, this.subtitle, this.icon, this.onTap);
+  final String title;
+  final String subtitle;
+  final Widget icon;
+  final VoidCallback onTap;
+}
+
+class DetailScaffold extends StatelessWidget {
+  const DetailScaffold({super.key, required this.title, required this.child});
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: SafeArea(child: child),
+    );
+  }
+}
+
 class HeaderBlock extends StatelessWidget {
   const HeaderBlock({super.key, required this.title, required this.subtitle});
   final String title;
@@ -656,12 +837,14 @@ class HeaderBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final titleSize = width < 340 ? 20.0 : 22.0;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
+        Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: titleSize, fontWeight: FontWeight.w900)),
         const SizedBox(height: 6),
-        Text(subtitle, style: const TextStyle(color: Color(0xFF64748B), height: 1.35)),
+        Text(subtitle, style: const TextStyle(color: Color(0xFF64748B), height: 1.35, fontSize: 13)),
       ]),
     );
   }
@@ -730,21 +913,27 @@ class MetricGrid extends StatelessWidget {
           crossAxisCount: narrow ? 1 : 2,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: narrow ? 2.7 : 1.2,
-          children: metrics.map((m) => Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Icon(m.icon, color: m.color),
-                const Spacer(),
-                Text(m.value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 6),
-                Text(m.label, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700)),
-              ]),
-            ),
-          )).toList(),
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: narrow ? 3.05 : 1.38,
+          children: [
+            for (var i = 0; i < metrics.length; i++)
+              AnimatedEntry(
+                index: i,
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Icon(metrics[i].icon, color: metrics[i].color, size: narrow ? 18 : 20),
+                      const Spacer(),
+                      Text(metrics[i].value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: narrow ? 17 : 19, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 4),
+                      Text(metrics[i].label, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700, fontSize: 12)),
+                    ]),
+                  ),
+                ),
+              ),
+          ],
         );
       },
     );
@@ -752,12 +941,14 @@ class MetricGrid extends StatelessWidget {
 }
 
 class InfoCard extends StatelessWidget {
-  const InfoCard({super.key, required this.title, required this.subtitle, required this.meta, required this.body, this.actions = const []});
+  const InfoCard({super.key, required this.title, required this.subtitle, required this.meta, required this.body, this.actions = const [], this.icon, this.status});
   final String title;
   final String subtitle;
   final String meta;
   final String body;
   final List<Widget> actions;
+  final Widget? icon;
+  final String? status;
 
   @override
   Widget build(BuildContext context) {
@@ -766,7 +957,14 @@ class InfoCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (icon != null) ...[
+              icon!,
+              const SizedBox(width: 10),
+            ],
+            Expanded(child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900))),
+            if (status != null) StatusPill(status: status!),
+          ]),
           const SizedBox(height: 5),
           Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
@@ -796,6 +994,228 @@ class EmptyBlock extends StatelessWidget {
       child: Center(child: Text(text, style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700))),
     );
   }
+}
+
+class StatusPill extends StatelessWidget {
+  const StatusPill({super.key, required this.status});
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final clean = status.toLowerCase();
+    final color = clean == 'approved'
+        ? const Color(0xFF0F766E)
+        : clean == 'rejected'
+            ? const Color(0xFFB91C1C)
+            : const Color(0xFFB45309);
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.22)),
+      ),
+      child: Text(clean, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900)),
+    );
+  }
+}
+
+class FilterChips extends StatelessWidget {
+  const FilterChips({super.key, required this.value, required this.options, required this.onChanged});
+  final String value;
+  final List<String> options;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: options.map((option) {
+          final selected = option == value;
+          return ChoiceChip(
+            selected: selected,
+            label: Text(option),
+            avatar: badgeForStatus(option),
+            onSelected: (_) => onChanged(option),
+            labelStyle: TextStyle(fontWeight: FontWeight.w900, color: selected ? Colors.white : const Color(0xFF0F172A)),
+            selectedColor: const Color(0xFF0F766E),
+            backgroundColor: Colors.white,
+            side: BorderSide(color: selected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class SkeletonList extends StatelessWidget {
+  const SkeletonList({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: List.generate(3, (i) => AnimatedEntry(
+        index: i,
+        child: Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              skeletonLine(width: 180, height: 16),
+              const SizedBox(height: 10),
+              skeletonLine(width: double.infinity, height: 12),
+              const SizedBox(height: 8),
+              skeletonLine(width: 120, height: 12),
+            ]),
+          ),
+        ),
+      )),
+    );
+  }
+}
+
+Widget skeletonLine({required double width, required double height}) {
+  return Container(
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      color: const Color(0xFFE2E8F0),
+      borderRadius: BorderRadius.circular(999),
+    ),
+  );
+}
+
+class AnimatedEntry extends StatelessWidget {
+  const AnimatedEntry({super.key, required this.index, required this.child});
+  final int index;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final delayIndex = index.clamp(0, 8).toInt();
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 240 + (delayIndex * 26)),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(offset: Offset(0, 10 * (1 - value)), child: child),
+      ),
+      child: child,
+    );
+  }
+}
+
+enum BadgeKind { brand, money, alert, approve, reject, pending, town, activity, entry }
+
+class VectorBadge extends StatelessWidget {
+  const VectorBadge({super.key, required this.kind, this.size = 32});
+  final BadgeKind kind;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (kind) {
+      BadgeKind.approve => const Color(0xFF0F766E),
+      BadgeKind.reject => const Color(0xFFB91C1C),
+      BadgeKind.pending => const Color(0xFFB45309),
+      BadgeKind.alert => const Color(0xFF7C3AED),
+      BadgeKind.money => const Color(0xFF0F766E),
+      BadgeKind.town => const Color(0xFF2563EB),
+      BadgeKind.activity => const Color(0xFF475569),
+      BadgeKind.entry => const Color(0xFFBE123C),
+      BadgeKind.brand => const Color(0xFF0F172A),
+    };
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(size * 0.34),
+        border: Border.all(color: color.withOpacity(0.24)),
+      ),
+      child: CustomPaint(painter: BadgePainter(kind: kind, color: color)),
+    );
+  }
+}
+
+class BadgePainter extends CustomPainter {
+  const BadgePainter({required this.kind, required this.color});
+  final BadgeKind kind;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * 0.075
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.width * 0.25;
+
+    if (kind == BadgeKind.approve) {
+      canvas.drawCircle(c, r, p);
+      canvas.drawLine(Offset(size.width * 0.34, size.height * 0.52), Offset(size.width * 0.46, size.height * 0.64), p);
+      canvas.drawLine(Offset(size.width * 0.46, size.height * 0.64), Offset(size.width * 0.68, size.height * 0.38), p);
+      return;
+    }
+    if (kind == BadgeKind.reject) {
+      canvas.drawCircle(c, r, p);
+      canvas.drawLine(Offset(size.width * 0.38, size.height * 0.38), Offset(size.width * 0.62, size.height * 0.62), p);
+      canvas.drawLine(Offset(size.width * 0.62, size.height * 0.38), Offset(size.width * 0.38, size.height * 0.62), p);
+      return;
+    }
+    if (kind == BadgeKind.pending) {
+      canvas.drawCircle(c, r, p);
+      canvas.drawLine(c, Offset(size.width * 0.50, size.height * 0.34), p);
+      canvas.drawLine(c, Offset(size.width * 0.64, size.height * 0.56), p);
+      return;
+    }
+
+    final rect = Rect.fromCenter(center: c, width: size.width * 0.48, height: size.height * 0.38);
+    if (kind == BadgeKind.money) {
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, Radius.circular(size.width * 0.08)), p);
+      canvas.drawCircle(c, size.width * 0.08, p);
+      return;
+    }
+    if (kind == BadgeKind.town || kind == BadgeKind.brand) {
+      canvas.drawRect(Rect.fromLTWH(size.width * 0.32, size.height * 0.28, size.width * 0.36, size.height * 0.46), p);
+      canvas.drawLine(Offset(size.width * 0.42, size.height * 0.74), Offset(size.width * 0.42, size.height * 0.60), p);
+      canvas.drawLine(Offset(size.width * 0.58, size.height * 0.74), Offset(size.width * 0.58, size.height * 0.60), p);
+      return;
+    }
+    if (kind == BadgeKind.alert) {
+      final path = Path()
+        ..moveTo(size.width * 0.50, size.height * 0.24)
+        ..lineTo(size.width * 0.72, size.height * 0.68)
+        ..lineTo(size.width * 0.28, size.height * 0.68)
+        ..close();
+      canvas.drawPath(path, p);
+      canvas.drawLine(Offset(size.width * 0.50, size.height * 0.42), Offset(size.width * 0.50, size.height * 0.54), p);
+      return;
+    }
+
+    canvas.drawCircle(c, r, p);
+    canvas.drawLine(Offset(size.width * 0.36, size.height * 0.50), Offset(size.width * 0.64, size.height * 0.50), p);
+    canvas.drawLine(Offset(size.width * 0.50, size.height * 0.36), Offset(size.width * 0.50, size.height * 0.64), p);
+  }
+
+  @override
+  bool shouldRepaint(covariant BadgePainter oldDelegate) => oldDelegate.kind != kind || oldDelegate.color != color;
+}
+
+Widget badgeForStatus(String status) {
+  final clean = status.toLowerCase();
+  if (clean == 'approved') return const VectorBadge(kind: BadgeKind.approve, size: 24);
+  if (clean == 'rejected') return const VectorBadge(kind: BadgeKind.reject, size: 24);
+  return const VectorBadge(kind: BadgeKind.pending, size: 24);
 }
 
 class CeoNotificationService {
@@ -904,9 +1324,7 @@ void routeFromPushData(Map<String, dynamic> data) {
   final nextTab = switch ('$route') {
     'appeals' => 1,
     'entries' => 2,
-    'activity' => 3,
-    'notifications' => 4,
-    'towns' => 5,
+    'activity' || 'notifications' || 'towns' => 3,
     _ => 0,
   };
   selectedTabNotifier.value = nextTab;
@@ -921,4 +1339,33 @@ String formatDate(dynamic value) {
   if (value == null) return '';
   final parsed = DateTime.tryParse('$value');
   return parsed == null ? '$value' : shortDate.format(parsed);
+}
+
+String friendlyDbError(Object error) {
+  final raw = '$error';
+  if (raw.contains('PGRST204') || raw.toLowerCase().contains('schema cache')) {
+    return 'Supabase schema cache needs repair. Run src/sql/ceo-review-schema-repair.sql once.';
+  }
+  if (raw.toLowerCase().contains('review_status')) {
+    return 'daily_entries review columns are missing. Run src/sql/ceo-review-schema-repair.sql once.';
+  }
+  if (raw.toLowerCase().contains('ceo_review_appeal')) {
+    return 'CEO review RPC is missing. Run src/sql/ceo-review-schema-repair.sql once.';
+  }
+  return raw.replaceAll(RegExp(r'PostgrestException\(message: ?'), '').replaceAll(RegExp(r'\)$'), '');
+}
+
+String safeSummary(dynamic value) {
+  if (value == null) return '';
+  if (value is Map) {
+    final safeKeys = ['townName', 'Town_Name', 'town_name', 'type', 'Type', 'category', 'Category', 'date', 'amount'];
+    final parts = <String>[];
+    for (final key in safeKeys) {
+      if (value[key] != null && '${value[key]}'.trim().isNotEmpty) {
+        parts.add('$key: ${value[key]}');
+      }
+    }
+    return parts.take(5).join(' - ');
+  }
+  return '$value';
 }
