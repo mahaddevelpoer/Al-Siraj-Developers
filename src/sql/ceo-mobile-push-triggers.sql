@@ -49,6 +49,70 @@ DROP POLICY IF EXISTS "CEO mobile update appeals" ON public.appeals;
 CREATE POLICY "CEO mobile update appeals" ON public.appeals
 FOR UPDATE USING (public.is_ceo()) WITH CHECK (public.is_ceo());
 
+DROP POLICY IF EXISTS "Public can create agent registration appeals" ON public.appeals;
+CREATE POLICY "Public can create agent registration appeals" ON public.appeals
+FOR INSERT WITH CHECK (
+  requested_by_role = 'agent'
+  AND appeal_type = 'agent_registration'
+  AND entity_type = 'agent'
+  AND entity_id = requested_by_user_id::text
+  AND status = 'pending'
+);
+
+CREATE OR REPLACE FUNCTION public.create_agent_registration_appeal(
+  p_user_id UUID,
+  p_otp_code TEXT,
+  p_otp_expires_at TIMESTAMP WITHOUT TIME ZONE
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  new_appeal_id UUID;
+BEGIN
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'User id is required';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.users
+    WHERE id = p_user_id
+      AND role = 'agent'
+  ) THEN
+    RAISE EXCEPTION 'Agent profile not found';
+  END IF;
+
+  INSERT INTO public.appeals (
+    requested_by_user_id,
+    requested_by_role,
+    appeal_type,
+    entity_type,
+    entity_id,
+    status,
+    otp_code,
+    otp_expires_at
+  )
+  VALUES (
+    p_user_id,
+    'agent',
+    'agent_registration',
+    'agent',
+    p_user_id::text,
+    'pending',
+    p_otp_code,
+    p_otp_expires_at
+  )
+  RETURNING id INTO new_appeal_id;
+
+  RETURN jsonb_build_object('id', new_appeal_id);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.create_agent_registration_appeal(UUID, TEXT, TIMESTAMP WITHOUT TIME ZONE) TO anon, authenticated;
+
 DROP POLICY IF EXISTS "CEO mobile update daily_entries" ON public.daily_entries;
 CREATE POLICY "CEO mobile update daily_entries" ON public.daily_entries
 FOR UPDATE USING (public.is_ceo()) WITH CHECK (public.is_ceo());

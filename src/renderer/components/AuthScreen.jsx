@@ -207,24 +207,17 @@ export default function AuthScreen({ onLogin }) {
         expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
         const { data: otpRecord, error: otpError } = await supabase
-          .from('appeals')
-          .insert([{
-            requested_by_user_id: userId,
-            requested_by_role: 'agent',
-            appeal_type: 'agent_registration',
-            entity_type: 'agent',
-            entity_id: userId,
-            status: 'pending',
-            otp_code: otpCode,
-            otp_expires_at: expiresAt.toISOString(),
-          }])
-          .select().single();
+          .rpc('create_agent_registration_appeal', {
+            p_user_id: userId,
+            p_otp_code: otpCode,
+            p_otp_expires_at: expiresAt.toISOString(),
+          });
 
         if (otpError) {
           console.error('OTP insert error:', otpError);
           throw new Error('OTP setup failed: ' + otpError.message);
         }
-        setRegOtpId(otpRecord.id);
+        setRegOtpId(otpRecord?.id);
 
         if (window.api?.sendOtpEmail) {
           const emailResult = await window.api.sendOtpEmail({
