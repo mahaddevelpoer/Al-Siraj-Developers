@@ -20,6 +20,7 @@ const fmtPkr = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
 
 const menuItems = [
   { key: 'overview',      Icon: ChartIcon,      label: 'Overview',            color: '#3b82f6' },
+  { key: 'expenses',      Icon: DollarIcon,     label: 'Employees and Salaries', color: '#f43f5e' },
   { key: 'dailyEntries',  Icon: BookIcon,       label: 'Daily Entries',       color: '#6366f1' },
   { key: 'employees',     Icon: UsersIcon,      label: 'Agents',              color: '#06b6d4' },
   { key: 'prices',        Icon: WalletIcon,     label: 'Town Prices',         color: '#f59e0b' },
@@ -30,7 +31,6 @@ const menuItems = [
   { key: 'resellHistory', Icon: HistoryIcon,    label: 'Resell History',      color: '#ec4899' },
   { key: 'installments',  Icon: CalendarIcon,   label: 'Installment Tracker', color: '#84cc16' },
   { key: 'commission',    Icon: BriefcaseIcon,  label: 'Commission Tracker',  color: '#ef4444' },
-  { key: 'expenses',      Icon: DollarIcon,     label: 'Employees and Salaries', color: '#f43f5e' },
 ];
 
 // ─── Reusable Components ────────────────────────────────────────────────────

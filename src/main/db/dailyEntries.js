@@ -119,6 +119,8 @@ async function addDailyEntry(data) {
           Gap_Days: 0,
           Gap_Label: '',
           Monthly_Installment: 0,
+          Received_Amount: parseFloat(amount),
+          Remaining_Amount: 0,
           Agent_Name: '',
           Commission_Rate: 0,
           Commission_Amount: 0,

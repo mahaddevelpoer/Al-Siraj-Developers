@@ -14,6 +14,7 @@ const ceoPushTopic = 'ceo-alerts';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 final selectedTabNotifier = ValueNotifier<int>(0);
+final appStartedAt = DateTime.now();
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -800,6 +801,7 @@ class EmptyBlock extends StatelessWidget {
 class CeoNotificationService {
   static final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
+  static final Set<String> _shownMessageKeys = <String>{};
 
   static Future<void> init() async {
     if (_initialized) return;
@@ -826,6 +828,17 @@ class CeoNotificationService {
   }
 
   static Future<void> showFromRemoteMessage(RemoteMessage message) async {
+    final sentTime = message.sentTime;
+    if (sentTime != null && sentTime.isBefore(appStartedAt.subtract(const Duration(seconds: 5)))) {
+      return;
+    }
+    final messageKey = message.messageId ??
+        '${message.data['table']}:${message.data['event']}:${message.data['id']}:${sentTime?.millisecondsSinceEpoch ?? ''}';
+    if (!_shownMessageKeys.add(messageKey)) return;
+    if (_shownMessageKeys.length > 200) {
+      _shownMessageKeys.clear();
+      _shownMessageKeys.add(messageKey);
+    }
     final title = message.notification?.title ?? message.data['title'] ?? titleForTable(message.data['table']);
     final body = message.notification?.body ?? message.data['body'] ?? 'Open CEO app for details';
     final route = message.data['route'] ?? routeForTable(message.data['table']);

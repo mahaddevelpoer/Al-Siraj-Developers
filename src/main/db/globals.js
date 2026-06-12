@@ -1,5 +1,5 @@
 const path = require('path');
-const { getGlobalsPath, getPropertiesPath, readExcelFile, appendToExcel, updateExcelRow, generateId } = require('./core');
+const { getGlobalsPath, getPropertiesPath, readExcelFile, appendToExcel, updateExcelRow, generateId, ensureSheetColumns } = require('./core');
 
 function isCeoExpenseRow(row) {
   const cat = String(row?.Category || '').toLowerCase();
@@ -36,13 +36,39 @@ function computeSaleReceived(sale, allInstallments) {
     const paidSum = (allInstallments || [])
       .filter(inst => saleMatchesInstallment(sale, inst) && String(inst.Status || '').toLowerCase() === 'paid')
       .reduce((sum, inst) => sum + (parseFloat(inst.Monthly_Amount) || 0), 0);
-    return Math.min(advance + paidSum, total);
+    const recordedReceived = parseFloat(sale.Received_Amount) || 0;
+    return Math.min(Math.max(recordedReceived, advance + paidSum), total);
   }
 
   const received = parseFloat(sale.Received_Amount) || 0;
   const remaining = parseFloat(sale.Remaining_Amount) || 0;
   if (received > 0) return Math.min(received, total || received);
   return remaining > 0 ? advance : total;
+}
+
+async function upsertCommissionForSaleLocal(sale) {
+  const amount = parseFloat(sale.Commission_Amount) || 0;
+  const agent = String(sale.Agent_Name || '').trim();
+  if (amount <= 0 || !agent) return;
+
+  const commissionPath = path.join(getGlobalsPath(), 'Commissions.xlsx');
+  await ensureSheetColumns(commissionPath, 'Data', ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Status','Paid_Date','Created_At']);
+  const rows = await readExcelFile(commissionPath, 'Data');
+  const saleId = sale.Sale_ID || `${sale.Type}|${sale.Plot_Shop_Number}|${sale.Town_Name}`;
+  if (rows.some((r) => String(r.Sale_ID || r.Commission_ID || '') === String(saleId))) return;
+
+  await appendToExcel(commissionPath, 'Data', {
+    Commission_ID: saleId,
+    Sale_ID: saleId,
+    Town_Name: sale.Town_Name || '',
+    Plot_Shop_Number: sale.Plot_Shop_Number || '',
+    Agent_Name: agent,
+    Agent_Email: '',
+    Commission_Amount: amount,
+    Status: 'pending',
+    Paid_Date: '',
+    Created_At: sale.Sell_Date || new Date().toISOString().split('T')[0],
+  });
 }
 
 async function getInstallments() {
@@ -180,6 +206,23 @@ async function markInstallmentPaid(data) {
     Remaining_Amount: 0,
   });
 
+  const salesPath = path.join(getGlobalsPath(), 'All_Sales.xlsx');
+  const sales = await readExcelFile(salesPath, 'Data');
+  const sale = sales.find(s => saleMatchesInstallment(s, item));
+  let newReceivedForSale = null;
+  let newRemainingForSale = null;
+  if (sale?._rowNumber) {
+    const paid = parseFloat(item.Monthly_Amount) || 0;
+    const currentReceived = parseFloat(sale.Received_Amount || sale.Advance_Amount_PKR || 0);
+    const total = parseFloat(sale.Total_Amount_PKR || 0);
+    newReceivedForSale = Math.min(currentReceived + paid, total);
+    newRemainingForSale = Math.max(0, total - newReceivedForSale);
+    await updateExcelRow(salesPath, 'Data', sale._rowNumber, {
+      Received_Amount: newReceivedForSale,
+      Remaining_Amount: newRemainingForSale,
+    });
+  }
+
   // Update property received amount
   const { getPropertyFile, updatePropertyFile } = require('./properties');
   const prop = await getPropertyFile(item.Type, item.Plot_Shop_Number, item.Town_Name);
@@ -188,8 +231,8 @@ async function markInstallmentPaid(data) {
     const prevReceived = (parseFloat(prop.Received_Amount) || 0);
     const prevRemaining = (parseFloat(prop.Remaining_Amount) || 0);
 
-    const newReceived = prevReceived + paid;
-    const newRemaining = Math.max(0, prevRemaining - paid);
+    const newReceived = newReceivedForSale ?? (prevReceived + paid);
+    const newRemaining = newRemainingForSale ?? Math.max(0, prevRemaining - paid);
     const updates = { Received_Amount: newReceived, Remaining_Amount: newRemaining };
 
     // Check if all installments paid
@@ -219,6 +262,9 @@ async function markInstallmentPaid(data) {
   // Recalculate town financials
   const { updateTownFinancials } = require('./properties');
   if (item.Town_Name) await updateTownFinancials(item.Town_Name);
+  if (sale && newRemainingForSale !== null && newRemainingForSale <= 0) {
+    await upsertCommissionForSaleLocal({ ...sale, Received_Amount: newReceivedForSale, Remaining_Amount: newRemainingForSale });
+  }
 
   return { success: true };
 }
@@ -674,8 +720,20 @@ async function recordCollectionPaymentLocal({ type, plotShopNumber, townName, am
     Remaining_Amount: newRemaining,
   });
 
-  const { updateTownFinancials } = require('./properties');
+  const { getPropertyFile, updatePropertyFile, updateTownFinancials } = require('./properties');
+  const prop = await getPropertyFile(type, plotShopNumber, townName);
+  if (prop) {
+    await updatePropertyFile(type, plotShopNumber, townName, {
+      Received_Amount: newReceived,
+      Remaining_Amount: newRemaining,
+      Installment_Status: newRemaining <= 0 ? 'Completed' : prop.Installment_Status,
+    });
+  }
+
   if (townName) await updateTownFinancials(townName);
+  if (newRemaining <= 0) {
+    await upsertCommissionForSaleLocal({ ...item, Received_Amount: newReceived, Remaining_Amount: newRemaining });
+  }
 
   return { newReceived, newRemaining };
 }

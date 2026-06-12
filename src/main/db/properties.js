@@ -30,6 +30,32 @@ function getPropertyPath(type, number, townName) {
   return path.join(getTownPropertiesDir(townName), fileName);
 }
 
+async function upsertCommissionForSaleLocal(sale) {
+  const amount = parseFloat(sale.Commission_Amount) || 0;
+  const agent = String(sale.Agent_Name || '').trim();
+  if (amount <= 0 || !agent) return;
+
+  const commissionPath = path.join(getGlobalsPath(), 'Commissions.xlsx');
+  await ensureSheetColumns(commissionPath, 'Data', ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Status','Paid_Date','Created_At']);
+  const rows = await readExcelFile(commissionPath, 'Data');
+  const saleId = sale.Sale_ID || `${sale.Type}|${sale.Plot_Shop_Number}|${sale.Town_Name}`;
+  const exists = rows.some((r) => String(r.Sale_ID || r.Commission_ID || '') === String(saleId));
+  if (exists) return;
+
+  await appendToExcel(commissionPath, 'Data', {
+    Commission_ID: saleId,
+    Sale_ID: saleId,
+    Town_Name: sale.Town_Name || '',
+    Plot_Shop_Number: sale.Plot_Shop_Number || '',
+    Agent_Name: agent,
+    Agent_Email: '',
+    Commission_Amount: amount,
+    Status: 'pending',
+    Paid_Date: '',
+    Created_At: sale.Sell_Date || new Date().toISOString().split('T')[0],
+  });
+}
+
 const PLOT_COLUMNS = [
   'Plot_Number','Town_Name','Plot_Size','Plot_Marla','Per_Marla_Price','Total_Price','Owner_Name','Customer_Name','CNIC',
   'Phone_Number','Sell_Date','Total_Amount_PKR','Advance_Amount_PKR',
@@ -328,6 +354,7 @@ async function sellProperty(data) {
     Transfer_Image: data.Transfer_Image || '',
   };
   await appendToExcel(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', saleData);
+  if (remaining <= 0) await upsertCommissionForSaleLocal(saleData);
 
   // Ensure Installments_Tracker has Agent_Name column
   await ensureSheetColumns(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data', ['Agent_Name', 'Sale_ID']);
@@ -561,8 +588,10 @@ async function updateTownFinancials(townName) {
         return sameSale && (inst.Status || '').toLowerCase() === 'paid';
       });
       const paidSum = paidInst.reduce((ps, inst) => ps + (parseFloat(inst.Monthly_Amount) || 0), 0);
-      // Cap at Total_Amount_PKR to prevent Math.ceil rounding overflow
-      return sum + Math.min(advance + paidSum, total);
+      const recordedReceived = parseFloat(s.Received_Amount) || 0;
+      // Cap at Total_Amount_PKR to prevent Math.ceil rounding overflow.
+      // Collections can clear a balance without marking every installment row paid.
+      return sum + Math.min(Math.max(recordedReceived, advance + paidSum), total);
     }
     return sum + total; // lump sum: full amount
   }, 0);
@@ -740,6 +769,17 @@ async function resellProperty(data) {
     Transaction_ID: Transaction_ID || '',
     Transfer_Bank: Transfer_Bank || '',
   });
+  if (remaining <= 0) {
+    await upsertCommissionForSaleLocal({
+      Sale_ID: saleId,
+      Plot_Shop_Number: number,
+      Type: type,
+      Town_Name: townName,
+      Agent_Name: property.Agent_Name || '',
+      Commission_Amount: property.Commission_Amount || 0,
+      Sell_Date: resellDate,
+    });
+  }
 
   await ensureSheetColumns(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data', ['Sale_ID', 'Agent_Name']);
   if (installmentsEnabled && totalInstallments > 0 && remaining > 0) {
