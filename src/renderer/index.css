@@ -118,6 +118,31 @@
   color: #111827 !important;
 }
 
+.ui-town-topbar,
+.main-header.ui-town-topbar {
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+.ui-town-back-btn,
+.ui-town-topbar button {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #111827 !important;
+}
+
+.ui-town-topbar-badge {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #111827 !important;
+}
+
+.ui-town-topbar-icon {
+  background: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #1d4ed8 !important;
+}
+
 /* Also support explicit body.dark-mode class for ultimate resilience */
 body.dark-mode {
   --bg-primary:         #070a13;

@@ -67,6 +67,9 @@ BEGIN
     rd := COALESCE(appeal_row.requested_data, '{}'::jsonb);
     new_entry_id := 'APP-' || replace(appeal_row.id::text, '-', '');
     entry_town := COALESCE(rd->>'townName', rd->>'Town_Name', rd->>'town_name', '');
+    IF btrim(entry_town) = '' THEN
+      RAISE EXCEPTION 'Town name is required before approving this daily entry appeal';
+    END IF;
     entry_date := COALESCE(NULLIF(rd->>'date', ''), CURRENT_DATE::text)::date;
     entry_type := COALESCE(rd->>'type', rd->>'Type', 'Expense');
     entry_category := COALESCE(rd->>'category', rd->>'Category', 'Daily');

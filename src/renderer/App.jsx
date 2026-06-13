@@ -140,6 +140,11 @@ function AppInner() {
         finalPage = localStorage.getItem('zameen_page') || 'dashboard';
       }
 
+      if (finalPage === 'townDashboard') {
+        finalPage = 'dashboard';
+        localStorage.setItem('zameen_page', 'dashboard');
+      }
+
       setPanel(finalPanel);
       setPage(finalPage);
       setLoggedIn(true);
@@ -162,6 +167,13 @@ function AppInner() {
       setSelectedTown(null);
     }
   }, [page, panel]);
+
+  useEffect(() => {
+    if (panel === 'ceo' && page === 'townDashboard' && !selectedTown?.Town_Name) {
+      localStorage.setItem('zameen_page', 'dashboard');
+      setPage('dashboard');
+    }
+  }, [panel, page, selectedTown?.Town_Name]);
 
 
   useEffect(() => {

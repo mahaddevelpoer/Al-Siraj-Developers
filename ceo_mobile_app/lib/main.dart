@@ -186,6 +186,7 @@ class _CeoShellState extends State<CeoShell> {
   void initState() {
     super.initState();
     selectedTabNotifier.addListener(_applySelectedTab);
+    _tab = selectedTabNotifier.value;
     _verifyCeoAndEnablePush();
     _listenForFcmMessages();
     _routeInitialPushMessage();
@@ -530,6 +531,10 @@ class _AppealsPageState extends State<AppealsPage> {
   Future<void> _review(String id, String status) async {
     setState(() => _reviewing = true);
     try {
+      final appeal = (_items ?? []).firstWhere((item) => item['id'] == id, orElse: () => const <String, dynamic>{});
+      if (status == 'approved' && requiresTownForAppeal(appeal) && appealTownName(appeal).trim().isEmpty) {
+        throw Exception('Town name missing. Reject this appeal and ask user to submit it with a valid town.');
+      }
       final result = await supabase.rpc('ceo_review_appeal', params: {
         'appeal_id': id,
         'new_status': status,
@@ -1247,7 +1252,7 @@ class CeoNotificationService {
 
   static Future<void> init() async {
     if (_initialized) return;
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const android = AndroidInitializationSettings('@drawable/ic_stat_ceo_notification');
     const settings = InitializationSettings(android: android);
     await _plugin.initialize(
       settings,
@@ -1255,7 +1260,13 @@ class CeoNotificationService {
         final route = response.payload;
         if (route != null) routeFromPushData({'route': route});
       },
+      onDidReceiveBackgroundNotificationResponse: ceoNotificationTapBackground,
     );
+    final launchDetails = await _plugin.getNotificationAppLaunchDetails();
+    final launchPayload = launchDetails?.notificationResponse?.payload;
+    if (launchDetails?.didNotificationLaunchApp == true && launchPayload != null) {
+      routeFromPushData({'route': launchPayload});
+    }
     final androidPlugin = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
@@ -1324,7 +1335,8 @@ class CeoNotificationService {
       channelDescription: 'Appeals, notifications, and daily-entry review alerts.',
       importance: Importance.high,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: 'ic_stat_ceo_notification',
+      largeIcon: DrawableResourceAndroidBitmap('app_icon'),
     );
     const details = NotificationDetails(android: android);
     final id = DateTime.now().millisecondsSinceEpoch.remainder(1000000);
@@ -1420,4 +1432,31 @@ String safeSummary(dynamic value) {
     return parts.take(5).join(' - ');
   }
   return '$value';
+}
+
+String appealTownName(Map<String, dynamic> appeal) {
+  final rd = appeal['requested_data'];
+  final data = rd is Map ? rd : const {};
+  final profile = appeal['requested_by_user_id'];
+  final user = profile is Map ? profile : const {};
+  return '${data['townName'] ?? data['Town_Name'] ?? data['town_name'] ?? data['town'] ?? data['Town'] ?? appeal['town_name'] ?? user['agent_town'] ?? user['agent_towns'] ?? ''}'.trim();
+}
+
+bool requiresTownForAppeal(Map<String, dynamic> appeal) {
+  const types = {
+    'agent_registration',
+    'backdated_daily_entry',
+    'future_daily_entry',
+    'date_change',
+    'custom_installment_plan',
+    'salary_increase',
+    'delete_employee',
+  };
+  return types.contains('${appeal['appeal_type']}');
+}
+
+@pragma('vm:entry-point')
+void ceoNotificationTapBackground(NotificationResponse response) {
+  final route = response.payload;
+  if (route != null) routeFromPushData({'route': route});
 }

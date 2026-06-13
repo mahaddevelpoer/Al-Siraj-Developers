@@ -126,6 +126,9 @@ export default function AppealDashboard() {
     setToastMsg(null);
     try {
       const appeal = appeals.find(a => a.id === appealId);
+      if (newStatus === 'approved' && requiresTown(appeal) && !appealTownName(appeal)) {
+        throw new Error('Town name missing. Reject this appeal and ask user to submit it with a valid town.');
+      }
       const { data: reviewResult, error } = await supabase.rpc('ceo_review_appeal', {
         appeal_id: appealId,
         new_status: newStatus,
@@ -282,4 +285,33 @@ export default function AppealDashboard() {
       )}
     </div>
   );
+}
+
+function appealTownName(appeal) {
+  const rd = appeal?.requested_data || {};
+  const profile = appeal?.requested_by_user_id || {};
+  return String(
+    rd.townName ||
+    rd.Town_Name ||
+    rd.town_name ||
+    rd.town ||
+    rd.Town ||
+    appeal?.town_name ||
+    profile.agent_town ||
+    profile.agent_towns ||
+    ''
+  ).trim();
+}
+
+function requiresTown(appeal) {
+  const type = appeal?.appeal_type;
+  return [
+    'agent_registration',
+    'backdated_daily_entry',
+    'future_daily_entry',
+    'date_change',
+    'custom_installment_plan',
+    'salary_increase',
+    'delete_employee',
+  ].includes(type);
 }
