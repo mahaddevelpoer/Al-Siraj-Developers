@@ -368,9 +368,11 @@ class _CeoShellState extends State<CeoShell> {
           ),
         ),
       ),
-      bottomNavigationBar: NavigationBar(
-        height: 62,
-        labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: NavigationBar(
+        height: 72,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
         destinations: const [
@@ -379,6 +381,7 @@ class _CeoShellState extends State<CeoShell> {
           NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Entries'),
           NavigationDestination(icon: Icon(Icons.apps_outlined), selectedIcon: Icon(Icons.apps), label: 'More'),
         ],
+        ),
       ),
     );
   }
@@ -916,7 +919,7 @@ class MetricGrid extends StatelessWidget {
           physics: const NeverScrollableScrollPhysics(),
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
-          childAspectRatio: narrow ? 3.05 : 1.38,
+          childAspectRatio: narrow ? 2.55 : 1.12,
           children: [
             for (var i = 0; i < metrics.length; i++)
               AnimatedEntry(

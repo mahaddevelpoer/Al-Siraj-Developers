@@ -450,6 +450,9 @@ function mapDailyEntryFromCloud(row) {
     Installment_ID: '',
     Property_Details: '',
     Installment_Details: '',
+    Reference: getRowVal(row, 'Reference') || '',
+    Created_By: getRowVal(row, 'Created_By') || '',
+    Review_Status: getRowVal(row, 'Review_Status') || '',
   };
 }
 

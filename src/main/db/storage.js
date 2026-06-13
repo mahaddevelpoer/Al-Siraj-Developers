@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const ExcelJS = require('exceljs');
 const supabase = require('./supabase');
 const { getDbPath, getGlobalsPath, getTownsPath, getPropertiesPath } = require('./core');
 const { getAdminClient } = require('./syncHelpers');
@@ -282,6 +283,25 @@ function backupLocalFile(targetPath, relPath) {
   return backupPath;
 }
 
+async function isWorkbookEffectivelyEmpty(filePath) {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    for (const sheet of workbook.worksheets) {
+      let dataRows = 0;
+      sheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= 2) return;
+        const hasValue = row.values.some((value, index) => index > 0 && value !== null && value !== undefined && String(value).trim() !== '');
+        if (hasValue) dataRows++;
+      });
+      if (dataRows > 0) return false;
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function downloadFromStorage(relPath, targetPath, onProgress) {
   const storagePath = toStoragePath(relPath);
   const dir = path.dirname(targetPath);
@@ -469,6 +489,8 @@ async function downloadMissingFiles(onProgress, options = {}) {
         if (localHash === item.md5_hash) {
           needsDownload = false;
           skipped++;
+        } else if (await isWorkbookEffectivelyEmpty(targetPath)) {
+          needsDownload = true;
         } else {
           const cloudRank = parseInt(item.authority_rank ?? (item.uploaded_by_role === 'agent' ? 10 : 100), 10);
           const localRank = authorityRank(role);
@@ -513,8 +535,8 @@ async function ensureBucket() {
 
 async function runFileSyncCycle(onProgress, options = {}) {
   await ensureBucket();
-  const upload = await flushUploadQueue(onProgress, options);
   const download = await downloadMissingFiles(onProgress, options);
+  const upload = await flushUploadQueue(onProgress, options);
   return { success: true, upload, download };
 }
 

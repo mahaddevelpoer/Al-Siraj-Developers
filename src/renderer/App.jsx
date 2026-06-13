@@ -90,36 +90,6 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function LoadingScreen() {
-  const steps = ['Loading local Excel data', 'Checking cloud session', 'Preparing workspace'];
-  return (
-    <div className="app-loading-screen">
-      <div className="app-loading-grid" />
-      <div className="app-loading-shell">
-        <div className="app-loading-mark">
-          <span>AS</span>
-        </div>
-        <div className="app-loading-copy">
-          <div className="app-loading-eyebrow">AL SIRAJ DEVELOPERS</div>
-          <h1>Real Estate ERP</h1>
-          <p>Initializing secure workspace and local records</p>
-        </div>
-        <div className="app-loading-progress">
-          <div className="app-loading-progress-fill" />
-        </div>
-        <div className="app-loading-steps">
-          {steps.map((step, index) => (
-            <div className="app-loading-step" key={step} style={{ animationDelay: `${index * 0.22}s` }}>
-              <span />
-              {step}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
   return (
     <LanguageProvider>
@@ -296,9 +266,9 @@ function AppInner() {
     };
   }, [user?.id, user?.email, userRole, userProfile?.full_name]);
 
-  // Show a dark loading screen while auth is being checked (prevents white flash after splash)
+  // Keep startup visually clean while auth is checked.
   if (!ready) {
-    return <LoadingScreen />;
+    return null;
   }
 
   // ─── Not logged in → Show Auth Screen ──────────────────────────────────

@@ -31,6 +31,7 @@ const { registerIpcHandlers } = require('./ipc');
 const { initializeDatabase, configureMirrors } = require('./db/core');
 const { startBackupScheduler } = require('./db/backup');
 const { upsertDueInstallmentNotifications } = require('./db/globals');
+const { addDailyEntry } = require('./db/dailyEntries');
 const supabase = require('./db/supabase');
 const { showDesktopNotification } = require('./notificationService');
 
@@ -298,38 +299,11 @@ app.whenReady().then(async () => {
       }
     } catch (_) {}
 
-    // Ensure minimum 4 seconds splash visibility before destroying
-    const elapsed = Date.now() - splashStartTime;
-    const minDisplay = 4000;
-    if (elapsed < minDisplay) {
-      await new Promise(r => setTimeout(r, minDisplay - elapsed));
-    }
-
-    await new Promise((r) => setTimeout(r, 520));
     try { if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy(); } catch (_) {}
   };
 
   try {
-    splashWindow = new BrowserWindow({
-      width: 900,
-      height: 600,
-      show: false,
-      frame: false,
-      transparent: false,
-      resizable: false,
-      fullscreen: false,
-      backgroundColor: '#0b1220',
-      webPreferences: {
-        contextIsolation: false,
-        nodeIntegration: true,
-      },
-    });
-
-    splashWindow.loadFile(path.join(__dirname, 'splash.html'));
-    splashWindow.once('ready-to-show', () => {
-      splashWindow.show();
-      splashWindow.focus();
-    });
+    splashWindow = null;
   } catch (_) {
     splashWindow = null;
   }
@@ -451,6 +425,58 @@ app.whenReady().then(async () => {
   realtimeChannels.push(appealsChannel);
 
   // Commission created → notify CEO
+  const applyApprovedDailyEntryAppeal = async (appeal) => {
+    if (!appeal || appeal.status !== 'approved') return;
+    if (!['backdated_daily_entry', 'future_daily_entry'].includes(appeal.appeal_type)) return;
+    const rd = appeal.requested_data || {};
+    if (!rd.date || !rd.townName) return;
+
+    const entry = await addDailyEntry({
+      entryId: `APP-${String(appeal.id).replace(/-/g, '')}`,
+      reference: appeal.id,
+      date: rd.date,
+      time: rd.time || '00:00',
+      type: rd.type || 'Expense',
+      description: rd.description || '',
+      amount: parseFloat(rd.amount) || 0,
+      townName: rd.townName,
+      incomeType: rd.incomeType || '',
+      category: rd.category || 'Daily',
+      subcategory: rd.subcategory || '',
+      createdBy: 'CEO Approved Appeal',
+      reviewStatus: 'approved',
+    });
+
+    showDesktopNotification({
+      title: entry?.duplicate ? 'Daily Entry Already Saved' : 'Daily Entry Saved',
+      body: `${rd.type || 'Entry'} ${rd.date} has been saved to local accounts.`,
+      silent: true,
+    });
+
+    try {
+      if (activeWindow && !activeWindow.isDestroyed() && activeWindow.webContents) {
+        activeWindow.webContents.send('sync-warning', `${rd.type || 'Entry'} ${rd.date} saved after CEO approval`);
+      }
+    } catch (_) {}
+  };
+
+  const appealUpdatesChannel = supabase
+    .channel('main-appeal-updates')
+    .on('postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'appeals' },
+      (payload) => {
+        applyApprovedDailyEntryAppeal(payload.new).catch((e) => {
+          console.error('[appeal-sync] Failed to apply approved daily entry appeal:', e);
+          showDesktopNotification({
+            title: 'Daily Entry Approval Sync Failed',
+            body: e.message || 'Approved appeal could not be saved locally.',
+          });
+        });
+      }
+    )
+    .subscribe();
+  realtimeChannels.push(appealUpdatesChannel);
+
   const commissionsChannel = supabase
     .channel('main-commissions')
     .on('postgres_changes',

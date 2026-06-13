@@ -12,6 +12,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
   const [step, setStep] = useState(0);
   const [towns, setTowns] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [agentAllowedProperties, setAgentAllowedProperties] = useState([]);
   const [loading, setLoading] = useState(false);
   const [useInstallment, setUseInstallment] = useState(false);
   const [propertyDetails, setPropertyDetails] = useState(null);
@@ -74,6 +75,52 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
     }
   }, [panel, userProfile?.full_name]);
 
+  useEffect(() => {
+    async function loadAgentAccess() {
+      if (userProfile?.role !== 'agent' || !userProfile?.id) {
+        setAgentAllowedProperties([]);
+        return;
+      }
+      try {
+        const { data: accessRows, error: accessError } = await supabase
+          .from('agent_property_access')
+          .select('property_id')
+          .eq('agent_id', userProfile.id);
+        if (accessError) throw accessError;
+        const ids = (accessRows || []).map(r => r.property_id).filter(Boolean);
+        if (!ids.length) {
+          setAgentAllowedProperties([]);
+          return;
+        }
+        const { data: props, error: propError } = await supabase
+          .from('properties')
+          .select('id, Property_Type, Property_Number, Town_Name, Status')
+          .in('id', ids);
+        if (propError) throw propError;
+        setAgentAllowedProperties(props || []);
+      } catch (e) {
+        console.warn('Failed to load agent property access', e);
+        setAgentAllowedProperties([]);
+      }
+    }
+    loadAgentAccess();
+  }, [userProfile?.role, userProfile?.id]);
+
+  const isAgent = userProfile?.role === 'agent';
+  const visibleTowns = isAgent
+    ? towns.filter(town => agentAllowedProperties.some(p => p.Town_Name === town.Town_Name))
+    : towns;
+  const allowedNumbers = isAgent
+    ? agentAllowedProperties
+        .filter(p => p.Town_Name === form.townName && p.Property_Type === form.type)
+        .map(p => String(p.Property_Number))
+    : [];
+  const hasAgentAccessToSelected = !isAgent || agentAllowedProperties.some(p =>
+    p.Town_Name === form.townName &&
+    p.Property_Type === form.type &&
+    String(p.Property_Number) === String(form.number)
+  );
+
   const u = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const handleTextOnly = (key) => (e) => {
@@ -127,6 +174,11 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
         setForm(f => ({ ...f, Total_Amount_PKR: '' }));
         return;
       }
+      if (!hasAgentAccessToSelected) {
+        setPropertyDetails(null);
+        setForm(f => ({ ...f, Total_Amount_PKR: '' }));
+        return;
+      }
       if (window.api) {
         const res = form.type === 'Plot' 
           ? await window.api.getPlot(form.number, form.townName)
@@ -145,7 +197,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
     }
     const timer = setTimeout(fetchProp, 500);
     return () => clearTimeout(timer);
-  }, [form.townName, form.number, form.type]);
+  }, [form.townName, form.number, form.type, hasAgentAccessToSelected]);
 
   const totalAmount = parseFloat(form.Total_Amount_PKR) || 0;
   const advanceAmount = parseFloat(form.Advance_Amount_PKR) || 0;
@@ -190,11 +242,22 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
               </button>
             </div>
           </div>
-          <div className="form-group"><label>{t.town} *</label><select value={form.townName} onChange={u('townName')} required><option value="">{t.selectTown}</option>{towns.map((t,i) => <option key={i} value={t.Town_Name}>{t.Town_Name}</option>)}</select></div>
+          <div className="form-group"><label>{t.town} *</label><select value={form.townName} onChange={u('townName')} required><option value="">{t.selectTown}</option>{visibleTowns.map((t,i) => <option key={i} value={t.Town_Name}>{t.Town_Name}</option>)}</select></div>
           <div className="form-group"><label>{t.propertyType}</label><select value={form.type} onChange={u('type')}><option value="Plot">Plot</option><option value="Shop">Shop</option></select></div>
           <div className="form-group">
             <label>{form.type} {t.propertyNo} *</label>
-            <input placeholder={form.type === 'Plot' ? 'e.g. 101' : 'e.g. 12'} value={form.number} onChange={u('number')} required />
+            <input list={isAgent ? 'agent-allowed-property-numbers' : undefined} placeholder={isAgent ? 'Select assigned property' : (form.type === 'Plot' ? 'e.g. 101' : 'e.g. 12')} value={form.number} onChange={u('number')} required />
+            {isAgent && (
+              <>
+                <datalist id="agent-allowed-property-numbers">
+                  {allowedNumbers.map(number => <option key={number} value={number} />)}
+                </datalist>
+                <div style={{ marginTop: 6, fontSize: 11, color: hasAgentAccessToSelected || !form.number ? 'var(--text-muted)' : 'var(--accent-red)', fontWeight: 700 }}>
+                  {allowedNumbers.length ? `${allowedNumbers.length} assigned ${form.type.toLowerCase()} properties available` : 'No assigned properties for this town/type'}
+                  {!hasAgentAccessToSelected && form.number ? ' - this property is not assigned to you' : ''}
+                </div>
+              </>
+            )}
           </div>
           <div className="form-group"><label>{t.ownerNameOpt.replace(' (Optional)', ' *')}</label><input placeholder="" value={form.Owner_Name} onChange={handleTextOnly('Owner_Name')} required /></div>
         </div>
@@ -458,6 +521,10 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
   const handleSell = async () => {
     if (!form.townName || !form.number || !form.Customer_Name || !form.CNIC || !form.Receipt_Number || !form.Phone_Number || !form.Owner_Name) {
       showToast('Please fill all required fields', 'error'); return;
+    }
+    if (isAgent && !hasAgentAccessToSelected) {
+      showToast('CEO has not assigned this property to your account.', 'error');
+      return;
     }
     setLoading(true);
     try {

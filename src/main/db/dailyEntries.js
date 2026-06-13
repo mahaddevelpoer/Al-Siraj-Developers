@@ -4,7 +4,7 @@ const ExcelJS = require('exceljs');
 const { getGlobalsPath, readExcelFile, appendToExcel, deleteExcelRow, generateId, withFileWriteLock, writeWorkbookAtomic, getHeaderKeys, ensureSheetColumns } = require('./core');
 const { updateTownFinancials } = require('./properties');
 
-const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details'];
+const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status'];
 
 function getDailyEntriesPath() {
   return path.join(getGlobalsPath(), 'Daily_Entries.xlsx');
@@ -52,13 +52,22 @@ async function getDailyEntries({ date, townName }) {
 }
 
 async function addDailyEntry(data) {
-  const { date, time, type, description, amount, townName, incomeType, category, subcategory, propertyId, installmentId, propertyDetails, installmentDetails } = data;
+  const { date, time, type, description, amount, townName, incomeType, category, subcategory, propertyId, installmentId, propertyDetails, installmentDetails, entryId, reference, createdBy, reviewStatus } = data;
   
   await ensureDailyEntriesFile();
   const filePath = getDailyEntriesPath();
+  await ensureSheetColumns(filePath, 'Data', DAILY_ENTRIES_COLUMNS);
+
+  const rows = await readExcelFile(filePath, 'Data');
+  const stableEntryId = entryId || data.Entry_ID || (reference ? `APP-${String(reference).replace(/[^a-zA-Z0-9]/g, '').slice(0, 32)}` : generateId());
+  const duplicate = rows.find((row) => (
+    String(row.Entry_ID || '') === String(stableEntryId) ||
+    (reference && String(row.Reference || '') === String(reference))
+  ));
+  if (duplicate) return { ...duplicate, duplicate: true };
   
   const newEntry = {
-    Entry_ID: generateId(),
+    Entry_ID: stableEntryId,
     Date: date || new Date().toISOString().split('T')[0],
     Time: time || new Date().toTimeString().split(' ')[0].substring(0, 5),
     Type: type || 'Income',
@@ -72,10 +81,10 @@ async function addDailyEntry(data) {
     Installment_ID: installmentId || '',
     Property_Details: propertyDetails ? JSON.stringify(propertyDetails) : '',
     Installment_Details: installmentDetails ? JSON.stringify(installmentDetails) : '',
+    Reference: reference || '',
+    Created_By: createdBy || '',
+    Review_Status: reviewStatus || '',
   };
-  
-  // Ensure sheet has all required columns before appending
-  await ensureSheetColumns(filePath, 'Data', DAILY_ENTRIES_COLUMNS);
   
   await appendToExcel(filePath, 'Data', newEntry);
 
