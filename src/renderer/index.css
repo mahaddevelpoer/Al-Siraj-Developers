@@ -94,6 +94,30 @@
   }
 }
 
+/* Town dashboard requested color correction */
+.ui-town-sidebar,
+.ui-town-sidebar-stats,
+.ui-town-sidebar-item {
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+.ui-town-sidebar {
+  border: 1px solid #e5e7eb !important;
+}
+
+.ui-town-sidebar-title,
+.ui-town-sidebar-stats-lbl,
+.ui-town-topbar-subtitle,
+.ui-town-header-subtitle {
+  color: #374151 !important;
+}
+
+.ui-town-topbar-title,
+.ui-town-header-title {
+  color: #111827 !important;
+}
+
 /* Also support explicit body.dark-mode class for ultimate resilience */
 body.dark-mode {
   --bg-primary:         #070a13;

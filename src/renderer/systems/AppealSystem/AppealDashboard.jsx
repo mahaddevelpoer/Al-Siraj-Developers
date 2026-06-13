@@ -184,6 +184,22 @@ export default function AppealDashboard() {
         }
       }
 
+      if (newStatus === 'rejected' &&
+        (appeal?.appeal_type === 'backdated_daily_entry' || appeal?.appeal_type === 'future_daily_entry')) {
+        const rd = appeal.requested_data || {};
+        const accountantEmail = appeal.requested_by_user_id?.email || '';
+        window.api?.sendDailyEntryRejectionEmail?.({
+          accountantEmail,
+          accountantName: appeal.requested_by_user_id?.full_name || accountantEmail || 'Accountant',
+          townName: rd.townName,
+          entryDate: rd.date,
+          entryType: rd.type || 'Entry',
+          amount: rd.amount,
+          description: rd.description,
+          reason: 'Rejected from CEO Appeals Dashboard',
+        }).catch(() => {});
+      }
+
       setToastMsg({ type: 'success', text: `Appeal ${newStatus} successfully!` });
       setTimeout(() => setToastMsg(null), 3000);
       setReviewing(null);

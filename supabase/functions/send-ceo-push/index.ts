@@ -1,6 +1,10 @@
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const FCM_AUDIENCE = "https://oauth2.googleapis.com/token";
 const CEO_TOPIC = "ceo-alerts";
+const PUSHABLE_TABLES = new Set(["appeals", "notifications", "daily_entries"]);
+const MAX_RECORD_AGE_MS = 5 * 60 * 1000;
+let cachedAccessToken = "";
+let cachedAccessTokenExpiresAt = 0;
 
 type ServiceAccount = {
   client_email: string;
@@ -35,6 +39,10 @@ Deno.serve(async (req) => {
 
   const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount;
   const payload = await req.json() as PushPayload;
+  const skipReason = shouldSkipPush(payload);
+  if (skipReason) {
+    return json({ ok: true, skipped: true, reason: skipReason });
+  }
   const safeMessage = buildSafeMessage(payload);
   const token = await getAccessToken(serviceAccount);
 
@@ -56,9 +64,12 @@ Deno.serve(async (req) => {
           data: safeMessage.data,
           android: {
             priority: "HIGH",
+            collapse_key: safeMessage.data.dedupe_key,
+            ttl: "30s",
             notification: {
               channel_id: "ceo_live_alerts",
               click_action: "FLUTTER_NOTIFICATION_CLICK",
+              tag: safeMessage.data.dedupe_key,
             },
           },
         },
@@ -80,12 +91,22 @@ function buildSafeMessage(payload: PushPayload) {
   const record = payload.record || {};
   const id = String(record.id || record.Entry_ID || record.entry_id || record.Notification_ID || record.notification_id || "");
   const route = routeForTable(table);
+  const eventTime = new Date().toISOString();
+  const dedupeKey = `${table}:${event}:${id || fingerprintRecord(record)}`;
+  const data = {
+    table,
+    event,
+    id,
+    route,
+    event_time: eventTime,
+    dedupe_key: dedupeKey,
+  };
 
   if (table === "appeals") {
     return {
       title: event === "UPDATE" ? "Appeal updated" : "New appeal",
       body: "A request needs CEO review",
-      data: { table, event, id, route },
+      data,
     };
   }
 
@@ -93,7 +114,7 @@ function buildSafeMessage(payload: PushPayload) {
     return {
       title: event === "UPDATE" ? "Notification updated" : "Business notification",
       body: "A business alert needs CEO attention",
-      data: { table, event, id, route },
+      data,
     };
   }
 
@@ -101,7 +122,7 @@ function buildSafeMessage(payload: PushPayload) {
     return {
       title: event === "UPDATE" ? "Daily entry updated" : "Daily entry added",
       body: "An income or expense entry needs CEO review",
-      data: { table, event, id, route },
+      data,
     };
   }
 
@@ -109,7 +130,7 @@ function buildSafeMessage(payload: PushPayload) {
     return {
       title: event === "UPDATE" ? "Sale updated" : "Property sold",
       body: "A property sale was recorded",
-      data: { table, event, id, route },
+      data,
     };
   }
 
@@ -117,7 +138,7 @@ function buildSafeMessage(payload: PushPayload) {
     return {
       title: "Property updated",
       body: "A plot or shop record changed",
-      data: { table, event, id, route },
+      data,
     };
   }
 
@@ -125,7 +146,7 @@ function buildSafeMessage(payload: PushPayload) {
     return {
       title: "Installment updated",
       body: "An installment record needs attention",
-      data: { table, event, id, route },
+      data,
     };
   }
 
@@ -133,15 +154,117 @@ function buildSafeMessage(payload: PushPayload) {
     return {
       title: event === "UPDATE" ? "Expense updated" : "Expense added",
       body: "An expense entry was recorded",
-      data: { table, event, id, route },
+      data,
     };
   }
 
   return {
     title: "CEO alert",
     body: "Open CEO app for details",
-    data: { table, event, id, route },
+    data,
   };
+}
+
+function shouldSkipPush(payload: PushPayload) {
+  const table = payload.table || "";
+  const event = payload.event || "";
+  const record = payload.record || {};
+  const oldRecord = payload.old_record || {};
+
+  if (!PUSHABLE_TABLES.has(table)) return `table_not_pushable:${table}`;
+  if (event !== "INSERT") return "updates_are_silent";
+
+  if (table === "appeals" && String(record.status || "pending").toLowerCase() !== "pending") {
+    return "appeal_not_pending";
+  }
+
+  if (table === "daily_entries" && String(record.review_status || record.Review_Status || "pending").toLowerCase() !== "pending") {
+    return "daily_entry_not_pending";
+  }
+
+  if (event === "UPDATE" && unchangedPushState(table, record, oldRecord)) {
+    return "unchanged_push_state";
+  }
+
+  const recordTime = newestRecordTime(record);
+  if (recordTime && Date.now() - recordTime.getTime() > MAX_RECORD_AGE_MS) {
+    return "old_record_or_sync_backfill";
+  }
+  if (isPastBusinessDate(record)) {
+    return "old_business_date";
+  }
+
+  return "";
+}
+
+function unchangedPushState(
+  table: string,
+  record: Record<string, unknown>,
+  oldRecord: Record<string, unknown>,
+) {
+  if (table === "appeals") {
+    return String(record.status || "") === String(oldRecord.status || "");
+  }
+  if (table === "daily_entries") {
+    return String(record.review_status || record.Review_Status || "") ===
+      String(oldRecord.review_status || oldRecord.Review_Status || "");
+  }
+  if (table === "notifications") {
+    return String(record.dismissed || record.Dismissed || "") ===
+      String(oldRecord.dismissed || oldRecord.Dismissed || "") &&
+      String(record.status || record.Status || "") === String(oldRecord.status || oldRecord.Status || "");
+  }
+  return false;
+}
+
+function newestRecordTime(record: Record<string, unknown>) {
+  const fields = [
+    "updated_at",
+    "created_at",
+    "reviewed_at",
+    "Created_At",
+    "Updated_At",
+    "created_date",
+    "Created_Date",
+  ];
+  for (const field of fields) {
+    const parsed = parseRecordTime(record[field]);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function isPastBusinessDate(record: Record<string, unknown>) {
+  const value = record.date || record.Date;
+  if (!value) return false;
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return false;
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const recordStart = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
+  return recordStart < todayStart;
+}
+
+function parseRecordTime(value: unknown) {
+  if (!value) return null;
+  const raw = String(value);
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+  return null;
+}
+
+function fingerprintRecord(record: Record<string, unknown>) {
+  const parts = [
+    record.Entry_ID,
+    record.entry_id,
+    record.Notification_ID,
+    record.notification_id,
+    record.Reference,
+    record.reference,
+    record.Date,
+    record.date,
+  ].filter((value) => value !== undefined && value !== null && String(value).trim() !== "");
+  return parts.length ? parts.map((value) => String(value)).join(":") : crypto.randomUUID();
 }
 
 function routeForTable(table: string) {
@@ -156,6 +279,10 @@ function routeForTable(table: string) {
 }
 
 async function getAccessToken(serviceAccount: ServiceAccount) {
+  if (cachedAccessToken && Date.now() < cachedAccessTokenExpiresAt - 60000) {
+    return cachedAccessToken;
+  }
+
   const now = Math.floor(Date.now() / 1000);
   const jwt = await signJwt(
     {
@@ -185,7 +312,9 @@ async function getAccessToken(serviceAccount: ServiceAccount) {
   if (!response.ok) {
     throw new Error(`OAuth token failed: ${JSON.stringify(body)}`);
   }
-  return body.access_token as string;
+  cachedAccessToken = body.access_token as string;
+  cachedAccessTokenExpiresAt = Date.now() + ((Number(body.expires_in) || 3600) * 1000);
+  return cachedAccessToken;
 }
 
 async function signJwt(header: Record<string, unknown>, claims: Record<string, unknown>, privateKeyPem: string) {

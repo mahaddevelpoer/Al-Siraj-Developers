@@ -152,6 +152,7 @@ export default function DailyEntries({ showToast, townName }) {
            submitEntryToApi(pendingEntryPayload);
         } else if (newStatus === 'rejected') {
            showToast?.('Appeal was rejected by CEO', 'error');
+           window.api?.showNotification?.('Daily Entry Rejected', `${pendingEntryPayload?.type || 'Entry'} ${pendingEntryPayload?.date || ''} was rejected by CEO`);
            setShowOtpModal(false);
         }
       })

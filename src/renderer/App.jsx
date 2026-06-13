@@ -253,10 +253,48 @@ function AppInner() {
       channels.push(ch);
     }
 
+    if (userRole === 'accountant') {
+      const ch = supabase
+        .channel(`accountant-appeals-${user.id}`)
+        .on('postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'appeals',
+            filter: `requested_by_user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            const a = payload.new;
+            if (a?.status !== 'rejected') return;
+            if (a.appeal_type !== 'backdated_daily_entry' && a.appeal_type !== 'future_daily_entry') return;
+
+            const seenKey = `daily_entry_rejection_notified_${a.id}`;
+            if (localStorage.getItem(seenKey)) return;
+            localStorage.setItem(seenKey, '1');
+
+            const rd = a.requested_data || {};
+            const body = `${rd.type || 'Entry'} ${rd.date || ''} was rejected by CEO`;
+            window.api.showNotification('Daily Entry Rejected', body);
+            window.api?.sendDailyEntryRejectionEmail?.({
+              accountantEmail: user.email,
+              accountantName: userProfile?.full_name || user.email || 'Accountant',
+              townName: rd.townName,
+              entryDate: rd.date,
+              entryType: rd.type || 'Entry',
+              amount: rd.amount,
+              description: rd.description,
+              reason: 'Rejected from CEO review',
+            }).catch(() => {});
+          }
+        )
+        .subscribe();
+      channels.push(ch);
+    }
+
     return () => {
       channels.forEach(ch => supabase.removeChannel(ch));
     };
-  }, [user?.id, userRole]);
+  }, [user?.id, user?.email, userRole, userProfile?.full_name]);
 
   // Show a dark loading screen while auth is being checked (prevents white flash after splash)
   if (!ready) {

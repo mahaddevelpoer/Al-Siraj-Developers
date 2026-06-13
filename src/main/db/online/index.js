@@ -650,23 +650,32 @@ async function getPendingAppeals(userId, appealType) {
 // ─── PENDING COLLECTIONS ────────────────────────────────────────
 
 async function recordCollectionPayment(saleId, amount, paymentMethod, notes) {
-  const { data: sale, error: findErr } = await supabase
+  let { data: sale, error: findErr } = await supabase
     .from('all_sales')
     .select('*')
     .eq('id', saleId)
-    .single();
-  if (findErr) throw findErr;
+    .maybeSingle();
+  if (!sale && findErr) throw findErr;
+  if (!sale) {
+    const bySaleId = await supabase
+      .from('all_sales')
+      .select('*')
+      .eq('sale_id', saleId)
+      .maybeSingle();
+    if (bySaleId.error) throw bySaleId.error;
+    sale = bySaleId.data;
+  }
   if (!sale) throw new Error('Sale not found');
 
-  const currentReceived = parseFloat(sale.Received_Amount || sale.Advance_Amount_PKR || 0);
-  const total = parseFloat(sale.Total_Amount_PKR || 0);
+  const currentReceived = parseFloat(getRowVal(sale, 'Received_Amount') || getRowVal(sale, 'Advance_Amount_PKR') || 0);
+  const total = parseFloat(getRowVal(sale, 'Total_Amount_PKR') || 0);
   const newReceived = Math.min(currentReceived + parseFloat(amount), total);
   const newRemaining = Math.max(0, total - newReceived);
 
   const { error: updErr } = await supabase
     .from('all_sales')
     .update({ received_amount: newReceived, remaining_amount: newRemaining })
-    .eq('id', saleId);
+    .eq(sale.id ? 'id' : 'sale_id', sale.id || saleId);
   if (updErr) throw updErr;
 
   // Also update properties table for Sold Properties view
@@ -694,8 +703,8 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes) {
     customer_name: getRowVal(sale, 'Customer_Name'),
     agent_name: getRowVal(sale, 'Agent_Name'),
     amount: parseFloat(amount),
-    remaining_before: currentReceived,
-    remaining_after: newReceived,
+    remaining_before: Math.max(0, total - currentReceived),
+    remaining_after: newRemaining,
     payment_date: new Date().toISOString().split('T')[0],
     payment_method: paymentMethod || 'Cash',
     notes: notes || '',

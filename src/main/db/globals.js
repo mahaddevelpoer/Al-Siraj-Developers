@@ -1,5 +1,25 @@
 const path = require('path');
+const fs = require('fs');
+const ExcelJS = require('exceljs');
 const { getGlobalsPath, getPropertiesPath, readExcelFile, appendToExcel, updateExcelRow, generateId, ensureSheetColumns } = require('./core');
+
+function isPropertySale(row) {
+  const type = String(row?.Type || '').trim().toLowerCase();
+  return type === 'plot' || type === 'shop';
+}
+
+async function ensureCollectionPaymentsFile(filePath) {
+  if (fs.existsSync(filePath)) return;
+  const cols = ['Payment_ID','Sale_ID','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes'];
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Data');
+  const friendly = (key) => String(key).replace(/_/g, ' ');
+  sheet.addRow(cols.map(friendly));
+  sheet.addRow(cols);
+  sheet.getRow(2).hidden = true;
+  cols.forEach((_, idx) => { sheet.getColumn(idx + 1).width = 18; });
+  await workbook.xlsx.writeFile(filePath);
+}
 
 function isCeoExpenseRow(row) {
   const cat = String(row?.Category || '').toLowerCase();
@@ -700,19 +720,25 @@ async function getPropertyInstallments(propertyId) {
   }));
 }
 
-async function recordCollectionPaymentLocal({ type, plotShopNumber, townName, amount }) {
+async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName, amount, paymentMethod, notes }) {
   const filePath = path.join(getGlobalsPath(), 'All_Sales.xlsx');
   const all = await readExcelFile(filePath, 'Data');
   const item = all.find(i =>
-    String(i.Type) === String(type) &&
-    String(i.Plot_Shop_Number) === String(plotShopNumber) &&
-    String(i.Town_Name) === String(townName)
+    String(i.Sale_ID || '') === String(saleId || '') ||
+    (
+      String(i.Type) === String(type) &&
+      String(i.Plot_Shop_Number) === String(plotShopNumber) &&
+      String(i.Town_Name) === String(townName)
+    )
   );
   if (!item) throw new Error('Sale not found in local database');
+  if (!isPropertySale(item)) throw new Error('Only plot/shop sales can receive collection payments');
 
   const currentReceived = parseFloat(item.Received_Amount || item.Advance_Amount_PKR || 0);
   const total = parseFloat(item.Total_Amount_PKR || 0);
-  const newReceived = Math.min(currentReceived + parseFloat(amount), total);
+  const receivedAmount = parseFloat(amount) || 0;
+  if (receivedAmount <= 0) throw new Error('Collection amount must be greater than zero');
+  const newReceived = Math.min(currentReceived + receivedAmount, total);
   const newRemaining = Math.max(0, total - newReceived);
 
   await updateExcelRow(filePath, 'Data', item._rowNumber, {
@@ -731,6 +757,27 @@ async function recordCollectionPaymentLocal({ type, plotShopNumber, townName, am
   }
 
   if (townName) await updateTownFinancials(townName);
+
+  const historyPath = path.join(getGlobalsPath(), 'Collection_Payments.xlsx');
+  await ensureCollectionPaymentsFile(historyPath);
+  await ensureSheetColumns(historyPath, 'Data', ['Payment_ID','Sale_ID','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes']);
+  await appendToExcel(historyPath, 'Data', {
+    Payment_ID: generateId(),
+    Sale_ID: item.Sale_ID || saleId || `${item.Type}|${item.Plot_Shop_Number}|${item.Town_Name}`,
+    Type: item.Type || type,
+    Plot_Shop_Number: item.Plot_Shop_Number || plotShopNumber,
+    Town_Name: item.Town_Name || townName,
+    Customer_Name: item.Customer_Name || '',
+    Agent_Name: item.Agent_Name || '',
+    Amount: receivedAmount,
+    Received_Before: currentReceived,
+    Received_After: newReceived,
+    Remaining_After: newRemaining,
+    Payment_Date: new Date().toISOString().split('T')[0],
+    Payment_Method: paymentMethod || 'Cash',
+    Notes: notes || '',
+  });
+
   if (newRemaining <= 0) {
     await upsertCommissionForSaleLocal({ ...item, Received_Amount: newReceived, Remaining_Amount: newRemaining });
   }

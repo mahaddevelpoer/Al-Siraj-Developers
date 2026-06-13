@@ -42,6 +42,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded }) {
             setModalStep(null);
             await submitEntryToApi(pendingPayload);
           } else if (p.new.status === 'rejected') {
+            window.api?.showNotification?.('Daily Entry Rejected', `${pendingPayload?.type || 'Entry'} ${pendingPayload?.date || ''} was rejected by CEO`);
             showToast?.('❌ CEO rejected the appeal', 'error');
             setModalStep(null);
           }

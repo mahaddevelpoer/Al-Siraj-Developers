@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld('api', {
   sendDeleteEmployeeOtpEmail: (params) => ipcRenderer.invoke('sendDeleteEmployeeOtpEmail', params),
   // Resend Email — Backdated/Future Daily Entry OTP to CEO
   sendDailyEntryOtpEmail: (params) => ipcRenderer.invoke('sendDailyEntryOtpEmail', params),
+  sendDailyEntryRejectionEmail: (params) => ipcRenderer.invoke('sendDailyEntryRejectionEmail', params),
   // Database setup
   getSetupSql: () => ipcRenderer.invoke('get-setup-sql'),
   setupAgentDb: () => ipcRenderer.invoke('setup-agent-db'),

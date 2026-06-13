@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function PendingCollections({ roleView }) {
-  const { userProfile } = useAuth();
+  const { userProfile, user } = useAuth();
   const agentName = userProfile?.full_name || '';
+  const agentEmail = user?.email || userProfile?.email || '';
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [payModal, setPayModal] = useState(null);
@@ -19,7 +20,7 @@ export default function PendingCollections({ roleView }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const agent = roleView === 'agent' ? agentName : null;
+      const agent = roleView === 'agent' ? { agentName, agentEmail } : null;
       const res = await window.api.getPendingCollections(agent);
       if (res?.data) setCollections(res.data);
     } catch (e) {
@@ -57,6 +58,17 @@ export default function PendingCollections({ roleView }) {
       });
       if (res?.error) { setMsg(res.error); return; }
       setMsg('\u2705 PKR ' + parseFloat(payAmount).toLocaleString() + ' collected!');
+      if (res?.newReceived !== undefined || res?.newRemaining !== undefined) {
+        setCollections(current => current
+          .map(item => String(item.id) === String(payModal.id)
+            ? {
+                ...item,
+                Received_Amount: res.newReceived ?? item.Received_Amount,
+                Remaining_Amount: res.newRemaining ?? item.Remaining_Amount,
+              }
+            : item)
+          .filter(item => (parseFloat(item.Remaining_Amount) || 0) > 0));
+      }
       setPayModal(null);
       loadData();
     } catch (e) {

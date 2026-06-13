@@ -31,7 +31,12 @@ function AgentDashboard({ sales }) {
   });
   const [appealMsg, setAppealMsg] = useState(null);
 
-  const mySales = sales.filter(s => s.Agent_Name && s.Agent_Name.toLowerCase() === agentName.toLowerCase());
+  const mySales = sales.filter(s => {
+    const type = String(s.Type || '').trim().toLowerCase();
+    return (type === 'plot' || type === 'shop') &&
+      s.Agent_Name &&
+      s.Agent_Name.toLowerCase() === agentName.toLowerCase();
+  });
 
   const totalSold = mySales.length;
   // Agent view: "Received Amount" = total money actually received from customers (advance + paid installments, or full for lump sum)

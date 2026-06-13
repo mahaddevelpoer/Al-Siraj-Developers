@@ -195,6 +195,7 @@ async function initializeDatabase(dbPath) {
   { name: 'CEO_Salary.xlsx', columns: ['Salary_ID','Town_Name','Month_Year','Amount_PKR','Date_Recorded','Notes'] },
   { name: 'Salary_Records.xlsx', columns: ['Receipt_Number','Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By'] },
   { name: 'Commissions.xlsx', columns: ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Status','Paid_Date','Created_At'] },
+  { name: 'Collection_Payments.xlsx', columns: ['Payment_ID','Sale_ID','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes'] },
   { name: 'Resell_History.xlsx', columns: ['Resell_ID','Plot_Shop_Number','Type','Town_Name','Original_Customer','Original_Sell_Date','Original_Amount','Resell_Amount','Refund_Amount','Resell_Date','Receipt_Number','Agent_Name','Profit_Loss'] },
 
     { name: 'Notifications_Log.xlsx', columns: ['Notification_ID','Type','Message','Plot_Shop_Number','Town_Name','Customer_Name','Due_Date','Created_Date','Status','Dismissed'] },

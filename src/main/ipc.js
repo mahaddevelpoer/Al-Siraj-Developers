@@ -855,6 +855,31 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   });
 
   // ─── Resend — Sale Notification Email ─────────────────────────────────────
+  ipcMain.handle('sendDailyEntryRejectionEmail', async (_, { accountantEmail, accountantName, townName, entryDate, entryType, amount, description, reason }) => {
+    const { apiKey } = getEmailConfig();
+    if (!apiKey) return { error: 'Resend API key not configured' };
+    if (!accountantEmail) return { error: 'Accountant email not found' };
+
+    const html = [
+      '<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px">',
+      '<h2 style="color:#b91c1c;margin-bottom:16px">Daily Entry Rejected</h2>',
+      '<p style="color:#475569;font-size:14px;line-height:1.6">Your daily entry request was reviewed by CEO and rejected.</p>',
+      '<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:13px">',
+      `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b">Accountant</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:600">${accountantName || 'Accountant'}</td></tr>`,
+      `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b">Town</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:600">${townName || '-'}</td></tr>`,
+      `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b">Date</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:600">${entryDate || '-'}</td></tr>`,
+      `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b">Type</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:600">${entryType || 'Entry'}</td></tr>`,
+      `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b">Amount</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:600">PKR ${(parseFloat(amount) || 0).toLocaleString()}</td></tr>`,
+      `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b">Description</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:600">${description || '-'}</td></tr>`,
+      '</table>',
+      `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px;color:#991b1b;font-size:13px"><strong>Reason:</strong> ${reason || 'Rejected from CEO review.'}</div>`,
+      '<p style="color:#94a3b8;font-size:11px;margin-top:20px">AL SIRAJ DEVELOPERS - Daily Entries</p>',
+      '</div>',
+    ].join('');
+
+    return sendResendEmail(apiKey, accountantEmail, `Daily Entry Rejected - ${entryDate || 'Review'}`, html);
+  });
+
   ipcMain.handle('sendSaleEmail', async (_, { propertyType, propertyNumber, townName, customerName, totalAmount, agentName }) => {
     const { apiKey, ceoEmail } = getEmailConfig();
     if (!apiKey) return { error: 'Resend API key not configured' };
@@ -1272,6 +1297,10 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   // ─── Pending Collections ──────────────────────────────────────
   ipcMain.handle('get-pending-collections', async (_, agentName) => {
     try {
+      const filter = typeof agentName === 'object' && agentName !== null ? agentName : { agentName };
+      const wanted = [filter.agentName, filter.agentEmail]
+        .map(v => String(v || '').trim().toLowerCase())
+        .filter(Boolean);
       const rows = await getAllSales();
       const data = (rows || [])
         .map((r) => ({
@@ -1280,8 +1309,15 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           Received_Amount: parseFloat(r.Received_Amount || r.Advance_Amount_PKR) || 0,
           Remaining_Amount: parseFloat(r.Remaining_Amount) || Math.max(0, (parseFloat(r.Total_Amount_PKR) || 0) - (parseFloat(r.Received_Amount || r.Advance_Amount_PKR) || 0)),
         }))
+        .filter((r) => ['plot', 'shop'].includes(String(r.Type || '').trim().toLowerCase()))
         .filter((r) => (parseFloat(r.Remaining_Amount) || 0) > 0)
-        .filter((r) => !agentName || String(r.Agent_Name || '').trim().toLowerCase() === String(agentName).trim().toLowerCase());
+        .filter((r) => {
+          if (!wanted.length) return true;
+          const candidates = [r.Agent_Name, r.Agent_Email, r.Agent_ID, r.agent_name, r.agent_email]
+            .map(v => String(v || '').trim().toLowerCase())
+            .filter(Boolean);
+          return candidates.some(v => wanted.includes(v));
+        });
       return { data };
     }
     catch (e) { return { error: e.message }; }
@@ -1290,7 +1326,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('record-pending-collection', async (_, { saleId, amount, paymentMethod, notes, type, plotShopNumber, townName, customerName, agentName, totalAmount, currentReceived }) => {
     try {
       const result = await syncOnline(
-        () => recordCollectionPaymentLocal({ type, plotShopNumber, townName, amount }),
+        () => recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName, amount, paymentMethod, notes }),
         () => onlineDb.recordCollectionPayment(saleId, amount, paymentMethod, notes)
       );
       return { success: true, ...result };
@@ -1298,7 +1334,21 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   });
 
   ipcMain.handle('get-collection-history', async (_, saleId) => {
-    try { return { data: [] }; }
+    try {
+      const { readExcelFile } = require('./db/core');
+      const historyPath = path.join(require('./db/core').getGlobalsPath(), 'Collection_Payments.xlsx');
+      const rows = await readExcelFile(historyPath, 'Data');
+      const data = (rows || [])
+        .filter(r => String(r.Sale_ID || '') === String(saleId || ''))
+        .map(r => ({
+          id: r.Payment_ID,
+          payment_date: r.Payment_Date,
+          amount: r.Amount,
+          payment_method: r.Payment_Method,
+          notes: r.Notes,
+        }));
+      return { data };
+    }
     catch (e) { return { error: e.message }; }
   });
 

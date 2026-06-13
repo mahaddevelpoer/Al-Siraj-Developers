@@ -11,6 +11,7 @@ const supabaseUrl = 'https://wdislbdftnwmaexqtfmn.supabase.co';
 const _fullAnonKey =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkaXNsYmRmdG53bWFleHF0Zm1uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODY0MzksImV4cCI6MjA4NTE2MjQzOX0.hSUYRs4scWmUNZGK0slHeX9t--Of5CZclAhoCRbcXmc';
 const ceoPushTopic = 'ceo-alerts';
+const pushFreshnessWindow = Duration(minutes: 5);
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 final selectedTabNotifier = ValueNotifier<int>(0);
@@ -227,8 +228,8 @@ class _CeoShellState extends State<CeoShell> {
 
   void _listenForFcmMessages() {
     _foregroundPushSub = FirebaseMessaging.onMessage.listen((message) async {
-      await CeoNotificationService.showFromRemoteMessage(message);
-      routeFromPushData(message.data);
+      final shown = await CeoNotificationService.showFromRemoteMessage(message);
+      if (shown) routeFromPushData(message.data);
     });
 
     _openedPushSub = FirebaseMessaging.onMessageOpenedApp.listen((message) {
@@ -975,7 +976,25 @@ class InfoCard extends StatelessWidget {
           ],
           if (actions.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Wrap(spacing: 8, runSpacing: 8, children: actions),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final actionWidth = constraints.maxWidth < 340 ? constraints.maxWidth : 168.0;
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: actions
+                      .map((action) => ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: actionWidth),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: action,
+                            ),
+                          ))
+                      .toList(),
+                );
+              },
+            ),
           ],
         ]),
       ),
@@ -1247,14 +1266,11 @@ class CeoNotificationService {
     _initialized = true;
   }
 
-  static Future<void> showFromRemoteMessage(RemoteMessage message) async {
-    final sentTime = message.sentTime;
-    if (sentTime != null && sentTime.isBefore(appStartedAt.subtract(const Duration(seconds: 5)))) {
-      return;
-    }
-    final messageKey = message.messageId ??
-        '${message.data['table']}:${message.data['event']}:${message.data['id']}:${sentTime?.millisecondsSinceEpoch ?? ''}';
-    if (!_shownMessageKeys.add(messageKey)) return;
+  static Future<bool> showFromRemoteMessage(RemoteMessage message) async {
+    if (!_isFreshMessage(message)) return false;
+
+    final messageKey = _messageDedupeKey(message);
+    if (!_shownMessageKeys.add(messageKey)) return false;
     if (_shownMessageKeys.length > 200) {
       _shownMessageKeys.clear();
       _shownMessageKeys.add(messageKey);
@@ -1263,6 +1279,39 @@ class CeoNotificationService {
     final body = message.notification?.body ?? message.data['body'] ?? 'Open CEO app for details';
     final route = message.data['route'] ?? routeForTable(message.data['table']);
     await show(title, body, payload: route);
+    return true;
+  }
+
+  static bool _isFreshMessage(RemoteMessage message) {
+    final now = DateTime.now();
+    final sentTime = message.sentTime;
+    if (sentTime != null) {
+      if (sentTime.isBefore(appStartedAt.subtract(const Duration(seconds: 30)))) return false;
+      if (now.difference(sentTime) > pushFreshnessWindow) return false;
+    }
+
+    final eventTime = _parsePushTime(message.data['event_time'] ?? message.data['created_at'] ?? message.data['updated_at']);
+    if (eventTime != null && now.difference(eventTime) > pushFreshnessWindow) return false;
+    return true;
+  }
+
+  static String _messageDedupeKey(RemoteMessage message) {
+    final data = message.data;
+    final stableKey = data['dedupe_key'];
+    if (stableKey != null && '$stableKey'.trim().isNotEmpty) return '$stableKey';
+    final table = data['table'] ?? '';
+    final event = data['event'] ?? '';
+    final id = data['id'] ?? '';
+    final route = data['route'] ?? '';
+    if ('$table$event$id$route'.trim().isNotEmpty) {
+      return '$table:$event:$id:$route';
+    }
+    return message.messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
+  }
+
+  static DateTime? _parsePushTime(dynamic value) {
+    if (value == null) return null;
+    return DateTime.tryParse('$value')?.toLocal();
   }
 
   static Future<void> show(String title, String body, {String? payload}) async {
