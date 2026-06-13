@@ -119,7 +119,7 @@ export default function AuthScreen({ onLogin }) {
 
       let { data: profile } = await supabase
         .from('users')
-        .select('role, is_active')
+        .select('role, is_active, agent_town, agent_towns')
         .eq('id', result.user.id)
         .single();
 
@@ -154,6 +154,16 @@ export default function AuthScreen({ onLogin }) {
         throw new Error(`This account is not registered as ${ROLE_STYLES[selectedRole].label}`);
       }
       if (selectedRole !== 'ceo' && !profile.is_active) {
+        if (selectedRole === 'agent') {
+          setRegUserId(result.user.id);
+          setRegEmail(loginEmail);
+          setRegPassword(loginPassword);
+          setRegTown(profile.agent_town || profile.agent_towns || '');
+          setFormMode('register');
+          setRegStep(2);
+          setError('');
+          return;
+        }
         throw new Error('Account not yet activated. Contact CEO for approval.');
       }
       onLogin(selectedRole);
@@ -195,6 +205,7 @@ export default function AuthScreen({ onLogin }) {
         phone_number: regPhone,
         role: selectedRole,
         agent_town: selectedRole === 'agent' ? regTown : null,
+        agent_towns: selectedRole === 'agent' ? regTown : null,
         is_active: selectedRole === 'accountant',
       }]);
       if (profileError) {
@@ -242,23 +253,22 @@ export default function AuthScreen({ onLogin }) {
           setRegOtpId(fallbackAppeal?.id);
         } else {
           setRegOtpId(otpRecord?.id);
-        }
-
-        if (window.api?.sendOtpEmail) {
-          const emailResult = await window.api.sendOtpEmail({
-            otpCode,
-            agentName: regName,
-            agentEmail: regEmail,
-            agentTown: regTown,
-          });
-          if (emailResult?.error) {
-            console.warn('Email send warning:', emailResult.error);
+          if (otpRecord?.id) {
+            await supabase.from('appeals').update({
+              requested_data: {
+                townName: regTown,
+                agent_town: regTown,
+                agent_towns: regTown,
+                email: regEmail,
+                full_name: regName,
+                phone_number: regPhone,
+              },
+              reason: `Agent registration approval request for ${regTown}`,
+            }).eq('id', otpRecord.id);
           }
         }
+
         setRegStep(2);
-        setOtpTimer(600);
-        setOtpValues(['','','','','','']);
-        setRegOtp('');
       } else {
         onLogin(selectedRole);
       }
@@ -292,6 +302,31 @@ export default function AuthScreen({ onLogin }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (selectedRole !== 'agent' || regStep !== 2 || !regUserId) return;
+    const channel = supabase
+      .channel(`agent-approval-wait-${regUserId}`)
+      .on('postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'users',
+          filter: `id=eq.${regUserId}`,
+        },
+        async (payload) => {
+          if (!payload.new?.is_active) return;
+          try {
+            if (regEmail && regPassword) {
+              await auth.signInWithPassword({ email: regEmail, password: regPassword });
+            }
+          } catch (_) {}
+          onLogin('agent', 'CEO approved your account. Agent dashboard is now available.');
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedRole, regStep, regUserId, regEmail, regPassword, onLogin]);
 
   const nextWizStep = () => {
     if (wizStep < 3) setWizStep(wizStep + 1);
@@ -602,10 +637,16 @@ export default function AuthScreen({ onLogin }) {
                 <div className="auth-otp-header">
                   <div className="auth-otp-shield"><IconShield size={32} /></div>
                   <h3 className="auth-form-heading">CEO Approval Required</h3>
-                  <p className="auth-form-subheading">An OTP has been sent to the CEO's email. Ask them for the 6-digit code.</p>
+                  <p className="auth-form-subheading">Your request has been sent to CEO. You cannot access the Agent Dashboard until CEO approves it.</p>
                 </div>
-                <form onSubmit={handleOtpVerify} className="auth-form">
+                <div className="auth-form">
                   {error && <div className="auth-error">{error}</div>}
+                  <div className="auth-pending-card">
+                    <div><strong>Selected town:</strong> {regTown || 'Town not selected'}</div>
+                    <div><strong>Status:</strong> Waiting for CEO approval</div>
+                    <div className="auth-pending-note">This screen will continue automatically as soon as approval is received.</div>
+                  </div>
+                  {false && (
                   <div className="auth-otp-boxes" onPaste={handlePasteOtp}>
                     {otpValues.map((val, idx) => (
                       <input
@@ -623,18 +664,19 @@ export default function AuthScreen({ onLogin }) {
                       />
                     ))}
                   </div>
-                  <div className="auth-otp-timer">
+                  )}
+                  {false && <div className="auth-otp-timer">
                     {otpTimer > 0 ? (
                       <span>Code expires in <strong>{formatTime(otpTimer)}</strong></span>
                     ) : (
                       <span style={{ color: '#dc2626' }}>Code expired — please register again</span>
                     )}
-                  </div>
-                  <button type="submit" className="auth-submit-btn" disabled={loading || regOtp.length !== 6}>
+                  </div>}
+                  {false && <button type="submit" className="auth-submit-btn" disabled={loading || regOtp.length !== 6}>
                     {loading ? <span className="auth-spinner" /> : 'Verify & Complete'}
-                  </button>
-                  <button type="button" className="auth-back-form-btn" onClick={() => { setRegStep(1); setError(''); setWizStep(1); }}>← Back</button>
-                </form>
+                  </button>}
+                  <button type="button" className="auth-back-form-btn" onClick={() => { setRegStep(1); setError(''); setWizStep(1); }}>Back to registration</button>
+                </div>
               </div>
             )}
           </div>

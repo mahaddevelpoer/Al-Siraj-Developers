@@ -88,17 +88,18 @@ const DATE_COLUMNS = new Set([
 
 const TABLE_COLUMNS = {
   towns: ['Town_Name', 'Location', 'Commission_Rate', 'Latitude', 'Longitude', 'Total_Plots', 'Total_Shops', 'Total_Income_PKR', 'Total_Expenses_PKR', 'Profit_Loss', 'Status'],
-  all_sales: ['Sale_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Company_Income', 'Expense_Total', 'Profit_Loss', 'Receipt_Number', 'File_Status', 'Status', 'Sale_Type', 'Payment_Method', 'Cheque_Number', 'Cheque_Bank', 'Cheque_Image', 'Transaction_ID', 'Transfer_Bank', 'Transfer_Image'],
+  all_sales: ['Sale_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Company_Income', 'Expense_Total', 'Profit_Loss', 'Receipt_Number', 'File_Status', 'File_Delivery_Image', 'Status', 'Sale_Type', 'Payment_Method', 'Cheque_Number', 'Cheque_Bank', 'Cheque_Image', 'Transaction_ID', 'Transfer_Bank', 'Transfer_Image'],
   installments: ['Tracker_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Customer_Name', 'Phone_Number', 'Monthly_Amount', 'Due_Date', 'Status', 'Paid_Date', 'Month_Number', 'Total_Months', 'Received_Amount', 'Remaining_Amount', 'Agent_Name'],
   expenses: ['Expense_ID', 'Town_Name', 'Expense_Name', 'Amount_PKR', 'Description', 'Category', 'Date', 'Added_By'],
   ceo_expenses: ['Expense_ID', 'Town_Name', 'Expense_Name', 'Amount_PKR', 'Description', 'Category', 'Date', 'Town_Income', 'Expense_Limit', 'Is_Over_Limit'],
   ceo_salary: ['Salary_ID', 'Town_Name', 'Month_Year', 'Amount_PKR', 'Date_Recorded', 'Notes'],
   notifications: ['Notification_ID', 'Type', 'Message', 'Plot_Shop_Number', 'Town_Name', 'Customer_Name', 'Due_Date', 'Created_Date', 'Status', 'Dismissed'],
+  resell_history: ['Resell_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Original_Customer', 'Original_Sell_Date', 'Original_Amount', 'Resell_Amount', 'Refund_Amount', 'Resell_Date', 'Receipt_Number', 'Agent_Name', 'Profit_Loss'],
   employees_v2: ['Employee_ID', 'Employee_Name', 'CNIC', 'Phone', 'Town_Name', 'Role', 'Salary', 'Status'],
   advance_salaries: ['Advance_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Date', 'Month', 'Status', 'Notes'],
   salary_payments: ['Payment_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Month', 'Payment_Date', 'Payment_Method', 'Notes', 'Recorded_By'],
   daily_entries: ['Entry_ID', 'Town_Name', 'Date', 'Type', 'Category', 'Amount', 'Description', 'Reference', 'Created_By'],
-  properties: ['Property_Type', 'Property_Number', 'Town_Name', 'Property_Size', 'Marla', 'Per_Marla_Price', 'Road_Type', 'Road_Key', 'Total_Price', 'Owner_Name', 'Property_Category', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Expense_Total', 'Profit_Loss', 'Installment_Status', 'Resell_Status', 'Resell_Amount', 'Receipt_Number', 'File_Status', 'Status'],
+  properties: ['Property_Type', 'Property_Number', 'Town_Name', 'Property_Size', 'Marla', 'Per_Marla_Price', 'Road_Type', 'Road_Key', 'Total_Price', 'Owner_Name', 'Property_Category', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Expense_Total', 'Profit_Loss', 'Installment_Status', 'Resell_Status', 'Resell_Amount', 'Receipt_Number', 'File_Status', 'File_Delivery_Image', 'Status'],
 };
 
 function getRowVal(row, key) {
@@ -229,6 +230,7 @@ function mapPlotToCloud(row) {
     Resell_Amount: parseFloat(r.Resell_Amount) || 0,
     Receipt_Number: cloudVal(r.Receipt_Number),
     File_Status: cloudVal(r.File_Status) || 'Not Delivered',
+    File_Delivery_Image: cloudVal(r.File_Delivery_Image),
     Status: cloudVal(r.Status) || 'Available',
   };
 }
@@ -270,6 +272,7 @@ function mapShopToCloud(row) {
     Resell_Amount: parseFloat(r.Resell_Amount) || 0,
     Receipt_Number: cloudVal(r.Receipt_Number),
     File_Status: cloudVal(r.File_Status) || 'Not Delivered',
+    File_Delivery_Image: cloudVal(r.File_Delivery_Image),
     Status: cloudVal(r.Status) || 'Available',
   };
 }
@@ -303,6 +306,7 @@ function mapPropertyFromCloud(row, type) {
     Resell_Amount: parseFloat(getRowVal(row, 'Resell_Amount')) || 0,
     Receipt_Number: getRowVal(row, 'Receipt_Number') || '',
     File_Status: getRowVal(row, 'File_Status') || 'Not Delivered',
+    File_Delivery_Image: getRowVal(row, 'File_Delivery_Image') || '',
     Status: getRowVal(row, 'Status') || 'Available',
     Property_Category: getRowVal(row, 'Property_Category') || (type === 'Plot' ? 'Residential' : 'Commercial'),
   };

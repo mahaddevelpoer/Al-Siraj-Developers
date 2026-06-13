@@ -1113,11 +1113,15 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     'ALTER TABLE public.all_sales ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) DEFAULT \'advance_only\';',
     'ALTER TABLE public.all_sales ADD COLUMN IF NOT EXISTS agent_id UUID REFERENCES public.users(id);',
     'ALTER TABLE public.all_sales ADD COLUMN IF NOT EXISTS property_category VARCHAR(20) DEFAULT \'Residential\';',
+    'ALTER TABLE public.all_sales ADD COLUMN IF NOT EXISTS file_delivery_image TEXT;',
+    'ALTER TABLE public.all_sales ADD COLUMN IF NOT EXISTS cheque_image TEXT;',
+    'ALTER TABLE public.all_sales ADD COLUMN IF NOT EXISTS transfer_image TEXT;',
     'ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT \'available\';',
     'ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS agent_id UUID REFERENCES public.users(id);',
     'ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS sale_id UUID;',
     'ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS installment_active BOOLEAN DEFAULT FALSE;',
     'ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS property_category VARCHAR(20) DEFAULT \'Residential\';',
+    'ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS file_delivery_image TEXT;',
     'CREATE TABLE IF NOT EXISTS public.commissions (',
     '  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),',
     '  agent_id UUID REFERENCES public.users(id) NOT NULL,',
@@ -1399,10 +1403,12 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
 
   // ─── Desktop Notifications ─────────────────────────────────────
   ipcMain.handle('show-notification', (_, { title, body, silent }) => {
+    if (String(storage.getSyncContext()?.role || '').toLowerCase() !== 'ceo') return { skipped: true };
     return showDesktopNotification({ title, body, silent });
   });
 
   ipcMain.on('show-notification-fire', (_, { title, body }) => {
+    if (String(storage.getSyncContext()?.role || '').toLowerCase() !== 'ceo') return;
     showDesktopNotification({ title, body, silent: false });
   });
 

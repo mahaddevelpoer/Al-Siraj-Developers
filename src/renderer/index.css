@@ -5368,3 +5368,20 @@ select:focus,
   border-color: #2563eb !important;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14) !important;
 }
+
+.auth-pending-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  background: rgba(239, 246, 255, 0.92);
+  color: #0f172a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.auth-pending-note {
+  color: #475569;
+  font-size: 12px;
+}

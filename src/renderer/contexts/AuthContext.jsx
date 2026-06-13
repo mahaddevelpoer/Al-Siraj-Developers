@@ -80,6 +80,7 @@ export function AuthProvider({ children }) {
           phone_number: phone,
           role,
           agent_town: town || null,
+          agent_towns: town || null,
           is_active: role === 'accountant',
         }]);
 

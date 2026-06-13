@@ -84,7 +84,7 @@ async function performFullSync(reportProgress = () => {}) {
     const [
       sales, expenses, ceoExpenses, ceoSalary, installments,
       notifications, employees, advanceSalaries, salaryPayments, towns,
-      dailyEntries, commissions
+      dailyEntries, commissions, resellHistory
     ] = await Promise.all([
       onlineDb.getAllSales(),
       onlineDb.getAll('expenses'),
@@ -98,6 +98,7 @@ async function performFullSync(reportProgress = () => {}) {
       onlineDb.getAll('towns'),
       onlineDb.getAll('daily_entries'),
       safeGetAll('commissions'),
+      safeGetAll('resell_history'),
     ]);
 
     reportProgress(30, 'Writing global files...');
@@ -118,8 +119,11 @@ async function performFullSync(reportProgress = () => {}) {
     }));
     await overwriteExcelFile(path.join(globalsPath, 'Commissions.xlsx'), 'Data', COMM_COLS, mappedCommissions);
 
-    const SALES_COLS = ['Sale_ID','Plot_Shop_Number','Type','Town_Name','Customer_Name','CNIC','Phone_Number','Sell_Date','Total_Amount_PKR','Advance_Amount_PKR','Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount','Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount','Company_Income','Expense_Total','Profit_Loss','Receipt_Number','File_Status','Status','Sale_Type','Payment_Method','Cheque_Number','Cheque_Bank','Cheque_Image','Transaction_ID','Transfer_Bank','Transfer_Image'];
+    const SALES_COLS = ['Sale_ID','Plot_Shop_Number','Type','Town_Name','Customer_Name','CNIC','Phone_Number','Sell_Date','Total_Amount_PKR','Advance_Amount_PKR','Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount','Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount','Company_Income','Expense_Total','Profit_Loss','Receipt_Number','File_Status','File_Delivery_Image','Status','Sale_Type','Payment_Method','Cheque_Number','Cheque_Bank','Cheque_Image','Transaction_ID','Transfer_Bank','Transfer_Image'];
     await overwriteExcelFile(path.join(globalsPath, 'All_Sales.xlsx'), 'Data', SALES_COLS, (sales || []).map((r) => mapGenericFromCloud(SALES_COLS, r)));
+
+    const RESELL_COLS = ['Resell_ID','Plot_Shop_Number','Type','Town_Name','Original_Customer','Original_Sell_Date','Original_Amount','Resell_Amount','Refund_Amount','Resell_Date','Receipt_Number','Agent_Name','Profit_Loss'];
+    await overwriteExcelFile(path.join(globalsPath, 'Resell_History.xlsx'), 'Data', RESELL_COLS, (resellHistory || []).map((r) => mapGenericFromCloud(RESELL_COLS, r)));
 
     const EXP_COLS = ['Expense_ID','Town_Name','Expense_Name','Amount_PKR','Description','Category','Date','Added_By'];
     await overwriteExcelFile(path.join(globalsPath, 'All_Expenses.xlsx'), 'Data', EXP_COLS, (expenses || []).map((r) => mapGenericFromCloud(EXP_COLS, r)));

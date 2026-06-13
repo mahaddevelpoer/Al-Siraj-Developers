@@ -224,7 +224,7 @@ function AppInner() {
       channels.push(ch);
     }
 
-    if (userRole === 'agent' || userRole === 'ceo') {
+    if (userRole === 'ceo') {
       const ch = supabase
         .channel('global-installments')
         .on('postgres_changes',
@@ -263,7 +263,6 @@ function AppInner() {
 
             const rd = a.requested_data || {};
             const body = `${rd.type || 'Entry'} ${rd.date || ''} was rejected by CEO`;
-            window.api.showNotification('Daily Entry Rejected', body);
             window.api?.sendDailyEntryRejectionEmail?.({
               accountantEmail: user.email,
               accountantName: userProfile?.full_name || user.email || 'Accountant',
@@ -296,7 +295,7 @@ function AppInner() {
       <>
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
         <AuthScreen
-          onLogin={(role) => {
+          onLogin={(role, message) => {
             if (role === 'accountant') {
               setPanel('choose');
               setPage('dashboard');
@@ -305,6 +304,7 @@ function AppInner() {
               setPage(role === 'ceo' ? 'dashboard' : 'sellFlow');
             }
             setLoggedIn(true);
+            if (message) showToast(message);
           }}
         />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}

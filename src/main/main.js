@@ -33,6 +33,7 @@ const { startBackupScheduler } = require('./db/backup');
 const { upsertDueInstallmentNotifications } = require('./db/globals');
 const { addDailyEntry } = require('./db/dailyEntries');
 const supabase = require('./db/supabase');
+const storageSync = require('./db/storage');
 const { showDesktopNotification } = require('./notificationService');
 
 // Allow OpenStreetMap tiles and Nominatim search through CSP
@@ -57,6 +58,14 @@ let activeWindow;
 let launcherWindow;
 let tray = null;
 let forceQuit = false;
+
+function isCurrentCeoContext() {
+  try {
+    return String(storageSync.getSyncContext()?.role || '').toLowerCase() === 'ceo';
+  } catch (_) {
+    return false;
+  }
+}
 
 // Read startup panel from command line args: --panel ceo OR --panel employee
 const args = process.argv.slice(2);
@@ -411,7 +420,7 @@ app.whenReady().then(async () => {
       const title = first.Type === 'Overdue' ? 'Overdue Installment' : 'Due Installment';
       const body = first.Message || `Installment reminder (${first.Town_Name || ''})`.trim();
 
-      new Notification({ title, body }).show();
+      if (isCurrentCeoContext()) new Notification({ title, body }).show();
     } catch (_) {
       // silent: reminder scheduler should never crash the app
     }
@@ -428,7 +437,7 @@ app.whenReady().then(async () => {
       (payload) => {
         const a = payload.new;
         const win = typeof activeWindow !== 'undefined' ? activeWindow : null;
-        if (a.appeal_type === 'agent_registration' || a.appeal_type === 'appeal') {
+        if (isCurrentCeoContext() && a.status !== 'approved' && a.status !== 'rejected') {
           showDesktopNotification({
             title: 'New ' + (a.appeal_type || 'Appeal'),
             body: (a.requested_by_role || 'Agent') + ' needs CEO approval — ' + (a.reason || a.entity_type || ''),
@@ -469,7 +478,7 @@ app.whenReady().then(async () => {
       reviewStatus: 'approved',
     });
 
-    showDesktopNotification({
+    if (isCurrentCeoContext()) showDesktopNotification({
       title: entry?.duplicate ? 'Daily Entry Already Saved' : 'Daily Entry Saved',
       body: `${rd.type || 'Entry'} ${rd.date} has been saved to local accounts.`,
       silent: true,
@@ -489,7 +498,7 @@ app.whenReady().then(async () => {
       (payload) => {
         applyApprovedDailyEntryAppeal(payload.new).catch((e) => {
           console.error('[appeal-sync] Failed to apply approved daily entry appeal:', e);
-          showDesktopNotification({
+          if (isCurrentCeoContext()) showDesktopNotification({
             title: 'Daily Entry Approval Sync Failed',
             body: e.message || 'Approved appeal could not be saved locally.',
           });
@@ -505,7 +514,7 @@ app.whenReady().then(async () => {
       { event: 'INSERT', schema: 'public', table: 'commissions' },
       (payload) => {
         const c = payload.new;
-        showDesktopNotification({
+        if (isCurrentCeoContext()) showDesktopNotification({
           title: 'New Commission Pending',
           body: 'Commission of PKR ' + (parseFloat(c.commission_amount) || 0).toLocaleString() + ' is pending payment.',
         });
@@ -513,6 +522,22 @@ app.whenReady().then(async () => {
     )
     .subscribe();
   realtimeChannels.push(commissionsChannel);
+
+  const businessNotificationsChannel = supabase
+    .channel('main-business-notifications')
+    .on('postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'notifications' },
+      (payload) => {
+        if (!isCurrentCeoContext()) return;
+        const n = payload.new || {};
+        showDesktopNotification({
+          title: n.Type || n.type || 'Business Notification',
+          body: n.Message || n.message || 'New business activity recorded.',
+        });
+      }
+    )
+    .subscribe();
+  realtimeChannels.push(businessNotificationsChannel);
 
   // Cleanup on quit
   app.on('before-quit', () => {

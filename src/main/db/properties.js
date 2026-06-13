@@ -62,7 +62,7 @@ const PLOT_COLUMNS = [
   'Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount',
   'Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount',
   'Expense_Total','Profit_Loss','Installment_Status','Resell_Status',
-  'Resell_Amount','Receipt_Number','File_Status','Status',
+  'Resell_Amount','Receipt_Number','File_Status','File_Delivery_Image','Status',
   'Property_Category'
 ];
 
@@ -72,7 +72,7 @@ const SHOP_COLUMNS = [
   'Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount',
   'Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount',
   'Expense_Total','Profit_Loss','Installment_Status','Resell_Status',
-  'Resell_Amount','Receipt_Number','File_Status','Status',
+  'Resell_Amount','Receipt_Number','File_Status','File_Delivery_Image','Status',
   'Property_Category'
 ];
 

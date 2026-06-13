@@ -4,7 +4,7 @@ const { getTowns } = require('./towns');
 const { getAllProperties } = require('./properties');
 const {
   getAllSales, getAllExpenses, getCeoExpenses, getCeoSalary,
-  getInstallments, getSalaryRecords,
+  getInstallments, getSalaryRecords, getResellHistory,
 } = require('./globals');
 const EmployeeDB = require('./employees');
 const { getDailyEntries } = require('./dailyEntries');
@@ -76,6 +76,13 @@ async function performFullSyncUp(reportProgress) {
     notifs = await readExcelFile(path.join(getGlobalsPath(), 'Notifications_Log.xlsx'), 'Data');
   } catch (_) {}
   await upsertAll(_admin, 'notifications', pickTableRows('notifications', notifs));
+
+  reportProgress(68, 'Syncing resell history to cloud...');
+  let resellHistory = [];
+  try {
+    resellHistory = await getResellHistory();
+  } catch (_) {}
+  await upsertAll(_admin, 'resell_history', pickTableRows('resell_history', resellHistory));
 
   reportProgress(70, 'Syncing employees to cloud...');
   const empDB = new EmployeeDB(getGlobalsPath());

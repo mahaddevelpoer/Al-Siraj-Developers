@@ -154,6 +154,7 @@ async function createSale(data) {
     Received_Amount: parseFloat(data.Received_Amount || data.Advance_Amount_PKR) || 0,
     Remaining_Amount: parseFloat(data.Remaining_Amount) || Math.max(0, (parseFloat(data.Total_Amount_PKR) || 0) - (parseFloat(data.Advance_Amount_PKR) || 0)),
     File_Status: data.File_Status || 'Not Delivered',
+    File_Delivery_Image: data.File_Delivery_Image || data.deliveryImage || '',
     Status: data.Status || 'Sold',
     Payment_Method: data.Payment_Method || 'Cash',
     Cheque_Number: data.Cheque_Number || '',
