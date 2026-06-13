@@ -19,12 +19,18 @@ DECLARE
   entry_amount NUMERIC;
   entry_description TEXT;
   entry_category TEXT;
+  requested_town TEXT;
+  requested_property_id UUID;
 BEGIN
   IF NOT public.is_ceo() THEN
     RAISE EXCEPTION 'Only CEO can review appeals';
   END IF;
 
   new_status := lower(trim(new_status));
+  UPDATE public.appeals
+  SET status = lower(trim(COALESCE(status, 'pending')))
+  WHERE id = appeal_id;
+
   IF new_status NOT IN ('approved', 'rejected') THEN
     RAISE EXCEPTION 'Invalid review status: %', new_status;
   END IF;
@@ -38,13 +44,38 @@ BEGIN
     RAISE EXCEPTION 'Appeal not found';
   END IF;
 
-  IF COALESCE(appeal_row.status, 'pending') <> 'pending' THEN
+  IF lower(trim(COALESCE(appeal_row.status, 'pending'))) <> 'pending' THEN
     RETURN jsonb_build_object(
       'success', TRUE,
       'status', appeal_row.status,
       'appeal_id', appeal_id,
       'message', 'already ' || appeal_row.status
     );
+  END IF;
+
+  rd := COALESCE(appeal_row.requested_data, '{}'::jsonb);
+  requested_town := btrim(COALESCE(
+    rd->>'townName',
+    rd->>'Town_Name',
+    rd->>'town_name',
+    rd->>'town',
+    rd->>'Town',
+    ''
+  ));
+
+  IF new_status = 'approved'
+     AND appeal_row.appeal_type IN (
+       'agent_registration',
+       'backdated_daily_entry',
+       'future_daily_entry',
+       'date_change',
+       'custom_installment_plan',
+       'property_access_request',
+       'salary_increase',
+       'delete_employee'
+     )
+     AND requested_town = '' THEN
+    RAISE EXCEPTION 'Town name is required before approving this appeal';
   END IF;
 
   UPDATE public.appeals
@@ -64,9 +95,8 @@ BEGIN
 
   IF new_status = 'approved'
      AND appeal_row.appeal_type IN ('backdated_daily_entry', 'future_daily_entry') THEN
-    rd := COALESCE(appeal_row.requested_data, '{}'::jsonb);
     new_entry_id := 'APP-' || replace(appeal_row.id::text, '-', '');
-    entry_town := COALESCE(rd->>'townName', rd->>'Town_Name', rd->>'town_name', '');
+    entry_town := requested_town;
     IF btrim(entry_town) = '' THEN
       RAISE EXCEPTION 'Town name is required before approving this daily entry appeal';
     END IF;
@@ -147,6 +177,24 @@ BEGIN
         date = EXCLUDED.date,
         added_by = EXCLUDED.added_by;
     END IF;
+  END IF;
+
+  IF new_status = 'approved'
+     AND appeal_row.appeal_type = 'property_access_request' THEN
+    SELECT id INTO requested_property_id
+    FROM public.properties
+    WHERE lower(property_type) = lower(COALESCE(appeal_row.entity_type, rd->>'propertyType', rd->>'type', ''))
+      AND property_number = COALESCE(appeal_row.entity_id, rd->>'propertyNumber', rd->>'number', '')
+      AND town_name = requested_town
+    LIMIT 1;
+
+    IF requested_property_id IS NULL THEN
+      RAISE EXCEPTION 'Requested property was not found for access approval';
+    END IF;
+
+    INSERT INTO public.agent_property_access (agent_id, property_id, town_name, created_at)
+    VALUES (appeal_row.requested_by_user_id, requested_property_id, requested_town, NOW())
+    ON CONFLICT DO NOTHING;
   END IF;
 
   RETURN jsonb_build_object(

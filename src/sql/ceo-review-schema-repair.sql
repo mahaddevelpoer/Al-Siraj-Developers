@@ -127,7 +127,9 @@ BEGIN
     entity_id,
     status,
     otp_code,
-    otp_expires_at
+    otp_expires_at,
+    requested_data,
+    reason
   )
   VALUES (
     p_user_id,
@@ -137,13 +139,27 @@ BEGIN
     p_user_id::text,
     'pending',
     p_otp_code,
-    p_otp_expires_at
+    p_otp_expires_at,
+    (
+      SELECT jsonb_build_object(
+        'townName', COALESCE(NULLIF(agent_town, ''), NULLIF(agent_towns, '')),
+        'agent_town', agent_town,
+        'agent_towns', agent_towns,
+        'email', email,
+        'full_name', full_name
+      )
+      FROM public.users
+      WHERE id = p_user_id
+    ),
+    'Agent registration approval request'
   )
   ON CONFLICT (requested_by_user_id, entity_id, appeal_type)
   DO UPDATE SET
     status = 'pending',
     otp_code = EXCLUDED.otp_code,
     otp_expires_at = EXCLUDED.otp_expires_at,
+    requested_data = EXCLUDED.requested_data,
+    reason = EXCLUDED.reason,
     reviewed_at = NULL,
     reviewed_by_user_id = NULL
   RETURNING id INTO new_appeal_id;

@@ -510,8 +510,13 @@ class _AppealsPageState extends State<AppealsPage> {
   Object? _error;
 
   Future<List<Map<String, dynamic>>> _load() async {
-    final data = await supabase.from('appeals').select('*, requested_by_user_id(full_name,email,agent_town)').eq('status', _filter).order('created_at', ascending: false);
-    return List<Map<String, dynamic>>.from(data);
+    final data = await supabase.from('appeals').select('*, requested_by_user_id(full_name,email,agent_town,agent_towns)').order('created_at', ascending: false);
+    final rows = List<Map<String, dynamic>>.from(data)
+        .map((row) => {...row, 'status': normalizeStatus(row['status'])})
+        .where((row) => row['status'] == _filter)
+        .toList();
+    final seen = <String>{};
+    return rows.where((row) => seen.add('${row['id']}')).toList();
   }
 
   Future<void> _refresh() async {
@@ -1351,6 +1356,12 @@ num asNum(dynamic value) {
 
 String pretty(dynamic value) => '${value ?? ''}'.replaceAll('_', ' ').trim();
 
+String normalizeStatus(dynamic status) {
+  final clean = '${status ?? 'pending'}'.trim().toLowerCase();
+  if (clean == 'approved' || clean == 'rejected') return clean;
+  return 'pending';
+}
+
 String titleForTable(dynamic table) {
   switch ('$table') {
     case 'appeals':
@@ -1449,6 +1460,7 @@ bool requiresTownForAppeal(Map<String, dynamic> appeal) {
     'future_daily_entry',
     'date_change',
     'custom_installment_plan',
+    'property_access_request',
     'salary_increase',
     'delete_employee',
   };

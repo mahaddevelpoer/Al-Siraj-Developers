@@ -523,7 +523,38 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
       showToast('Please fill all required fields', 'error'); return;
     }
     if (isAgent && !hasAgentAccessToSelected) {
-      showToast('CEO has not assigned this property to your account.', 'error');
+      try {
+        const existing = await supabase
+          .from('appeals')
+          .select('id')
+          .eq('requested_by_user_id', user?.id)
+          .eq('appeal_type', 'property_access_request')
+          .eq('entity_type', form.type)
+          .eq('entity_id', form.number)
+          .eq('status', 'pending')
+          .maybeSingle();
+
+        if (!existing.data) {
+          await supabase.from('appeals').insert([{
+            requested_by_user_id: user?.id,
+            requested_by_role: 'agent',
+            appeal_type: 'property_access_request',
+            entity_type: form.type,
+            entity_id: form.number,
+            requested_data: {
+              townName: form.townName,
+              propertyType: form.type,
+              propertyNumber: form.number,
+              agentName: form.Agent_Name,
+            },
+            reason: `Agent requested access to ${form.type} ${form.number} in ${form.townName}`,
+            status: 'pending',
+          }]);
+        }
+        showToast('CEO access request sent. This property is not assigned to your account yet.', 'error');
+      } catch (e) {
+        showToast('CEO has not assigned this property to your account. Access request could not be sent.', 'error');
+      }
       return;
     }
     setLoading(true);

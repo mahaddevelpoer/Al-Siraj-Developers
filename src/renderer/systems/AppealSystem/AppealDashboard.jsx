@@ -23,13 +23,20 @@ export default function AppealDashboard() {
   // ⚡ Realtime: auto-refresh + desktop notify on new appeals
   useEffect(() => {
     if (userRole !== 'ceo') return;
+    let refreshTimer;
+    const refreshAppeals = () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        setLoading(true);
+        loadAppeals(activeFilter);
+      }, 120);
+    };
     const channel = supabase
       .channel('appeals-realtime')
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'appeals' },
         (payload) => {
-          setLoading(true);
-          loadAppeals();
+          refreshAppeals();
           const a = payload.new;
           if (window.api?.showNotification) {
             window.api.showNotification(
@@ -41,11 +48,14 @@ export default function AppealDashboard() {
       )
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'appeals' },
-        () => { setLoading(true); loadAppeals(); }
+        refreshAppeals
       )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [userRole]);
+    return () => {
+      clearTimeout(refreshTimer);
+      supabase.removeChannel(channel);
+    };
+  }, [userRole, activeFilter]);
 
   const generateOtp = () => Math.random().toString().substring(2, 8);
 
@@ -93,19 +103,22 @@ export default function AppealDashboard() {
     }
   };
 
-  const loadAppeals = async () => {
+  const loadAppeals = async (filter = activeFilter) => {
     try {
       const { data, error } = await supabase
         .from('appeals')
         .select('*, requested_by_user_id(*)')
-        .eq('status', activeFilter)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setAppeals(data || []);
+      const rows = (data || [])
+        .filter((appeal) => normalizeStatus(appeal.status) === filter)
+        .map((appeal) => ({ ...appeal, status: normalizeStatus(appeal.status) }));
+      const unique = Array.from(new Map(rows.map((appeal) => [appeal.id, appeal])).values());
+      setAppeals(unique);
 
-      if (activeFilter === 'pending' && data?.length) {
-        checkAutoOtp(data);
+      if (filter === 'pending' && unique.length) {
+        checkAutoOtp(unique);
       }
     } catch (error) {
       console.error('Error loading appeals:', error);
@@ -287,6 +300,12 @@ export default function AppealDashboard() {
   );
 }
 
+function normalizeStatus(status) {
+  const clean = String(status || 'pending').trim().toLowerCase();
+  if (clean === 'approved' || clean === 'rejected') return clean;
+  return 'pending';
+}
+
 function appealTownName(appeal) {
   const rd = appeal?.requested_data || {};
   const profile = appeal?.requested_by_user_id || {};
@@ -311,6 +330,7 @@ function requiresTown(appeal) {
     'future_daily_entry',
     'date_change',
     'custom_installment_plan',
+    'property_access_request',
     'salary_increase',
     'delete_employee',
   ].includes(type);

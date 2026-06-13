@@ -214,10 +214,35 @@ export default function AuthScreen({ onLogin }) {
           });
 
         if (otpError) {
-          console.error('OTP insert error:', otpError);
-          throw new Error('OTP setup failed: ' + otpError.message);
+          console.warn('Registration RPC warning, trying direct appeal insert:', otpError.message);
+          const { data: fallbackAppeal, error: fallbackError } = await supabase
+            .from('appeals')
+            .upsert([{
+              requested_by_user_id: userId,
+              requested_by_role: 'agent',
+              appeal_type: 'agent_registration',
+              entity_type: 'agent',
+              entity_id: userId,
+              requested_data: {
+                townName: regTown,
+                agent_town: regTown,
+                agent_towns: regTown,
+                email: regEmail,
+                full_name: regName,
+                phone_number: regPhone,
+              },
+              reason: `Agent registration approval request for ${regTown}`,
+              status: 'pending',
+              otp_code: otpCode,
+              otp_expires_at: expiresAt.toISOString(),
+            }], { onConflict: 'requested_by_user_id,entity_id,appeal_type' })
+            .select('id')
+            .single();
+          if (fallbackError) throw new Error('OTP setup failed: ' + fallbackError.message);
+          setRegOtpId(fallbackAppeal?.id);
+        } else {
+          setRegOtpId(otpRecord?.id);
         }
-        setRegOtpId(otpRecord?.id);
 
         if (window.api?.sendOtpEmail) {
           const emailResult = await window.api.sendOtpEmail({
