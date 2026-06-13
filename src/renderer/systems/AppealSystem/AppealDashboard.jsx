@@ -329,6 +329,7 @@ function requiresTown(appeal) {
     'backdated_daily_entry',
     'future_daily_entry',
     'date_change',
+    'date_change_otp',
     'custom_installment_plan',
     'property_access_request',
     'salary_increase',

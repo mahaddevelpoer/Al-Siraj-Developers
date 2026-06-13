@@ -154,6 +154,82 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
     }
   }, [form.townName, towns]);
 
+  const applyApprovedAppeal = (appeal) => {
+    const rd = appeal?.requested_data || {};
+    if (appeal?.appeal_type === 'date_change' || appeal?.appeal_type === 'date_change_otp') {
+      const nextDate = rd.newDate || rd.date || rd.Sell_Date;
+      if (nextDate) {
+        setForm(f => ({ ...f, Sell_Date: nextDate }));
+        setRequestedDate(nextDate);
+      }
+      setShowDateChangeModal(false);
+      setDateAppealData(null);
+      setDateOtpId(null);
+      setDateOtpInput('');
+      setDateOtpError('');
+      setDateAppealError('');
+      setDateAppealLoading(false);
+      showToast('Date change approved and applied.');
+      return;
+    }
+
+    if (appeal?.appeal_type === 'custom_installment_plan') {
+      setInstallmentAppeal(null);
+      setOtpInput('');
+      setOtpError('');
+      showToast('Custom installment plan approved.');
+    }
+  };
+
+  const applyRejectedAppeal = (appeal) => {
+    if (appeal?.appeal_type === 'date_change' || appeal?.appeal_type === 'date_change_otp') {
+      setShowDateChangeModal(false);
+      setDateAppealData(null);
+      setDateOtpId(null);
+      setDateOtpInput('');
+      setDateOtpError('');
+      setDateAppealError('');
+      setDateAppealLoading(false);
+      showToast('Date change request was rejected by CEO.', 'error');
+      return;
+    }
+
+    if (appeal?.appeal_type === 'custom_installment_plan') {
+      setInstallmentAppeal(null);
+      setOtpInput('');
+      setOtpError('');
+      showToast('Custom installment plan was rejected by CEO.', 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.id || !form.number) return;
+
+    const channel = supabase
+      .channel(`sell-flow-appeals-${user.id}-${form.type}-${form.number}`)
+      .on('postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'appeals',
+          filter: `requested_by_user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const appeal = payload.new;
+          if (!appeal) return;
+          if (appeal.entity_id !== form.number || appeal.entity_type !== form.type) return;
+          if (!['date_change', 'date_change_otp', 'custom_installment_plan'].includes(appeal.appeal_type)) return;
+
+          const status = String(appeal.status || '').trim().toLowerCase();
+          if (status === 'approved') applyApprovedAppeal(appeal);
+          if (status === 'rejected') applyRejectedAppeal(appeal);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id, form.type, form.number]);
+
   useEffect(() => {
     if (form.townName && window.api?.generateReceiptNumber) {
       window.api.generateReceiptNumber(form.townName).then(num => {
@@ -729,7 +805,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
         appeal_type: 'date_change_otp',
         entity_type: form.type,
         entity_id: form.number,
-        requested_data: { newDate: requestedDate, town: form.townName },
+        requested_data: { newDate: requestedDate, town: form.townName, townName: form.townName },
         reason: `Date change: ${form.Sell_Date} → ${requestedDate}`,
         status: 'pending',
         otp_code: otpCode,
@@ -781,7 +857,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
         return;
       }
 
-      await supabase.from('appeals').update({ status: 'approved' }).eq('id', dateOtpId);
+      await supabase.from('appeals').update({ status: 'approved', otp_code: null }).eq('id', dateOtpId);
 
       setForm(f => ({ ...f, Sell_Date: requestedDate }));
       setShowDateChangeModal(false);
@@ -820,18 +896,19 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
         return;
       }
 
-      const { error } = await supabase.from('appeals').insert([{
+      const { data: insertedAppeal, error } = await supabase.from('appeals').insert([{
         requested_by_user_id: user?.id,
         requested_by_role: 'agent',
         appeal_type: 'date_change',
         entity_type: form.type,
         entity_id: form.number,
-        requested_data: { newDate: requestedDate, town: form.townName },
+        requested_data: { newDate: requestedDate, town: form.townName, townName: form.townName },
         reason: dateChangeReason,
         status: 'pending',
-      }]);
+      }]).select().single();
       if (error) throw error;
 
+      setDateOtpId(insertedAppeal?.id || null);
       showToast('Date change appeal submitted to CEO for review');
       setShowDateChangeModal(false);
       setDateAppealLoading(false);
@@ -872,7 +949,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
         return;
       }
       // OTP verified → mark appeal as approved
-      await supabase.from('appeals').update({ status: 'approved' }).eq('id', installmentAppeal.id);
+      await supabase.from('appeals').update({ status: 'approved', otp_code: null }).eq('id', installmentAppeal.id);
       showToast('Custom Installment Plan approved by CEO!');
       setInstallmentAppeal(null);
       setOtpInput('');
