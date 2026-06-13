@@ -6,6 +6,7 @@ const { getInstallments, getDueInstallments, markInstallmentPaid, extendInstallm
 const EmployeeDB = require('./db/employees');
 const { performBackup } = require('./db/backup');
 const { performFullSyncUp } = require('./db/syncUp');
+const { performFullSync } = require('./db/syncDown');
 const { showDesktopNotification } = require('./notificationService');
 const https = require('https');
 const path = require('path');
@@ -382,10 +383,24 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         intervalMs: 5 * 60 * 1000,
         onError: (e) => sendSyncWarning('Cloud file sync error: ' + (e.message || 'Unknown')),
       });
-      storage.runFileSyncCycle().catch((e) => {
+      let fileSync = null;
+      try {
+        fileSync = await storage.runFileSyncCycle();
+      } catch (e) {
+        fileSync = { error: e.message || 'Unknown' };
         sendSyncWarning('Cloud file sync error: ' + (e.message || 'Unknown'));
-      });
-      return { success: true, context: storage.getSyncContext() };
+      }
+      const role = String(storage.getSyncContext()?.role || '').toLowerCase();
+      let databaseSync = null;
+      if (role === 'ceo' || role === 'accountant') {
+        try {
+          databaseSync = await performFullSync(() => {});
+        } catch (e) {
+          databaseSync = { error: e.message || 'Unknown' };
+          sendSyncWarning('Cloud database download error: ' + (e.message || 'Unknown'));
+        }
+      }
+      return { success: true, context: storage.getSyncContext(), fileSync, databaseSync };
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('sync-from-cloud', async (event) => { 
@@ -401,8 +416,14 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const result = await storage.downloadMissingFiles((filePath) => {
         sendProgress(50, `Downloaded ${path.basename(filePath)}`);
       });
+      const role = String(storage.getSyncContext()?.role || '').toLowerCase();
+      let databaseSync = null;
+      if (role === 'ceo' || role === 'accountant') {
+        sendProgress(72, 'Rebuilding local files from cloud database...');
+        databaseSync = await performFullSync(sendProgress);
+      }
       sendProgress(100, 'Sync Complete!');
-      return { success: true, ...result };
+      return { success: true, ...result, databaseSync };
     } catch(e) { return { error: e.message }; } 
   });
 

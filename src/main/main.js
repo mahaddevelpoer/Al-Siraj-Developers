@@ -28,7 +28,7 @@ app.on('quit', () => {
 const path = require('path');
 const fs = require('fs');
 const { registerIpcHandlers } = require('./ipc');
-const { initializeDatabase, configureMirrors } = require('./db/core');
+const { initializeDatabase, configureMirrors, setAfterWriteHook } = require('./db/core');
 const { startBackupScheduler } = require('./db/backup');
 const { upsertDueInstallmentNotifications } = require('./db/globals');
 const { addDailyEntry } = require('./db/dailyEntries');
@@ -323,6 +323,28 @@ app.whenReady().then(async () => {
     const immutableRoot = drive ? path.join(drive + '\\', 'ZameenKhata_Exports') : '';
     configureMirrors({ desktopRoot, immutableRoot });
   } catch (e) { /* ignore */ }
+
+  try {
+    const storage = require('./db/storage');
+    let exactUploadTimer = null;
+    setAfterWriteHook(({ relPath }) => {
+      if (!relPath) return;
+      storage.queueFile(relPath);
+      if (exactUploadTimer) clearTimeout(exactUploadTimer);
+      exactUploadTimer = setTimeout(() => {
+        exactUploadTimer = null;
+        storage.flushUploadQueue().catch((e) => {
+          try {
+            if (activeWindow && !activeWindow.isDestroyed()) {
+              activeWindow.webContents.send('sync-warning', 'Cloud file upload failed: ' + (e.message || 'Unknown'));
+            }
+          } catch (_) {}
+        });
+      }, 800);
+    });
+  } catch (e) {
+    console.warn('[startup] Could not attach storage write hook:', e.message);
+  }
 
   reportSplash(50, 'Preparing Resources...');
   registerIpcHandlers(ipcMain, dbPath, () => activeWindow);

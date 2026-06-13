@@ -497,7 +497,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
     const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     return `${months[d.getMonth()]} ${d.getFullYear()}`;
   });
-  const [baseSalary, setBaseSalary] = useState(employee.baseSalary || 0);
+  const [baseSalary, setBaseSalary] = useState(String(employee.baseSalary || ''));
   const [advanceDeduction, setAdvanceDeduction] = useState(0);
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
@@ -524,11 +524,12 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
     }
   };
 
-  const netAmount = baseSalary - advanceDeduction;
+  const numericBaseSalary = parseFloat(baseSalary) || 0;
+  const netAmount = numericBaseSalary - advanceDeduction;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!month || !baseSalary) {
+    if (!month || numericBaseSalary <= 0) {
       showToast('Please fill all required fields', 'error');
       return;
     }
@@ -561,7 +562,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
       const res = await window.api.recordSalaryPayment({
         employeeName: employee.name,
         designation: employee.designation,
-        amount: baseSalary,
+        amount: numericBaseSalary,
         month,
         townName,
         type: 'Employee',
@@ -581,12 +582,12 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
           employeePhone: employee.phone,
           employeeCNIC: employee.cnic,
           month,
-          amount: baseSalary,
-          baseSalary,
+          amount: numericBaseSalary,
+          baseSalary: numericBaseSalary,
           advanceDeduction,
           newAdvanceGiven: advAmt,
-          netAmount: baseSalary - advanceDeduction,
-          totalDisbursed: baseSalary - advanceDeduction + advAmt,
+          netAmount: numericBaseSalary - advanceDeduction,
+          totalDisbursed: numericBaseSalary - advanceDeduction + advAmt,
           townName,
           note,
           advanceType: advAmt > 0 ? advanceType : null,
@@ -650,7 +651,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
               <input
                 type="number"
                 value={baseSalary}
-                onChange={e => setBaseSalary(parseFloat(e.target.value) || 0)}
+                onChange={e => setBaseSalary(e.target.value)}
                 style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 8, boxSizing: 'border-box' }}
               />
             </div>
@@ -758,7 +759,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
           {/* Summary */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
             {[
-              { label: 'Base Salary', value: `PKR ${baseSalary.toLocaleString()}`, color: '#0f172a' },
+              { label: 'Base Salary', value: `PKR ${numericBaseSalary.toLocaleString()}`, color: '#0f172a' },
               { label: 'Deductions', value: `PKR ${advanceDeduction.toLocaleString()}`, color: '#dc2626' },
               { label: 'Net Amount', value: `PKR ${netAmount.toLocaleString()}`, color: '#15803d' },
             ].map(s => (

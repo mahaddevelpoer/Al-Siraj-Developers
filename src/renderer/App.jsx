@@ -107,6 +107,7 @@ function AppInner() {
   const [ready, setReady] = useState(false);
   const [selectedTown, setSelectedTown] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('zameen_theme') || 'light');
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
@@ -184,6 +185,7 @@ function AppInner() {
 
   useEffect(() => {
     if (!user?.id || !userRole || !window.api?.configureFileSyncContext) return;
+    let cancelled = false;
     window.api.configureFileSyncContext({
       role: userRole,
       userId: user.id,
@@ -191,7 +193,12 @@ function AppInner() {
       agentTowns: userProfile?.agent_towns
         ? String(userProfile.agent_towns).split(',').map(t => t.trim()).filter(Boolean)
         : [],
+    }).then((res) => {
+      if (!cancelled && res && !res.error) {
+        setDataRefreshKey((k) => k + 1);
+      }
     }).catch(() => {});
+    return () => { cancelled = true; };
   }, [user?.id, userRole, userProfile?.agent_town, userProfile?.agent_towns]);
 
   // ─── Real-time desktop notifications ───────────────────────────
@@ -375,7 +382,7 @@ function AppInner() {
               <span className="panel-badge employee">Employee Workspace</span>
             </div>
           </div>
-          <div className="main-body">
+          <div className="main-body" key={`agent-properties-${dataRefreshKey}`}>
             <AgentPropertiesView />
           </div>
           <PoweredByFooter compact />
@@ -391,6 +398,7 @@ function AppInner() {
       <ErrorBoundary>
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
         <CEOProjectsHub
+          key={`ceo-hub-${page}-${dataRefreshKey}`}
           activePage={page}
           onTownSelect={(town) => { setSelectedTown(town); setPage('townDashboard'); }}
           onLogout={() => { localStorage.removeItem('zameen_panel'); localStorage.removeItem('zameen_page'); setLoggedIn(false); setPage('dashboard'); signOut(); }}
@@ -409,6 +417,7 @@ function AppInner() {
       <ErrorBoundary>
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
         <TownDashboard
+          key={`town-dashboard-${selectedTown?.Town_Name || 'none'}-${dataRefreshKey}`}
           selectedTown={selectedTown}
           onBack={() => setPage('dashboard')}
           showToast={showToast}
@@ -478,7 +487,7 @@ function AppInner() {
             </span>
           </div>
         </div>
-        <div className="main-body">{renderPage()}</div>
+        <div className="main-body" key={`${panel}-${page}-${dataRefreshKey}`}>{renderPage()}</div>
         <PoweredByFooter compact />
       </div>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}

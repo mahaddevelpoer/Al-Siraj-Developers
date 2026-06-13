@@ -12,9 +12,11 @@ let MIRRORS = {
 // Prevent concurrent modifications to the same Excel file.
 // Without this, two IPC calls can read the same workbook state and the last write wins.
 const writeChains = new Map(); // filePath -> Promise
+let AFTER_WRITE_HOOK = null;
 
 function setDbPath(p) { DB_PATH = p; }
 function getDbPath() { return DB_PATH; }
+function setAfterWriteHook(fn) { AFTER_WRITE_HOOK = typeof fn === 'function' ? fn : null; }
 
 // Sub-directories
 function getPropertiesPath() { return path.join(DB_PATH, 'Properties'); }
@@ -76,10 +78,15 @@ function configureMirrors({ desktopRoot, immutableRoot }) {
 }
 
 function syncMirrorsForFile(filePath) {
-  if (!MIRRORS.enabled) return;
   if (!filePath || !fs.existsSync(filePath)) return;
   const rel = relFromDb(filePath);
   if (!rel) return;
+  try {
+    if (AFTER_WRITE_HOOK) AFTER_WRITE_HOOK({ filePath, relPath: rel });
+  } catch (e) {
+    console.warn('[core] after-write hook failed:', e.message);
+  }
+  if (!MIRRORS.enabled) return;
 
   // Desktop mirror always updated
   const desktopDest = path.join(MIRRORS.desktopRoot, rel);
@@ -106,6 +113,7 @@ function syncMirrorsForFile(filePath) {
     ensureDir(path.dirname(editedDest));
     fs.copyFileSync(filePath, editedDest);
   }
+
 }
 
 function toFriendlyHeader(key) {
@@ -354,6 +362,7 @@ module.exports = {
   getGlobalsPath,
   getBackupInfoPath,
   configureMirrors,
+  setAfterWriteHook,
   syncMirrorsForFile,
   getHeaderKeys,
   initializeDatabase,
