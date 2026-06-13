@@ -154,6 +154,20 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
     }
   }, [form.townName, towns]);
 
+  const approvedDateKey = (type = form.type, number = form.number, town = form.townName) =>
+    `approved_sale_date_${user?.id || 'user'}_${type || ''}_${town || ''}_${number || ''}`;
+
+  const persistApprovedSaleDate = (nextDate, appeal) => {
+    if (!nextDate || !form.number || !form.type) return;
+    try {
+      localStorage.setItem(approvedDateKey(), JSON.stringify({
+        date: nextDate,
+        appealId: appeal?.id || '',
+        savedAt: new Date().toISOString(),
+      }));
+    } catch (_) {}
+  };
+
   const applyApprovedAppeal = (appeal) => {
     const rd = appeal?.requested_data || {};
     if (appeal?.appeal_type === 'date_change' || appeal?.appeal_type === 'date_change_otp') {
@@ -161,6 +175,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
       if (nextDate) {
         setForm(f => ({ ...f, Sell_Date: nextDate }));
         setRequestedDate(nextDate);
+        persistApprovedSaleDate(nextDate, appeal);
       }
       setShowDateChangeModal(false);
       setDateAppealData(null);
@@ -229,6 +244,49 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
 
     return () => { supabase.removeChannel(channel); };
   }, [user?.id, form.type, form.number]);
+
+  useEffect(() => {
+    if (!user?.id || !form.type || !form.number || !form.townName) return;
+    let cancelled = false;
+
+    const applyPersisted = () => {
+      try {
+        const raw = localStorage.getItem(approvedDateKey());
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (saved?.date) {
+          setForm(f => ({ ...f, Sell_Date: saved.date }));
+          setRequestedDate(saved.date);
+        }
+      } catch (_) {}
+    };
+
+    const loadApprovedDate = async () => {
+      applyPersisted();
+      const { data, error } = await supabase
+        .from('appeals')
+        .select('id, appeal_type, requested_data, reviewed_at, created_at, status')
+        .eq('requested_by_user_id', user.id)
+        .eq('entity_type', form.type)
+        .eq('entity_id', form.number)
+        .in('appeal_type', ['date_change', 'date_change_otp'])
+        .eq('status', 'approved')
+        .order('reviewed_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (cancelled || error || !data?.length) return;
+      const appeal = data[0];
+      const rd = appeal.requested_data || {};
+      const approvedDate = rd.newDate || rd.date || rd.Sell_Date;
+      if (!approvedDate) return;
+      setForm(f => ({ ...f, Sell_Date: approvedDate }));
+      setRequestedDate(approvedDate);
+      persistApprovedSaleDate(approvedDate, appeal);
+    };
+
+    loadApprovedDate().catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.id, form.type, form.number, form.townName]);
 
   useEffect(() => {
     if (form.townName && window.api?.generateReceiptNumber) {
@@ -661,6 +719,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
         showToast(r.error, 'error');
       } else {
         showToast(`${form.type} ${form.number} sold successfully!`);
+        try { localStorage.removeItem(approvedDateKey()); } catch (_) {}
         if (window.api?.sendSaleEmail) {
           window.api.sendSaleEmail({
             propertyType: form.type,
@@ -860,6 +919,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
       await supabase.from('appeals').update({ status: 'approved', otp_code: null }).eq('id', dateOtpId);
 
       setForm(f => ({ ...f, Sell_Date: requestedDate }));
+      persistApprovedSaleDate(requestedDate, { id: dateOtpId });
       setShowDateChangeModal(false);
       setDateAppealData(null);
       setDateOtpId(null);
