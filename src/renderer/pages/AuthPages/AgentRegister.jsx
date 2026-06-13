@@ -18,9 +18,6 @@ export default function AgentRegister() {
   const [selectedTowns, setSelectedTowns] = useState([]);
   const [townSearchQuery, setTownSearchQuery] = useState('');
 
-  const [otp, setOtp] = useState('');
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [otpError, setOtpError] = useState('');
   const [tempUserId, setTempUserId] = useState(null);
 
   useEffect(() => {
@@ -121,44 +118,29 @@ export default function AgentRegister() {
     }
   };
 
-  const handleOtpVerification = async (e) => {
-    e.preventDefault();
-    setOtpLoading(true);
-    setOtpError('');
-
-    try {
-      const { data, error } = await supabase
-        .from('appeals')
-        .select('*')
-        .eq('otp_code', otp)
-        .gt('otp_expires_at', new Date().toISOString())
-        .eq('appeal_type', 'agent_registration')
-        .single();
-
-      if (error || !data) {
-        throw new Error('Invalid or expired OTP code');
-      }
-
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ is_active: true })
-        .eq('id', tempUserId);
-
-      if (updateError) throw updateError;
-
-      await supabase
-        .from('appeals')
-        .update({ otp_code: null, otp_expires_at: null })
-        .eq('id', data.id);
-
-      alert('Account activated! Please login.');
-      window.location.href = '/login';
-    } catch (error) {
-      setOtpError(error.message);
-    } finally {
-      setOtpLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (step !== 3 || !tempUserId) return;
+    const channel = supabase
+      .channel(`agent-register-approval-${tempUserId}`)
+      .on('postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'users',
+          filter: `id=eq.${tempUserId}`,
+        },
+        async (payload) => {
+          if (!payload.new?.is_active) return;
+          try {
+            await auth.signInWithPassword({ email, password });
+          } catch (_) {}
+          alert('CEO approved your account. Agent dashboard is now available.');
+          window.location.href = '/';
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [step, tempUserId, email, password]);
 
   const townNameDisplay = (t) => t.town_name || t.name || '';
 
@@ -190,7 +172,7 @@ export default function AgentRegister() {
           <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             {step === 1 && 'Create your agent account'}
             {step === 2 && 'Which towns will you work in?'}
-            {step === 3 && 'Enter the approval code from CEO'}
+            {step === 3 && 'Waiting for CEO approval'}
           </p>
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
@@ -211,7 +193,7 @@ export default function AgentRegister() {
 
         {step === 1 && (
           <form onSubmit={handleRegister}>
-            <div style={{ marginBottom: 16 }}>
+            {false && <div style={{ marginBottom: 16 }}>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
                 Full Name *
               </label>
@@ -229,7 +211,7 @@ export default function AgentRegister() {
                   fontSize: 13,
                 }}
               />
-            </div>
+            </div>}
 
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
@@ -545,7 +527,7 @@ export default function AgentRegister() {
         )}
 
         {step === 3 && (
-          <form onSubmit={handleOtpVerification}>
+          <div>
             <div style={{
               padding: 14,
               background: '#f0f9ff',
@@ -554,7 +536,7 @@ export default function AgentRegister() {
               marginBottom: 20,
             }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#0c4a6e', marginBottom: 8 }}>
-                {'\u{1F510}'} CEO Verification Required
+                {'\u{1F510}'} CEO Approval Required
               </div>
               <div style={{ fontSize: 11, color: '#0f172a', lineHeight: 1.6 }}>
                 <div style={{ marginBottom: 6 }}>
@@ -571,7 +553,7 @@ export default function AgentRegister() {
                 <div style={{ background: '#fef2f2', padding: 8, borderRadius: 4, marginBottom: 6, border: '1px solid #fecaca' }}>
                   <strong style={{ color: '#991b1b' }}>{'\u26A0\uFE0F'} Next Step:</strong>
                   <div style={{ fontSize: 10, color: '#7f1d1d', marginTop: 4 }}>
-                    CEO will review your details and send a <strong>6-digit verification code</strong> to your email. This code confirms your account activation.
+                    CEO will review your details. You cannot access the Agent Dashboard until CEO approves this request.
                   </div>
                 </div>
               </div>
@@ -605,7 +587,7 @@ export default function AgentRegister() {
               </p>
             </div>
 
-            {otpError && (
+            {false && (
               <div style={{
                 padding: 10,
                 background: '#fee2e2',
@@ -619,24 +601,39 @@ export default function AgentRegister() {
               </div>
             )}
 
-            <button
+            {false && <button
               type="submit"
-              disabled={otpLoading || otp.length !== 6}
+              disabled={true}
               style={{
                 width: '100%',
                 padding: '11px',
-                background: otpLoading || otp.length !== 6 ? 'var(--border-color)' : 'var(--accent-green)',
+                background: 'var(--border-color)',
                 color: 'white',
                 border: 'none',
                 borderRadius: 'var(--radius-md)',
                 fontWeight: 700,
                 fontSize: 13,
-                cursor: otpLoading || otp.length !== 6 ? 'not-allowed' : 'pointer',
-                opacity: otpLoading || otp.length !== 6 ? 0.6 : 1,
+                cursor: 'not-allowed',
+                opacity: 0.6,
               }}
             >
-              {otpLoading ? '\u23F3 Verifying...' : '\u2705 Verify & Activate'}
-            </button>
+              Waiting for CEO
+            </button>}
+
+            <div style={{
+              padding: 12,
+              background: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: 'var(--radius-md)',
+              marginBottom: 16,
+              fontSize: 12,
+              color: '#0f172a',
+              lineHeight: 1.6,
+            }}>
+              <div><strong>Status:</strong> Waiting for CEO approval</div>
+              <div><strong>Bound towns:</strong> {selectedTownOption === 'all' ? towns.map(t => townNameDisplay(t)).join(', ') : selectedTowns.join(', ')}</div>
+              <div style={{ color: '#475569', marginTop: 6 }}>This screen will continue automatically when CEO approves your account.</div>
+            </div>
 
             <button
               type="button"
@@ -668,7 +665,7 @@ export default function AgentRegister() {
             }}>
               {'\u{1F4A1}'} CEO will send code within 5-10 minutes. Check your email spam folder if not received.
             </div>
-          </form>
+          </div>
         )}
       </div>
     </div>
