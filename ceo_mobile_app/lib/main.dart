@@ -11,7 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:lottie/lottie.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:shimmer/shimmer.dart';
-import 'package:staggered_animations/staggered_animations.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const supabaseUrl = 'https://wdislbdftnwmaexqtfmn.supabase.co';
