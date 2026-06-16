@@ -35,8 +35,16 @@ dependencies:
   firebase_core: ^4.3.0
   firebase_messaging: ^16.1.0
   flutter_local_notifications: ^19.4.2
+  flutter_animate: ^4.5.2
+  google_fonts: ^6.2.1
   intl: ^0.20.2
+  lottie: ^3.3.1
+  percent_indicator: ^4.2.4
+  shimmer: ^3.0.0
+  smooth_page_indicator: ^1.2.1
+  staggered_animations: ^1.1.1
   supabase_flutter: ^2.10.3
+  cached_network_image: ^3.4.1
 
 dev_dependencies:
   flutter_test:
