@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() {
   setUpAll(() async {
-    await Supabase.initialize(url: supabaseUrl, anonKey: _testAnonKey);
+    await Supabase.initialize(url: supabaseUrl, publishableKey: _testAnonKey);
   });
 
   testWidgets('shows CEO login screen', (tester) async {

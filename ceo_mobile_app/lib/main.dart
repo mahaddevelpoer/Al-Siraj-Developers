@@ -13,6 +13,8 @@ import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
 const supabaseUrl = 'https://wdislbdftnwmaexqtfmn.supabase.co';
 const _fullAnonKey =
@@ -33,7 +35,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  await Supabase.initialize(url: supabaseUrl, anonKey: _fullAnonKey);
+  await Supabase.initialize(url: supabaseUrl, publishableKey: _fullAnonKey);
   await CeoNotificationService.init();
   runApp(const CeoMobileApp());
 }
@@ -143,6 +145,17 @@ class CeoMobileApp extends StatelessWidget {
         ),
       ),
       home: const AuthGate(),
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        final scale = media.textScaler
+            .scale(1)
+            .clamp(0.9, media.size.width < 380 ? 1.08 : 1.18)
+            .toDouble();
+        return MediaQuery(
+          data: media.copyWith(textScaler: TextScaler.linear(scale)),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
 }
@@ -407,7 +420,7 @@ class PremiumBackground extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: RadialGradient(
-                colors: [kPrimary.withOpacity(.18), Colors.transparent],
+                colors: [kPrimary.withValues(alpha: .18), Colors.transparent],
               ),
             ),
           ),
@@ -421,7 +434,7 @@ class PremiumBackground extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: RadialGradient(
-                colors: [kSecondary.withOpacity(.14), Colors.transparent],
+                colors: [kSecondary.withValues(alpha: .14), Colors.transparent],
               ),
             ),
           ),
@@ -457,12 +470,12 @@ class GlassCard extends StatelessWidget {
             curve: Curves.easeOutCubic,
             padding: padding,
             decoration: BoxDecoration(
-              color: kSurface.withOpacity(.96),
+              color: kSurface.withValues(alpha: .96),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withOpacity(.8)),
+              border: Border.all(color: Colors.white.withValues(alpha: .8)),
               boxShadow: [
                 BoxShadow(
-                  color: kPrimary.withOpacity(.08),
+                  color: kPrimary.withValues(alpha: .08),
                   blurRadius: 32,
                   offset: const Offset(0, 8),
                 ),
@@ -545,7 +558,7 @@ class GradientIconBox extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: colors.first.withOpacity(.22),
+            color: colors.first.withValues(alpha: .22),
             blurRadius: 22,
             offset: const Offset(0, 10),
           ),
@@ -599,7 +612,9 @@ class PremiumProgress extends StatelessWidget {
         animation: false,
         barRadius: const Radius.circular(99),
         backgroundColor: kBorder,
-        linearGradient: LinearGradient(colors: [color, color.withOpacity(.65)]),
+        linearGradient: LinearGradient(
+          colors: [color, color.withValues(alpha: .65)],
+        ),
       ),
     );
   }
@@ -678,11 +693,12 @@ class _CeoShellState extends State<CeoShell> {
       await FirebaseMessaging.instance
           .unsubscribeFromTopic(ceoPushTopic)
           .catchError((_) {});
-      if (mounted)
+      if (mounted) {
         setState(
           () => _pushStatus =
               'Push setup failed. Re-login and allow notifications.',
         );
+      }
     }
   }
 
@@ -846,7 +862,7 @@ class _CeoShellState extends State<CeoShell> {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: kPrimary.withOpacity(.26),
+                    color: kPrimary.withValues(alpha: .26),
                     blurRadius: 26,
                     offset: const Offset(0, 12),
                   ),
@@ -894,12 +910,12 @@ class PremiumBottomNav extends StatelessWidget {
               height: 72,
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(.92),
+                color: Colors.white.withValues(alpha: .92),
                 borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: Colors.white.withOpacity(.8)),
+                border: Border.all(color: Colors.white.withValues(alpha: .8)),
                 boxShadow: [
                   BoxShadow(
-                    color: kPrimary.withOpacity(.14),
+                    color: kPrimary.withValues(alpha: .14),
                     blurRadius: 30,
                     offset: const Offset(0, 12),
                   ),
@@ -918,7 +934,7 @@ class PremiumBottomNav extends StatelessWidget {
                           margin: const EdgeInsets.symmetric(horizontal: 3),
                           decoration: BoxDecoration(
                             color: currentIndex == i
-                                ? kPrimary.withOpacity(.12)
+                                ? kPrimary.withValues(alpha: .12)
                                 : Colors.transparent,
                             borderRadius: BorderRadius.circular(22),
                           ),
@@ -1589,6 +1605,152 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   }
 }
 
+class DailyLedgerReceiptPage extends StatelessWidget {
+  const DailyLedgerReceiptPage({super.key});
+
+  Future<List<Map<String, dynamic>>> _loadToday() async {
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final data = await supabase
+        .from('daily_entries')
+        .select('*')
+        .order('created_at', ascending: false);
+    return List<Map<String, dynamic>>.from(
+      data,
+    ).where((row) => '${rowVal(row, 'Date')}'.startsWith(today)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _loadToday(),
+      builder: (context, snap) {
+        final rows = snap.data ?? const <Map<String, dynamic>>[];
+        final incomeRows = rows
+            .where((row) => '${rowVal(row, 'Type')}'.toLowerCase() == 'income')
+            .toList();
+        final expenseRows = rows
+            .where((row) => '${rowVal(row, 'Type')}'.toLowerCase() == 'expense')
+            .toList();
+        final income = incomeRows.fold<num>(
+          0,
+          (sum, row) => sum + asNum(rowVal(row, 'Amount')),
+        );
+        final expense = expenseRows.fold<num>(
+          0,
+          (sum, row) => sum + asNum(rowVal(row, 'Amount')),
+        );
+        final net = income - expense;
+
+        return RefreshIndicator(
+          onRefresh: () async => (context as Element).markNeedsBuild(),
+          child: PremiumScrollView(
+            children: [
+              HeaderBlock(
+                title: 'Daily ledger receipt',
+                subtitle:
+                    'Full income and expense receipt for ${shortDate.format(DateTime.now())}.',
+              ),
+              if (snap.hasError)
+                ErrorBlock(error: friendlyDbError(snap.error!)),
+              if (!snap.hasData && !snap.hasError) const SkeletonList(),
+              if (snap.hasData) ...[
+                GlassCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Today summary',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      MetricGrid(
+                        metrics: [
+                          Metric(
+                            'Income',
+                            money.format(income),
+                            Icons.trending_up_rounded,
+                            const Color(0xFF0F766E),
+                          ),
+                          Metric(
+                            'Expenses',
+                            money.format(expense),
+                            Icons.trending_down_rounded,
+                            const Color(0xFFBE123C),
+                          ),
+                          Metric(
+                            'Net',
+                            money.format(net),
+                            Icons.account_balance_wallet_rounded,
+                            net >= 0
+                                ? const Color(0xFF2563EB)
+                                : const Color(0xFFB45309),
+                          ),
+                          Metric(
+                            'Entries',
+                            '${rows.length}',
+                            Icons.receipt_long_rounded,
+                            const Color(0xFF7C3AED),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SectionLabel('Income entries'),
+                if (incomeRows.isEmpty)
+                  const EmptyBlock(text: 'No income entered today.'),
+                for (var i = 0; i < incomeRows.length; i++)
+                  AnimatedEntry(
+                    index: i,
+                    child: _LedgerEntryCard(row: incomeRows[i], positive: true),
+                  ),
+                const SectionLabel('Expense entries'),
+                if (expenseRows.isEmpty)
+                  const EmptyBlock(text: 'No expenses entered today.'),
+                for (var i = 0; i < expenseRows.length; i++)
+                  AnimatedEntry(
+                    index: i,
+                    child: _LedgerEntryCard(
+                      row: expenseRows[i],
+                      positive: false,
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LedgerEntryCard extends StatelessWidget {
+  const _LedgerEntryCard({required this.row, required this.positive});
+  final Map<String, dynamic> row;
+  final bool positive;
+
+  @override
+  Widget build(BuildContext context) {
+    return InfoCard(
+      icon: VectorBadge(
+        kind: positive ? BadgeKind.money : BadgeKind.alert,
+        size: 24,
+      ),
+      title:
+          '${positive ? '+' : '-'} ${money.format(asNum(rowVal(row, 'Amount')))}',
+      subtitle:
+          '${rowVal(row, 'Town_Name') ?? 'No town'} - ${rowVal(row, 'Category') ?? 'General'}',
+      meta:
+          '${formatDate(rowVal(row, 'Date'))} - ${row['review_status'] ?? 'pending'}',
+      body: '${rowVal(row, 'Description') ?? ''}',
+    );
+  }
+}
+
 class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
 
@@ -1693,7 +1855,7 @@ class MorePage extends StatelessWidget {
       ),
       MoreItem(
         'Notifications',
-        'Installments, file, and business alerts.',
+        'In-app business notices. Push alerts are limited to approvals.',
         const VectorBadge(kind: BadgeKind.alert),
         () {
           Navigator.of(context).push(
@@ -1701,6 +1863,21 @@ class MorePage extends StatelessWidget {
               const DetailScaffold(
                 title: 'Notifications',
                 child: NotificationsPage(),
+              ),
+            ),
+          );
+        },
+      ),
+      MoreItem(
+        'Daily ledger receipt',
+        'Today\'s full income and expense receipt.',
+        const VectorBadge(kind: BadgeKind.money),
+        () {
+          Navigator.of(context).push(
+            premiumRoute(
+              const DetailScaffold(
+                title: 'Daily ledger receipt',
+                child: DailyLedgerReceiptPage(),
               ),
             ),
           );
@@ -1792,6 +1969,28 @@ class MoreItem {
   final String subtitle;
   final Widget icon;
   final VoidCallback onTap;
+}
+
+class SectionLabel extends StatelessWidget {
+  const SectionLabel(this.text, {super.key});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(top: 10, bottom: 10),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: kText,
+          fontSize: 15,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
 }
 
 class DetailScaffold extends StatelessWidget {
@@ -1927,9 +2126,9 @@ class StatusStrip extends StatelessWidget {
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: kPrimary.withOpacity(.08),
+                  color: kPrimary.withValues(alpha: .08),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: kPrimary.withOpacity(.16)),
+                  border: Border.all(color: kPrimary.withValues(alpha: .16)),
                 ),
                 child: Text(
                   item,
@@ -2011,7 +2210,7 @@ class MetricGrid extends StatelessWidget {
                               size: 46,
                               colors: [
                                 metrics[i].color,
-                                metrics[i].color.withOpacity(.62),
+                                metrics[i].color.withValues(alpha: .62),
                               ],
                             ),
                             const Spacer(),
@@ -2336,9 +2535,9 @@ class StatusPill extends StatelessWidget {
       margin: const EdgeInsets.only(left: 8),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
+        color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.22)),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
       ),
       child: Text(
         clean,
@@ -2500,9 +2699,9 @@ class VectorBadge extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(size * 0.34),
-        border: Border.all(color: color.withOpacity(0.24)),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
       ),
       child: CustomPaint(
         painter: BadgePainter(kind: kind, color: color),
@@ -2632,10 +2831,12 @@ class BadgePainter extends CustomPainter {
 
 Widget badgeForStatus(String status) {
   final clean = status.toLowerCase();
-  if (clean == 'approved')
+  if (clean == 'approved') {
     return const VectorBadge(kind: BadgeKind.approve, size: 24);
-  if (clean == 'rejected')
+  }
+  if (clean == 'rejected') {
     return const VectorBadge(kind: BadgeKind.reject, size: 24);
+  }
   return const VectorBadge(kind: BadgeKind.pending, size: 24);
 }
 
@@ -2647,6 +2848,8 @@ class CeoNotificationService {
 
   static Future<void> init() async {
     if (_initialized) return;
+    tzdata.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('Asia/Karachi'));
     const android = AndroidInitializationSettings(
       '@drawable/ic_stat_ceo_notification',
     );
@@ -2673,15 +2876,28 @@ class CeoNotificationService {
       const AndroidNotificationChannel(
         'ceo_live_alerts',
         'CEO Live Alerts',
-        description: 'Appeals, notifications, and daily-entry review alerts.',
+        description: 'Pending appeal alerts for CEO review.',
+        importance: Importance.high,
+      ),
+    );
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        'ceo_daily_ledger',
+        'Daily Ledger Receipt',
+        description: 'Daily 8 PM income and expense ledger receipt.',
         importance: Importance.high,
       ),
     );
     await androidPlugin?.requestNotificationsPermission();
+    await scheduleDailyLedgerReceipt();
     _initialized = true;
   }
 
   static Future<bool> showFromRemoteMessage(RemoteMessage message) async {
+    if ('${message.data['table']}'.trim() != 'appeals') return false;
+    if ('${message.data['status'] ?? 'pending'}'.toLowerCase() != 'pending') {
+      return false;
+    }
     if (!_isFreshMessage(message)) return false;
 
     final messageKey = _messageDedupeKey(message);
@@ -2707,8 +2923,11 @@ class CeoNotificationService {
     final now = DateTime.now();
     final sentTime = message.sentTime;
     if (sentTime != null) {
-      if (sentTime.isBefore(appStartedAt.subtract(const Duration(seconds: 30))))
+      if (sentTime.isBefore(
+        appStartedAt.subtract(const Duration(seconds: 30)),
+      )) {
         return false;
+      }
       if (now.difference(sentTime) > pushFreshnessWindow) return false;
     }
 
@@ -2717,16 +2936,18 @@ class CeoNotificationService {
           message.data['created_at'] ??
           message.data['updated_at'],
     );
-    if (eventTime != null && now.difference(eventTime) > pushFreshnessWindow)
+    if (eventTime != null && now.difference(eventTime) > pushFreshnessWindow) {
       return false;
+    }
     return true;
   }
 
   static String _messageDedupeKey(RemoteMessage message) {
     final data = message.data;
     final stableKey = data['dedupe_key'];
-    if (stableKey != null && '$stableKey'.trim().isNotEmpty)
+    if (stableKey != null && '$stableKey'.trim().isNotEmpty) {
       return '$stableKey';
+    }
     final table = data['table'] ?? '';
     final event = data['event'] ?? '';
     final id = data['id'] ?? '';
@@ -2747,8 +2968,7 @@ class CeoNotificationService {
     const android = AndroidNotificationDetails(
       'ceo_live_alerts',
       'CEO Live Alerts',
-      channelDescription:
-          'Appeals, notifications, and daily-entry review alerts.',
+      channelDescription: 'Pending appeal alerts for CEO review.',
       importance: Importance.high,
       priority: Priority.high,
       icon: 'ic_stat_ceo_notification',
@@ -2757,6 +2977,39 @@ class CeoNotificationService {
     const details = NotificationDetails(android: android);
     final id = DateTime.now().millisecondsSinceEpoch.remainder(1000000);
     await _plugin.show(id, title, body, details, payload: payload);
+  }
+
+  static Future<void> scheduleDailyLedgerReceipt() async {
+    const android = AndroidNotificationDetails(
+      'ceo_daily_ledger',
+      'Daily Ledger Receipt',
+      channelDescription: 'Daily 8 PM income and expense ledger receipt.',
+      importance: Importance.high,
+      priority: Priority.high,
+      icon: 'ic_stat_ceo_notification',
+      largeIcon: DrawableResourceAndroidBitmap('app_icon'),
+      category: AndroidNotificationCategory.reminder,
+    );
+    const details = NotificationDetails(android: android);
+    await _plugin.zonedSchedule(
+      800200,
+      'Daily ledger receipt ready',
+      'Tap to view today\'s full income and expense report.',
+      _nextEightPm(),
+      details,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.time,
+      payload: 'daily_report',
+    );
+  }
+
+  static tz.TZDateTime _nextEightPm() {
+    final now = tz.TZDateTime.now(tz.local);
+    var scheduled = tz.TZDateTime(tz.local, now.year, now.month, now.day, 20);
+    if (!scheduled.isAfter(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
+    }
+    return scheduled;
   }
 }
 
@@ -2807,6 +3060,22 @@ String routeForTable(dynamic table) {
 
 void routeFromPushData(Map<String, dynamic> data) {
   final route = data['route'] ?? routeForTable(data['table']);
+  if ('$route' == 'daily_report') {
+    selectedTabNotifier.value = 3;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final nav = appNavigatorKey.currentState;
+      if (nav == null) return;
+      nav.push(
+        premiumRoute(
+          const DetailScaffold(
+            title: 'Daily ledger receipt',
+            child: DailyLedgerReceiptPage(),
+          ),
+        ),
+      );
+    });
+    return;
+  }
   final nextTab = switch ('$route') {
     'appeals' => 1,
     'entries' => 2,

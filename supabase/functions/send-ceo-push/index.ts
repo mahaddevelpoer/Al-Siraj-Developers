@@ -1,7 +1,7 @@
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const FCM_AUDIENCE = "https://oauth2.googleapis.com/token";
 const CEO_TOPIC = "ceo-alerts";
-const PUSHABLE_TABLES = new Set(["appeals", "notifications", "daily_entries"]);
+const PUSHABLE_TABLES = new Set(["appeals"]);
 const MAX_RECORD_AGE_MS = 5 * 60 * 1000;
 let cachedAccessToken = "";
 let cachedAccessTokenExpiresAt = 0;
@@ -110,22 +110,6 @@ function buildSafeMessage(payload: PushPayload) {
     };
   }
 
-  if (table === "notifications") {
-    return {
-      title: event === "UPDATE" ? "Notification updated" : "Business notification",
-      body: "A business alert needs CEO attention",
-      data,
-    };
-  }
-
-  if (table === "daily_entries") {
-    return {
-      title: event === "UPDATE" ? "Daily entry updated" : "Daily entry added",
-      body: "An income or expense entry needs CEO review",
-      data,
-    };
-  }
-
   if (table === "all_sales") {
     return {
       title: event === "UPDATE" ? "Sale updated" : "Property sold",
@@ -178,10 +162,6 @@ function shouldSkipPush(payload: PushPayload) {
     return "appeal_not_pending";
   }
 
-  if (table === "daily_entries" && String(record.review_status || record.Review_Status || "pending").toLowerCase() !== "pending") {
-    return "daily_entry_not_pending";
-  }
-
   if (event === "UPDATE" && unchangedPushState(table, record, oldRecord)) {
     return "unchanged_push_state";
   }
@@ -204,10 +184,6 @@ function unchangedPushState(
 ) {
   if (table === "appeals") {
     return String(record.status || "") === String(oldRecord.status || "");
-  }
-  if (table === "daily_entries") {
-    return String(record.review_status || record.Review_Status || "") ===
-      String(oldRecord.review_status || oldRecord.Review_Status || "");
   }
   if (table === "notifications") {
     return String(record.dismissed || record.Dismissed || "") ===
@@ -270,7 +246,7 @@ function fingerprintRecord(record: Record<string, unknown>) {
 function routeForTable(table: string) {
   if (table === "appeals") return "appeals";
   if (table === "notifications") return "notifications";
-  if (table === "daily_entries") return "entries";
+  if (table === "daily_entries") return "daily_report";
   if (table === "all_sales") return "activity";
   if (table === "properties") return "activity";
   if (table === "expenses") return "activity";
