@@ -10,6 +10,10 @@ const ROAD_TYPES = [
   { key: 'Road_80', label: '80 Foot Road', Icon: RulerIcon },
   { key: 'Custom_Price', label: 'Custom Road', Icon: EditIcon, hasName: true, nameKey: 'Custom_Name' },
   { key: 'Plot_Price', label: 'Plot Per Marla Price', Icon: PlotIcon, isPlot: true },
+  { key: 'Residential_Plot_Price', label: 'Residential Plot Per Marla', Icon: PlotIcon, isPlot: true },
+  { key: 'Commercial_Plot_Price', label: 'Commercial Plot Per Marla', Icon: PlotIcon, isPlot: true },
+  { key: 'Residential_Shop_Price', label: 'Residential Shop Per Marla', Icon: WalletIcon },
+  { key: 'Commercial_Shop_Price', label: 'Commercial Shop Per Marla', Icon: WalletIcon },
 ];
 
 export default function TownPrices({ showToast, townName }) {
@@ -19,6 +23,8 @@ export default function TownPrices({ showToast, townName }) {
   const [prices, setPrices] = useState({
     Road_30: '', Road_40: '', Road_50: '', Road_60: '', Road_80: '',
     Custom_Name: '', Custom_Price: '', Plot_Price: '',
+    Residential_Plot_Price: '', Commercial_Plot_Price: '',
+    Residential_Shop_Price: '', Commercial_Shop_Price: '',
   });
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -29,7 +35,7 @@ export default function TownPrices({ showToast, townName }) {
 
   useEffect(() => {
     if (!selectedTown) return;
-    setPrices({ Road_30: '', Road_40: '', Road_50: '', Road_60: '', Road_80: '', Custom_Name: '', Custom_Price: '', Plot_Price: '' });
+    setPrices({ Road_30: '', Road_40: '', Road_50: '', Road_60: '', Road_80: '', Custom_Name: '', Custom_Price: '', Plot_Price: '', Residential_Plot_Price: '', Commercial_Plot_Price: '', Residential_Shop_Price: '', Commercial_Shop_Price: '' });
     setSaved(false);
     if (window.api) {
       window.api.getTownPrices(selectedTown).then(d => {
@@ -43,6 +49,10 @@ export default function TownPrices({ showToast, townName }) {
             Custom_Name: d.Custom_Name || '',
             Custom_Price: d.Custom_Price || '',
             Plot_Price: d.Plot_Price || '',
+            Residential_Plot_Price: d.Residential_Plot_Price || d.Plot_Price || '',
+            Commercial_Plot_Price: d.Commercial_Plot_Price || '',
+            Residential_Shop_Price: d.Residential_Shop_Price || '',
+            Commercial_Shop_Price: d.Commercial_Shop_Price || '',
           });
         }
       });

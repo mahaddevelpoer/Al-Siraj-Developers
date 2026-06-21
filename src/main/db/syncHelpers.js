@@ -21,6 +21,15 @@ const UPSERT_CONFLICT = {
   salary_records: 'receipt_number',
   salary_payments: 'receipt_number',
   daily_entries: 'entry_id',
+  town_agents: 'agent_id',
+  investors: 'investor_id',
+  investor_transactions: 'transaction_id',
+  construction_projects: 'project_id',
+  construction_payments: 'payment_id',
+  commission_receipts: 'receipt_id',
+  receipt_archive: 'receipt_id',
+  money_ledger: 'ledger_id',
+  town_financial_summary: 'town_name',
 };
 
 const GLOBAL_KEY_MAP = {
@@ -75,9 +84,7 @@ const TABLE_KEY_MAP = {
   },
 };
 
-const TABLE_SKIP_KEYS = {
-  towns: new Set(['total_plots', 'total_shops', 'Total_Plots', 'Total_Shops']),
-};
+const TABLE_SKIP_KEYS = {};
 
 const PROPERTY_TYPES = new Set(['Plot', 'Shop']);
 
@@ -99,7 +106,16 @@ const TABLE_COLUMNS = {
   advance_salaries: ['Advance_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Date', 'Month', 'Status', 'Notes'],
   salary_payments: ['Payment_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Month', 'Payment_Date', 'Payment_Method', 'Notes', 'Recorded_By'],
   daily_entries: ['Entry_ID', 'Town_Name', 'Date', 'Type', 'Category', 'Amount', 'Description', 'Reference', 'Created_By'],
-  properties: ['Property_Type', 'Property_Number', 'Town_Name', 'Property_Size', 'Marla', 'Per_Marla_Price', 'Road_Type', 'Road_Key', 'Total_Price', 'Owner_Name', 'Property_Category', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Expense_Total', 'Profit_Loss', 'Installment_Status', 'Resell_Status', 'Resell_Amount', 'Receipt_Number', 'File_Status', 'File_Delivery_Image', 'Status'],
+  properties: ['Property_Type', 'Property_Number', 'Town_Name', 'Property_Size', 'Marla', 'Length_Ft', 'Width_Ft', 'Area_Sqft', 'Per_Marla_Price', 'Road_Type', 'Road_Key', 'Total_Price', 'Owner_Name', 'Property_Category', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Expense_Total', 'Profit_Loss', 'Installment_Status', 'Resell_Status', 'Resell_Amount', 'Receipt_Number', 'File_Status', 'File_Delivery_Image', 'Status'],
+  town_agents: ['Agent_ID','Town_Name','Agent_Name','Phone_Number','CNIC','Address','Notes','Status','Created_At'],
+  investors: ['Investor_ID','Town_Name','Investor_Name','Phone_Number','CNIC','Address','Notes','Balance','Status','Created_At','Approval_Status'],
+  investor_transactions: ['Transaction_ID','Investor_ID','Town_Name','Investor_Name','Type','Amount','Date','Notes','Balance_After','Receipt_Number','Created_By'],
+  construction_projects: ['Project_ID','Town_Name','Category','Constructor_Name','Phone_Number','Company_Name','Material_Name','Material_Quantity','Material_Rate','Deal_Amount','Paid_Amount','Remaining_Amount','Status','Start_Date','Notes','Deal_Receipt_Number'],
+  construction_payments: ['Payment_ID','Project_ID','Town_Name','Category','Constructor_Name','Amount','Payment_Date','Material_Name','Material_Quantity','Material_Rate','Remaining_After','Receipt_Number','Notes','Created_By'],
+  commission_receipts: ['Receipt_ID','Commission_ID','Sale_ID','Town_Name','Agent_Name','Plot_Shop_Number','Amount','Paid_Date','Receipt_Number','Paid_By'],
+  receipt_archive: ['Receipt_ID','Receipt_Number','Receipt_Type','Town_Name','Entity_ID','Entity_Name','Amount','Receipt_Date','Payload_JSON','Created_At'],
+  money_ledger: ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'],
+  town_financial_summary: ['Town_Name','Total_Received','Total_Expenses','Cash_Balance','Pending_Collection','Investor_Balance','Updated_At'],
 };
 
 function getRowVal(row, key) {
@@ -337,6 +353,18 @@ function mapGenericToCloud(table, row) {
   return out;
 }
 
+function mapGenericFromCloud(table, row) {
+  const cols = TABLE_COLUMNS[table];
+  if (!cols || !row || typeof row !== 'object') return stripInternal(row);
+  const mapped = {};
+  for (const col of cols) {
+    let val = getRowVal(row, col);
+    if (col === 'Is_Over_Limit') val = boolToExcel(val);
+    mapped[col] = val ?? '';
+  }
+  return mapped;
+}
+
 function mapEmployeeToCloud(e) {
   return {
     Employee_ID: String(e.id || e.Employee_ID || ''),
@@ -553,6 +581,17 @@ function isMissingTableError(msg) {
   return String(msg || '').includes('Could not find the table');
 }
 
+function isMissingConflictConstraint(msg) {
+  return String(msg || '').toLowerCase().includes('no unique or exclusion constraint matching the on conflict specification');
+}
+
+async function insertBatchFallback(admin, table, batch) {
+  const { error } = await admin.from(table).insert(batch);
+  if (!error) return;
+  if (String(error.message || '').toLowerCase().includes('duplicate')) return;
+  throw error;
+}
+
 async function upsertAll(admin, table, rows) {
   if (!rows || rows.length === 0) return;
 
@@ -576,6 +615,11 @@ async function upsertAll(admin, table, rows) {
         const opts = conflict ? { onConflict: conflict, ignoreDuplicates: false } : { ignoreDuplicates: false };
         const { error } = await admin.from(table).upsert(batch, opts);
         if (error) {
+          if (conflict && isMissingConflictConstraint(error.message)) {
+            console.warn(`[syncUp] "${table}" is missing unique constraint for "${conflict}". Falling back to insert.`);
+            await insertBatchFallback(admin, table, batch);
+            continue;
+          }
           const sample = batch.find((row) => Object.values(row || {}).some((v) => typeof v === 'string' && v.length > 10)) || batch[0];
           error.message = `${error.message} [table=${table}, batch=${Math.floor(i / BATCH_SIZE) + 1}, sample=${JSON.stringify(sample).slice(0, 300)}]`;
           throw error;
@@ -631,5 +675,7 @@ module.exports = {
   mapDailyEntryToCloud,
   mapDailyEntryFromCloud,
   mapCeoExpenseFromCloud,
+  mapGenericFromCloud,
+  TABLE_COLUMNS,
   stripInternal,
 };

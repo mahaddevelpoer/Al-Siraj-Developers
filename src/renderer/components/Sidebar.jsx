@@ -44,19 +44,9 @@ const CEO_GROUPS = (t, userRole) => {
 
 const EMPLOYEE_GROUPS = (t) => [
   {
-    title: 'Sales System',
+    title: 'Property Selling',
     items: [
-      { key: 'dashboard',      icon: DashboardIcon,   label: t.dashboard },
       { key: 'sellFlow',       icon: SellIcon,        label: t.sellProperty },
-      { key: 'agentProperties', icon: PropertyIcon,    label: '\u{1F4CA} My Properties' },
-    ]
-  },
-  {
-    title: 'Finance System',
-    items: [
-      { key: 'pendingCollections', icon: PendingIcon, label: '\u{1F4B0} Collections' },
-      { key: 'installments',   icon: CalendarIcon,    label: t.installmentTracker },
-      { key: 'soldProperties', icon: SoldIcon,        label: t.soldProperties },
     ]
   }
 ];

@@ -24,12 +24,16 @@ const AGENT_OPERATIONAL_GLOBAL_FILES = new Set([
   'Global/Notifications_Log.xlsx',
   'Global/Daily_Entries.xlsx',
   'Global/Commissions.xlsx',
+  'Global/Money_Ledger.xlsx',
+  'Global/Town_Financial_Summary.xlsx',
+  'Global/Pending_Sync.xlsx',
   'Global/Resell_History.xlsx',
 ]);
 
 let syncContext = {
   role: 'ceo',
   userId: null,
+  accountantTown: '',
   agentTown: '',
   agentTowns: [],
 };
@@ -94,6 +98,7 @@ function setSyncContext(ctx = {}) {
   syncContext = {
     role,
     userId: ctx.userId || ctx.id || syncContext.userId || null,
+    accountantTown: ctx.accountantTown || ctx.town_name || ctx.town_id || syncContext.accountantTown || '',
     agentTown: ctx.agentTown || ctx.agent_town || syncContext.agentTown || '',
     agentTowns: [...new Set(towns.map(t => String(t || '').trim()).filter(Boolean))],
   };
@@ -188,6 +193,29 @@ async function buildScope(options = {}) {
   const ctx = { ...syncContext, ...(options.context || {}) };
   const role = normalizeRole(options.role || ctx.role);
   if (role === 'agent') return await buildAgentScope(ctx);
+  if (role === 'accountant') {
+    const town = String(ctx.accountantTown || ctx.town_name || ctx.town_id || '').trim();
+    if (!town) return null;
+    const allowedFiles = new Set([
+      'Global/All_Sales.xlsx',
+      'Global/All_Expenses.xlsx',
+      'Global/Installments_Tracker.xlsx',
+      'Global/Notifications_Log.xlsx',
+      'Global/Daily_Entries.xlsx',
+      'Global/Commissions.xlsx',
+      'Global/Resell_History.xlsx',
+      'Global/Town_Agents.xlsx',
+      'Global/Investors.xlsx',
+      'Global/Investor_Transactions.xlsx',
+      'Global/Construction_Projects.xlsx',
+      'Global/Construction_Payments.xlsx',
+      'Global/Money_Ledger.xlsx',
+      'Global/Town_Financial_Summary.xlsx',
+      'Global/Pending_Sync.xlsx',
+      `Towns/${town}.xlsx`,
+    ]);
+    return { allowedFiles, allowedPrefixes: [`Properties/${town}/`] };
+  }
   return null;
 }
 
@@ -255,13 +283,13 @@ async function uploadToStorage(relPath, fullPath, onProgress) {
 
   let { error } = await getStorageClient().storage
     .from(BUCKET_NAME)
-    .upload(storagePath, content, { upsert: false, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    .upload(storagePath, content, { upsert: true, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
-  if (error && String(error.message || '').toLowerCase().includes('duplicate')) {
+  if (error && /duplicate|already exists|resource already exists/i.test(String(error.message || ''))) {
     try { await getStorageClient().storage.from(BUCKET_NAME).remove([storagePath]); } catch (_) {}
     ({ error } = await getStorageClient().storage
       .from(BUCKET_NAME)
-      .upload(storagePath, content, { upsert: false, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      .upload(storagePath, content, { upsert: true, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   }
 
   if (error) {

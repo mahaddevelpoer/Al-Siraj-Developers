@@ -26,7 +26,7 @@ export default function ProfitLossReport() {
   const totalCeoEx        = report.reduce((s, r) => s + (r.CEO_Expenses || 0), 0);
   const totalSalary       = report.reduce((s, r) => s + (r.CEO_Salary || 0), 0);
   const totalDeductions   = report.reduce((s, r) => s + (r.Total_Expenses || 0), 0);
-  const netPL             = totalIncome - totalDeductions;
+  const netPL             = report.reduce((s, r) => s + ((r.Cash_Balance ?? r.Net_Profit_Loss) || 0), 0);
 
   return (
     <div>
@@ -42,13 +42,13 @@ export default function ProfitLossReport() {
           <div className="card-icon"><ChartIcon size={16}/></div>
           <div className="card-label">Total Deductions</div>
           <div className="card-value loss">{fmt(totalDeductions)}</div>
-          <div className="card-sub">Commission + Expenses + CEO</div>
+          <div className="card-sub">All approved cash-out</div>
         </div>
         <div className={`stat-card ${netPL >= 0 ? 'green' : 'red'}`}>
           <div className="card-icon"><TrendUpIcon size={16}/></div>
-          <div className="card-label">Net Company P / L</div>
+          <div className="card-label">Cash Balance</div>
           <div className={`card-value ${netPL >= 0 ? 'profit' : 'loss'}`}>{fmt(netPL)}</div>
-          <div className="card-sub">{netPL >= 0 ? 'Profitable' : 'In Loss'}</div>
+          <div className="card-sub">{netPL >= 0 ? 'Positive cash' : 'Negative cash'}</div>
         </div>
       </div>
 
@@ -108,7 +108,7 @@ export default function ProfitLossReport() {
                     <th>CEO Expenses</th>
                     <th>CEO Salary</th>
                     <th>Total Deductions</th>
-                    <th>Net P / L</th>
+                    <th>Cash Balance</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -122,12 +122,12 @@ export default function ProfitLossReport() {
                       <td className="text-red">{fmt(r.CEO_Expenses || 0)}</td>
                       <td style={{ color: 'var(--accent-orange, #f97316)', fontWeight: 600 }}>{fmt(r.CEO_Salary || 0)}</td>
                       <td className="text-red" style={{ fontWeight: 600 }}>{fmt(r.Total_Expenses || 0)}</td>
-                      <td className={(r.Net_Profit_Loss || 0) >= 0 ? 'text-green' : 'text-red'} style={{ fontWeight: 700 }}>
-                        {fmt(r.Net_Profit_Loss || 0)}
+                      <td className={((r.Cash_Balance ?? r.Net_Profit_Loss) || 0) >= 0 ? 'text-green' : 'text-red'} style={{ fontWeight: 700 }}>
+                        {fmt((r.Cash_Balance ?? r.Net_Profit_Loss) || 0)}
                       </td>
                       <td>
-                        <span className={`status-badge ${(r.Net_Profit_Loss || 0) >= 0 ? 'status-active' : 'status-overdue'}`}>
-                          {(r.Net_Profit_Loss || 0) >= 0 ? 'Profit' : 'Loss'}
+                        <span className={`status-badge ${((r.Cash_Balance ?? r.Net_Profit_Loss) || 0) >= 0 ? 'status-active' : 'status-overdue'}`}>
+                          {((r.Cash_Balance ?? r.Net_Profit_Loss) || 0) >= 0 ? 'Positive' : 'Negative'}
                         </span>
                       </td>
                     </tr>
@@ -146,7 +146,7 @@ export default function ProfitLossReport() {
                     <td className={netPL >= 0 ? 'text-green' : 'text-red'}>{fmt(netPL)}</td>
                     <td>
                       <span className={`status-badge ${netPL >= 0 ? 'status-active' : 'status-overdue'}`}>
-                        {netPL >= 0 ? 'Profit' : 'Loss'}
+                        {netPL >= 0 ? 'Positive' : 'Negative'}
                       </span>
                     </td>
                   </tr>

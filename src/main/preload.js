@@ -91,6 +91,18 @@ contextBridge.exposeInMainWorld('api', {
   },
   // CEO — Create Accountant
   createAccountant: (params) => ipcRenderer.invoke('create-accountant', params),
+  getTownAgents: (townName) => ipcRenderer.invoke('get-town-agents', townName),
+  addTownAgent: (data) => ipcRenderer.invoke('add-town-agent', data),
+  getInvestors: (townName) => ipcRenderer.invoke('get-investors', townName),
+  addInvestor: (data) => ipcRenderer.invoke('add-investor', data),
+  recordInvestorTransaction: (data) => ipcRenderer.invoke('record-investor-transaction', data),
+  getInvestorTransactions: (params) => ipcRenderer.invoke('get-investor-transactions', params),
+  getReceiptArchive: (params) => ipcRenderer.invoke('get-receipt-archive', params),
+  getConstructionProjects: (townName) => ipcRenderer.invoke('get-construction-projects', townName),
+  addConstructionProject: (data) => ipcRenderer.invoke('add-construction-project', data),
+  recordConstructionPayment: (data) => ipcRenderer.invoke('record-construction-payment', data),
+  getConstructionPayments: (townName) => ipcRenderer.invoke('get-construction-payments', townName),
+  cleanupLegacyAgentData: () => ipcRenderer.invoke('cleanup-legacy-agent-data'),
   // Salary Increase Appeal
   submitSalaryIncreaseAppeal: (params) => ipcRenderer.invoke('submitSalaryIncreaseAppeal', params),
   // Employee Deletion and Appeal
@@ -131,6 +143,20 @@ contextBridge.exposeInMainWorld('api', {
   },
   removeSyncProgress: () => {
     try { ipcRenderer.removeAllListeners('sync-progress'); } catch {}
+  },
+  onCloudRefreshProgress: (callback) => {
+    try { ipcRenderer.removeAllListeners('cloud-refresh-progress'); } catch {}
+    ipcRenderer.on('cloud-refresh-progress', (_, data) => callback(data));
+  },
+  removeCloudRefreshProgress: () => {
+    try { ipcRenderer.removeAllListeners('cloud-refresh-progress'); } catch {}
+  },
+  onCloudDataRefreshed: (callback) => {
+    try { ipcRenderer.removeAllListeners('cloud-data-refreshed'); } catch {}
+    ipcRenderer.on('cloud-data-refreshed', (_, data) => callback(data));
+  },
+  removeCloudDataRefreshed: () => {
+    try { ipcRenderer.removeAllListeners('cloud-data-refreshed'); } catch {}
   },
   onSyncToCloudProgress: (callback) => {
     try { ipcRenderer.removeAllListeners('sync-progress-to-cloud'); } catch {}

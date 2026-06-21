@@ -1,0 +1,435 @@
+const path = require('path');
+const fs = require('fs');
+const ExcelJS = require('exceljs');
+const {
+  getGlobalsPath,
+  readExcelFile,
+  appendToExcel,
+  updateExcelRow,
+  deleteExcelRow,
+  generateId,
+  ensureSheetColumns,
+  withFileWriteLock,
+  writeWorkbookAtomic,
+  syncMirrorsForFile,
+} = require('./core');
+const { recordMoneyEvent } = require('./moneyLedger');
+
+const TODAY = () => new Date().toISOString().split('T')[0];
+
+const FILES = {
+  agents: 'Town_Agents.xlsx',
+  investors: 'Investors.xlsx',
+  investorTx: 'Investor_Transactions.xlsx',
+  construction: 'Construction_Projects.xlsx',
+  constructionPayments: 'Construction_Payments.xlsx',
+  commissionReceipts: 'Commission_Receipts.xlsx',
+  receiptArchive: 'Receipt_Archive.xlsx',
+};
+
+const COLUMNS = {
+  agents: ['Agent_ID','Town_Name','Agent_Name','Phone_Number','CNIC','Address','Notes','Status','Created_At'],
+  investors: ['Investor_ID','Town_Name','Investor_Name','Phone_Number','CNIC','Address','Notes','Balance','Status','Created_At','Approval_Status'],
+  investorTx: ['Transaction_ID','Investor_ID','Town_Name','Investor_Name','Type','Amount','Date','Notes','Balance_After','Receipt_Number','Created_By'],
+  construction: ['Project_ID','Town_Name','Category','Constructor_Name','Phone_Number','Company_Name','Material_Name','Material_Quantity','Material_Rate','Deal_Amount','Paid_Amount','Remaining_Amount','Status','Start_Date','Notes','Deal_Receipt_Number'],
+  constructionPayments: ['Payment_ID','Project_ID','Town_Name','Category','Constructor_Name','Amount','Payment_Date','Material_Name','Material_Quantity','Material_Rate','Remaining_After','Receipt_Number','Notes','Created_By'],
+  commissionReceipts: ['Receipt_ID','Commission_ID','Sale_ID','Town_Name','Agent_Name','Plot_Shop_Number','Amount','Paid_Date','Receipt_Number','Paid_By'],
+  receiptArchive: ['Receipt_ID','Receipt_Number','Receipt_Type','Town_Name','Entity_ID','Entity_Name','Amount','Receipt_Date','Payload_JSON','Created_At'],
+};
+
+function filePath(key) {
+  return path.join(getGlobalsPath(), FILES[key]);
+}
+
+async function ensureFile(key) {
+  const fp = filePath(key);
+  const cols = COLUMNS[key];
+  if (!fs.existsSync(fp)) {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Data');
+    sheet.addRow(cols.map(c => String(c).replace(/_/g, ' ')));
+    sheet.addRow(cols);
+    sheet.getRow(2).hidden = true;
+    cols.forEach((c, i) => { sheet.getColumn(i + 1).width = Math.max(14, Math.min(28, c.length + 6)); });
+    await withFileWriteLock(fp, async () => {
+      await writeWorkbookAtomic(fp, workbook);
+      syncMirrorsForFile(fp);
+    });
+  } else {
+    await ensureSheetColumns(fp, 'Data', cols);
+  }
+  return fp;
+}
+
+async function rows(key) {
+  const fp = await ensureFile(key);
+  return readExcelFile(fp, 'Data');
+}
+
+function toMoney(value) {
+  return parseFloat(value) || 0;
+}
+
+async function saveReceiptArchive(data) {
+  const fp = await ensureFile('receiptArchive');
+  const receiptNumber = data?.Receipt_Number || data?.receiptNumber;
+  if (!receiptNumber) throw new Error('Receipt_Number is required');
+  const payload = data?.Payload_JSON || data?.payload || data;
+  const row = {
+    Receipt_ID: data.Receipt_ID || generateId(),
+    Receipt_Number: receiptNumber,
+    Receipt_Type: data.Receipt_Type || data?.type || '',
+    Town_Name: data.Town_Name || data?.townName || '',
+    Entity_ID: data.Entity_ID || data?.entityId || '',
+    Entity_Name: data.Entity_Name || data?.entityName || data?.investorName || data?.constructorName || '',
+    Amount: toMoney(data.Amount ?? data?.amount),
+    Receipt_Date: data.Receipt_Date || data?.date || data?.paymentDate || TODAY(),
+    Payload_JSON: typeof payload === 'string' ? payload : JSON.stringify(payload || {}),
+    Created_At: data.Created_At || new Date().toISOString(),
+  };
+  await appendToExcel(fp, 'Data', row);
+  return row;
+}
+
+async function getReceiptArchive(townName, receiptType) {
+  const all = await rows('receiptArchive');
+  return all.filter(r =>
+    (!townName || String(r.Town_Name) === String(townName)) &&
+    (!receiptType || String(r.Receipt_Type) === String(receiptType))
+  );
+}
+
+async function getTownAgents(townName) {
+  const all = await rows('agents');
+  return all.filter(a => (!townName || String(a.Town_Name) === String(townName)) && String(a.Status || 'Active') !== 'Deleted');
+}
+
+async function addTownAgent(data) {
+  const fp = await ensureFile('agents');
+  if (!data?.Town_Name) throw new Error('Town_Name is required');
+  if (!data?.Agent_Name) throw new Error('Agent_Name is required');
+  const row = {
+    Agent_ID: data.Agent_ID || generateId(),
+    Town_Name: data.Town_Name,
+    Agent_Name: data.Agent_Name,
+    Phone_Number: data.Phone_Number || '',
+    CNIC: data.CNIC || '',
+    Address: data.Address || '',
+    Notes: data.Notes || '',
+    Status: data.Status || 'Active',
+    Created_At: data.Created_At || TODAY(),
+  };
+  await appendToExcel(fp, 'Data', row);
+  return row;
+}
+
+async function getInvestors(townName) {
+  const all = await rows('investors');
+  return all.filter(i => (!townName || String(i.Town_Name) === String(townName)) && String(i.Status || 'Active') !== 'Deleted');
+}
+
+async function addInvestor(data) {
+  const fp = await ensureFile('investors');
+  if (!data?.Town_Name) throw new Error('Town_Name is required');
+  if (!data?.Investor_Name) throw new Error('Investor_Name is required');
+  const row = {
+    Investor_ID: data.Investor_ID || generateId(),
+    Town_Name: data.Town_Name,
+    Investor_Name: data.Investor_Name,
+    Phone_Number: data.Phone_Number || '',
+    CNIC: data.CNIC || '',
+    Address: data.Address || '',
+    Notes: data.Notes || '',
+    Balance: toMoney(data.Balance),
+    Status: data.Status || 'Active',
+    Created_At: data.Created_At || TODAY(),
+    Approval_Status: data.Approval_Status || 'approved',
+  };
+  await appendToExcel(fp, 'Data', row);
+  return row;
+}
+
+async function investorTransaction(data) {
+  const investorsPath = await ensureFile('investors');
+  const txPath = await ensureFile('investorTx');
+  const all = await readExcelFile(investorsPath, 'Data');
+  const inv = all.find(i => String(i.Investor_ID) === String(data.Investor_ID));
+  if (!inv) throw new Error('Investor not found');
+  const amount = toMoney(data.Amount);
+  if (amount <= 0) throw new Error('Amount must be greater than zero');
+  const type = String(data.Type || '').toLowerCase() === 'debit' ? 'Debit' : 'Credit';
+  const current = toMoney(inv.Balance);
+  const next = type === 'Credit' ? current + amount : current - amount;
+  await updateExcelRow(investorsPath, 'Data', inv._rowNumber, { Balance: next });
+  const row = {
+    Transaction_ID: data.Transaction_ID || generateId(),
+    Investor_ID: inv.Investor_ID,
+    Town_Name: inv.Town_Name,
+    Investor_Name: inv.Investor_Name,
+    Type: type,
+    Amount: amount,
+    Date: data.Date || TODAY(),
+    Notes: data.Notes || '',
+    Balance_After: next,
+    Receipt_Number: data.Receipt_Number || `INV-${Date.now()}`,
+    Created_By: data.Created_By || '',
+  };
+  await appendToExcel(txPath, 'Data', row);
+  await saveReceiptArchive({
+    Receipt_Number: row.Receipt_Number,
+    Receipt_Type: 'investor',
+    Town_Name: row.Town_Name,
+    Entity_ID: row.Investor_ID,
+    Entity_Name: row.Investor_Name,
+    Amount: row.Amount,
+    Receipt_Date: row.Date,
+    Payload_JSON: {
+      type: 'investor',
+      townName: row.Town_Name,
+      date: row.Date,
+      receiptNumber: row.Receipt_Number,
+      investorName: row.Investor_Name,
+      transactionType: row.Type,
+      amount: row.Amount,
+      balanceAfter: row.Balance_After,
+      note: row.Notes,
+    },
+  });
+  await recordMoneyEvent({
+    sourceType: 'investor_transaction',
+    sourceId: row.Transaction_ID,
+    direction: type === 'Debit' ? 'expense' : 'income',
+    amount: row.Amount,
+    townName: row.Town_Name,
+    date: row.Date,
+    partyName: row.Investor_Name,
+    description: `Investor ${type}`,
+    receiptNumber: row.Receipt_Number,
+    createdBy: row.Created_By || 'System',
+  });
+  return row;
+}
+
+async function getInvestorTransactions(townName, investorId) {
+  const all = await rows('investorTx');
+  return all.filter(t => (!townName || String(t.Town_Name) === String(townName)) && (!investorId || String(t.Investor_ID) === String(investorId)));
+}
+
+async function getConstructionProjects(townName) {
+  const all = await rows('construction');
+  return all.filter(p => (!townName || String(p.Town_Name) === String(townName)) && String(p.Status || 'Active') !== 'Deleted');
+}
+
+async function addConstructionProject(data) {
+  const fp = await ensureFile('construction');
+  if (!data?.Town_Name) throw new Error('Town_Name is required');
+  if (!data?.Category) throw new Error('Category is required');
+  if (!data?.Constructor_Name) throw new Error('Constructor_Name is required');
+  const deal = toMoney(data.Deal_Amount);
+  const receiptNumber = data.Deal_Receipt_Number || `CON-DEAL-${Date.now()}`;
+  const row = {
+    Project_ID: data.Project_ID || generateId(),
+    Town_Name: data.Town_Name,
+    Category: data.Category,
+    Constructor_Name: data.Constructor_Name,
+    Phone_Number: data.Phone_Number || '',
+    Company_Name: data.Company_Name || '',
+    Material_Name: data.Material_Name || '',
+    Material_Quantity: data.Material_Quantity || '',
+    Material_Rate: data.Material_Rate || '',
+    Deal_Amount: deal,
+    Paid_Amount: 0,
+    Remaining_Amount: deal,
+    Status: data.Status || 'Active',
+    Start_Date: data.Start_Date || TODAY(),
+    Notes: data.Notes || '',
+    Deal_Receipt_Number: receiptNumber,
+  };
+  await appendToExcel(fp, 'Data', row);
+  await saveReceiptArchive({
+    Receipt_Number: receiptNumber,
+    Receipt_Type: 'construction_deal',
+    Town_Name: row.Town_Name,
+    Entity_ID: row.Project_ID,
+    Entity_Name: row.Constructor_Name,
+    Amount: row.Deal_Amount,
+    Receipt_Date: row.Start_Date,
+    Payload_JSON: {
+      type: 'construction_deal',
+      townName: row.Town_Name,
+      date: row.Start_Date,
+      receiptNumber,
+      category: row.Category,
+      constructorName: row.Constructor_Name,
+      phoneNumber: row.Phone_Number,
+      companyName: row.Company_Name,
+      materialName: row.Material_Name,
+      materialQuantity: row.Material_Quantity,
+      materialRate: row.Material_Rate,
+      dealAmount: row.Deal_Amount,
+      paidAmount: 0,
+      remainingAmount: row.Remaining_Amount,
+      note: row.Notes,
+    },
+  });
+  return row;
+}
+
+async function recordConstructionPayment(data) {
+  const projectsPath = await ensureFile('construction');
+  const payPath = await ensureFile('constructionPayments');
+  const all = await readExcelFile(projectsPath, 'Data');
+  const project = all.find(p => String(p.Project_ID) === String(data.Project_ID));
+  if (!project) throw new Error('Construction project not found');
+  const amount = toMoney(data.Amount);
+  const paid = toMoney(project.Paid_Amount);
+  const deal = toMoney(project.Deal_Amount);
+  if (amount <= 0) throw new Error('Amount must be greater than zero');
+  if (paid + amount > deal) throw new Error('Payment exceeds construction deal amount');
+  const nextPaid = paid + amount;
+  const remaining = Math.max(0, deal - nextPaid);
+  await updateExcelRow(projectsPath, 'Data', project._rowNumber, {
+    Paid_Amount: nextPaid,
+    Remaining_Amount: remaining,
+    Status: remaining <= 0 ? 'Completed' : (project.Status || 'Active'),
+  });
+  const row = {
+    Payment_ID: data.Payment_ID || generateId(),
+    Project_ID: project.Project_ID,
+    Town_Name: project.Town_Name,
+    Category: project.Category,
+    Constructor_Name: project.Constructor_Name,
+    Amount: amount,
+    Payment_Date: data.Payment_Date || TODAY(),
+    Material_Name: data.Material_Name || project.Material_Name || '',
+    Material_Quantity: data.Material_Quantity || project.Material_Quantity || '',
+    Material_Rate: data.Material_Rate || project.Material_Rate || '',
+    Remaining_After: remaining,
+    Receipt_Number: data.Receipt_Number || `CON-${Date.now()}`,
+    Notes: data.Notes || '',
+    Created_By: data.Created_By || '',
+  };
+  await appendToExcel(payPath, 'Data', row);
+  await saveReceiptArchive({
+    Receipt_Number: row.Receipt_Number,
+    Receipt_Type: 'construction_payment',
+    Town_Name: row.Town_Name,
+    Entity_ID: row.Project_ID,
+    Entity_Name: row.Constructor_Name,
+    Amount: row.Amount,
+    Receipt_Date: row.Payment_Date,
+    Payload_JSON: {
+      type: 'construction_payment',
+      townName: row.Town_Name,
+      date: row.Payment_Date,
+      receiptNumber: row.Receipt_Number,
+      category: row.Category,
+      constructorName: row.Constructor_Name,
+      materialName: row.Material_Name,
+      materialQuantity: row.Material_Quantity,
+      materialRate: row.Material_Rate,
+      amount: row.Amount,
+      remainingAmount: row.Remaining_After,
+      note: row.Notes,
+    },
+  });
+  await recordMoneyEvent({
+    sourceType: 'construction_payment',
+    sourceId: row.Payment_ID,
+    direction: 'expense',
+    amount: row.Amount,
+    townName: row.Town_Name,
+    date: row.Payment_Date,
+    partyName: row.Constructor_Name,
+    description: `Construction ${row.Category}`,
+    receiptNumber: row.Receipt_Number,
+    createdBy: row.Created_By || 'System',
+  });
+  return row;
+}
+
+async function getConstructionPayments(townName) {
+  const all = await rows('constructionPayments');
+  return all.filter(p => !townName || String(p.Town_Name) === String(townName));
+}
+
+async function recordCommissionReceipt(data) {
+  const fp = await ensureFile('commissionReceipts');
+  const row = {
+    Receipt_ID: data.Receipt_ID || generateId(),
+    Commission_ID: data.Commission_ID || '',
+    Sale_ID: data.Sale_ID || '',
+    Town_Name: data.Town_Name || '',
+    Agent_Name: data.Agent_Name || '',
+    Plot_Shop_Number: data.Plot_Shop_Number || '',
+    Amount: toMoney(data.Amount),
+    Paid_Date: data.Paid_Date || TODAY(),
+    Receipt_Number: data.Receipt_Number || `COM-${Date.now()}`,
+    Paid_By: data.Paid_By || '',
+  };
+  await appendToExcel(fp, 'Data', row);
+  await saveReceiptArchive({
+    Receipt_Number: row.Receipt_Number,
+    Receipt_Type: 'commission',
+    Town_Name: row.Town_Name,
+    Entity_ID: row.Commission_ID,
+    Entity_Name: row.Agent_Name,
+    Amount: row.Amount,
+    Receipt_Date: row.Paid_Date,
+    Payload_JSON: row,
+  });
+  await recordMoneyEvent({
+    sourceType: 'commission_payment',
+    sourceId: row.Receipt_ID,
+    direction: 'expense',
+    amount: row.Amount,
+    townName: row.Town_Name,
+    date: row.Paid_Date,
+    partyName: row.Agent_Name,
+    description: 'Agent commission paid',
+    receiptNumber: row.Receipt_Number,
+    createdBy: row.Paid_By || 'Accountant',
+  });
+  return row;
+}
+
+async function cleanupLegacyAgentData() {
+  const globals = getGlobalsPath();
+  const removed = {};
+  const deleteFiles = ['Commissions.xlsx'];
+  for (const name of deleteFiles) {
+    const fp = path.join(globals, name);
+    if (fs.existsSync(fp)) {
+      fs.rmSync(fp, { force: true });
+      removed[name] = 'deleted';
+    }
+  }
+
+  const salesPath = path.join(globals, 'All_Sales.xlsx');
+  if (fs.existsSync(salesPath)) {
+    const rows = await readExcelFile(salesPath, 'Data');
+    const agentRows = rows.filter(r => String(r.Agent_Name || '').trim());
+    for (const row of agentRows.sort((a, b) => b._rowNumber - a._rowNumber)) {
+      await deleteExcelRow(salesPath, 'Data', row._rowNumber);
+    }
+    removed.agent_sales = agentRows.length;
+  }
+  return { success: true, removed };
+}
+
+module.exports = {
+  getTownAgents,
+  addTownAgent,
+  getInvestors,
+  addInvestor,
+  investorTransaction,
+  getInvestorTransactions,
+  getConstructionProjects,
+  addConstructionProject,
+  recordConstructionPayment,
+  getConstructionPayments,
+  recordCommissionReceipt,
+  saveReceiptArchive,
+  getReceiptArchive,
+  cleanupLegacyAgentData,
+};

@@ -7,9 +7,11 @@ import ResellProperty from './ResellProperty';
 import ResellHistory from './ResellHistory';
 import InstallmentTracker from './InstallmentTracker';
 import CommissionTracker from './CommissionTracker';
+import TownAgents from './TownAgents';
+import InvestorDashboard from './InvestorDashboard';
+import ConstructionDashboard from './ConstructionDashboard';
 import DailyLedger from '../systems/DailySystem/DailyLedger';
 import TownExpenses from './TownExpenses';
-import { EmployeeManagement } from '../systems/EmployeeSystem';
 import { EmployeeSalary } from '../systems/ExpenseSystem';
 import {
   ChartIcon, WalletIcon, PlotIcon, ShopIcon, SoldIcon, ResellIcon,
@@ -22,7 +24,9 @@ const menuItems = [
   { key: 'overview',      Icon: ChartIcon,      label: 'Overview',            color: '#3b82f6' },
   { key: 'expenses',      Icon: DollarIcon,     label: 'Employees and Salaries', color: '#f43f5e' },
   { key: 'dailyEntries',  Icon: BookIcon,       label: 'Daily Entries',       color: '#6366f1' },
-  { key: 'employees',     Icon: UsersIcon,      label: 'Agents',              color: '#06b6d4' },
+  { key: 'townAgents',    Icon: UsersIcon,      label: 'Sales Agents',        color: '#06b6d4' },
+  { key: 'investors',     Icon: WalletIcon,     label: 'Investors',           color: '#0ea5e9' },
+  { key: 'construction',  Icon: BriefcaseIcon,  label: 'Construction',        color: '#64748b' },
   { key: 'prices',        Icon: WalletIcon,     label: 'Town Prices',         color: '#f59e0b' },
   { key: 'addPlot',       Icon: PlotIcon,       label: 'Add Plot',            color: '#10b981' },
   { key: 'addShop',       Icon: ShopIcon,       label: 'Add Shop',            color: '#8b5cf6' },
@@ -107,11 +111,15 @@ function SimpleDonut({ sold, total, color }) {
 
 // ─── Overview Tab ───────────────────────────────────────────────────────────
 
-function TownOverview({ town }) {
+function TownOverview({ town, refreshKey = 0 }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadStats(); }, []);
+
+  useEffect(() => {
+    if (refreshKey > 0) loadStats();
+  }, [refreshKey]);
 
   const loadStats = async () => {
     if (!window.api || !town?.Town_Name) { setLoading(false); return; }
@@ -120,11 +128,18 @@ function TownOverview({ town }) {
         window.api.getAllPlots(town.Town_Name),
         window.api.getAllShops(town.Town_Name),
       ]);
+      const [investors, construction, performance] = await Promise.all([
+        window.api.getInvestors?.(town.Town_Name).catch(() => []),
+        window.api.getConstructionProjects?.(town.Town_Name).catch(() => []),
+        window.api.getTownPerformance?.(town.Town_Name).catch(() => null),
+      ]);
       const soldPlots = Array.isArray(plots) ? plots.filter(p => p.Status === 'Sold').length : 0;
       const soldShops = Array.isArray(shops) ? shops.filter(s => s.Status === 'Sold').length : 0;
       const totalPlots = Array.isArray(plots) ? plots.length : 0;
       const totalShops = Array.isArray(shops) ? shops.length : 0;
-      setStats({ soldPlots, soldShops, totalPlots, totalShops });
+      const investorBalance = Array.isArray(investors) ? investors.reduce((sum, i) => sum + (parseFloat(i.Balance) || 0), 0) : 0;
+      const constructionPaid = Array.isArray(construction) ? construction.reduce((sum, p) => sum + (parseFloat(p.Paid_Amount) || 0), 0) : 0;
+      setStats({ soldPlots, soldShops, totalPlots, totalShops, investorBalance, constructionPaid, performance });
     } catch { /* silent */ }
     setLoading(false);
   };
@@ -136,7 +151,10 @@ function TownOverview({ town }) {
   const income = parseFloat(townData.Total_Income_PKR) || 0;
   const expenses = parseFloat(townData.Total_Expenses_PKR) || 0;
 
-  const s = stats || { soldPlots: 0, soldShops: 0, totalPlots: 0, totalShops: 0 };
+  const s = stats || { soldPlots: 0, soldShops: 0, totalPlots: 0, totalShops: 0, investorBalance: 0, constructionPaid: 0 };
+  const totalReceived = s.performance?.actualIncome ?? income;
+  const totalExpenses = s.performance?.totalExpenses ?? expenses;
+  const cashBalance = s.performance?.cashBalance ?? s.performance?.netProfit ?? netPl;
   const actualPlots = s.totalPlots || totalPlots;
   const actualShops = s.totalShops || totalShops;
 
@@ -154,20 +172,24 @@ function TownOverview({ town }) {
         <KPICard Icon={ShopIcon} label="Total Shops" value={actualShops}
           sub={`${s.soldShops} Sold`} color="#10b981"
           progressValue={actualShops > 0 ? (s.soldShops / actualShops) * 100 : 0} />
-        <KPICard Icon={WalletIcon} label="Income" value={fmtPkr(income)}
+        <KPICard Icon={WalletIcon} label="Total Received" value={fmtPkr(totalReceived)}
           sub="Received" color="#10b981" />
-        <KPICard Icon={TrendUpIcon} label="Net P/L" value={fmtPkr(Math.abs(netPl))}
-          sub={netPl >= 0 ? 'Profit' : 'Loss'}
-          color={netPl >= 0 ? '#10b981' : '#ef4444'} />
+        <KPICard Icon={TrendUpIcon} label="Cash Balance" value={fmtPkr(Math.abs(cashBalance))}
+          sub={cashBalance >= 0 ? 'Positive' : 'Negative'}
+          color={cashBalance >= 0 ? '#10b981' : '#ef4444'} />
+        <KPICard Icon={WalletIcon} label="Investor Balance" value={fmtPkr(s.investorBalance)}
+          sub="Town investment" color="#0ea5e9" />
+        <KPICard Icon={BriefcaseIcon} label="Construction Paid" value={fmtPkr(s.constructionPaid)}
+          sub="Town expenses" color="#64748b" />
       </div>
 
       {/* Financial Summary Strip */}
       <div className="ui-town-financial-strip">
         {[
-          { label: 'Total Income', value: income, color: '#10b981' },
-          { label: 'Total Expenses', value: expenses, color: '#ef4444' },
-          { label: 'Net Profit / Loss', value: netPl,
-            color: netPl >= 0 ? '#10b981' : '#ef4444' },
+          { label: 'Total Received', value: totalReceived, color: '#10b981' },
+          { label: 'Total Expenses', value: totalExpenses, color: '#ef4444' },
+          { label: 'Cash Balance', value: cashBalance,
+            color: cashBalance >= 0 ? '#10b981' : '#ef4444' },
         ].map((item, i) => (
           <div key={i} className="ui-town-financial-item">
             <div className="ui-town-financial-lbl">
@@ -226,15 +248,27 @@ function TownOverview({ town }) {
 
 // ─── Main Dashboard ─────────────────────────────────────────────────────────
 
-export default function TownDashboard({ selectedTown, onBack, showToast }) {
+export default function TownDashboard({
+  selectedTown,
+  refreshKey: externalRefreshKey = 0,
+  onBack,
+  showToast,
+  isAccountant = false,
+  onSwitchToSelling,
+  onLogout,
+}) {
   const [activeTab, setActiveTab] = useState('overview');
   const [townData, setTownData] = useState(selectedTown || {});
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
 
   // Sync when selectedTown changes
   useEffect(() => {
     setTownData(selectedTown || {});
   }, [selectedTown]);
+
+  useEffect(() => {
+    if (externalRefreshKey > 0) refreshTownData();
+  }, [externalRefreshKey]);
 
   const refreshTownData = async () => {
     const name = selectedTown?.Town_Name;
@@ -245,12 +279,12 @@ export default function TownDashboard({ selectedTown, onBack, showToast }) {
         setTownData(updated);
       }
     } catch {}
-    setRefreshKey(k => k + 1);
+    setOverviewRefreshKey(k => k + 1);
   };
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'overview': return <TownOverview key={refreshKey} town={townData} />;
+      case 'overview': return <TownOverview town={townData} refreshKey={overviewRefreshKey} />;
       case 'prices': return <TownPrices townName={townData.Town_Name} showToast={showToast} />;
       case 'addPlot': return <AddProperty type="Plot" townName={townData.Town_Name} showToast={showToast} />;
       case 'addShop': return <AddProperty type="Shop" townName={townData.Town_Name} showToast={showToast} />;
@@ -260,9 +294,11 @@ export default function TownDashboard({ selectedTown, onBack, showToast }) {
       case 'installments': return <InstallmentTracker townName={townData.Town_Name} showToast={showToast} />;
       case 'commission': return <CommissionTracker townName={townData.Town_Name} showToast={showToast} />;
       case 'expenses': return <EmployeeSalary townName={townData.Town_Name} showToast={showToast} />;
-      case 'employees': return <EmployeeManagement townName={townData.Town_Name} />;
+      case 'townAgents': return <TownAgents townName={townData.Town_Name} showToast={showToast} />;
+      case 'investors': return <InvestorDashboard townName={townData.Town_Name} showToast={showToast} />;
+      case 'construction': return <ConstructionDashboard townName={townData.Town_Name} showToast={showToast} />;
       case 'dailyEntries': return <DailyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} />;
-      default: return <TownOverview key={refreshKey} town={townData} />;
+      default: return <TownOverview town={townData} refreshKey={overviewRefreshKey} />;
     }
   };
 
@@ -274,9 +310,15 @@ export default function TownDashboard({ selectedTown, onBack, showToast }) {
 
       {/* ─── Top Bar ────────────────────────────────────────────────────── */}
       <div className="ui-town-topbar">
-        <button className="ui-town-back-btn" onClick={onBack}>
+        {isAccountant ? (
+          <button className="ui-town-back-btn" onClick={onSwitchToSelling}>
+            Switch to Property Selling Section
+          </button>
+        ) : (
+          <button className="ui-town-back-btn" onClick={onBack}>
           ← Portfolio
-        </button>
+          </button>
+        )}
 
         <div className="ui-town-topbar-icon"><NeighborhoodIcon size={18}/></div>
 
@@ -296,6 +338,16 @@ export default function TownDashboard({ selectedTown, onBack, showToast }) {
           <span className="ui-town-topbar-badge commission" style={{ display:'flex', alignItems:'center', gap:4 }}>
             <HandshakeIcon size={12}/> {townData.Commission_Rate || 0}% Commission
           </span>
+          {isAccountant && (
+            <button
+              className="ui-town-topbar-badge"
+              type="button"
+              onClick={onLogout}
+              style={{ cursor: 'pointer', color: '#dc2626', border: '1px solid rgba(220,38,38,0.22)' }}
+            >
+              Logout
+            </button>
+          )}
         </div>
       </div>
 
@@ -358,6 +410,23 @@ export default function TownDashboard({ selectedTown, onBack, showToast }) {
               </div>
             );
           })}
+          {isAccountant && (
+            <button
+              type="button"
+              className="ui-town-sidebar-item"
+              onClick={onLogout}
+              style={{
+                width: '100%',
+                marginTop: 14,
+                color: '#dc2626',
+                borderLeftColor: 'transparent',
+                background: 'rgba(220,38,38,0.06)',
+                cursor: 'pointer',
+              }}
+            >
+              Logout
+            </button>
+          )}
         </div>
 
         {/* ─── Content Area ────────────────────────────────────────────── */}
@@ -412,7 +481,7 @@ export default function TownDashboard({ selectedTown, onBack, showToast }) {
 
           {/* Component container */}
           {activeTab === 'overview' ? (
-            <TownOverview key={refreshKey} town={townData} />
+            <TownOverview key={overviewRefreshKey} town={townData} refreshKey={overviewRefreshKey} />
           ) : (
             <div className="ui-town-tab-wrapper">
               {renderTabContent()}

@@ -3,14 +3,24 @@ import AddTownWizard from './AddTownWizard';
 import EditTownWizard from './EditTownWizard';
 import { SearchIcon, PlusIcon, BuildingIcon, LockIcon, NeighborhoodIcon, EditIcon, TrashIcon } from './Icons';
 import AppealDashboard from '../systems/AppealSystem/AppealDashboard';
-import { AgentManagement } from '../systems/AgentManagementSystem';
 
 const fmtPkr = (n) => {
   const num = parseFloat(n) || 0;
   return `PKR ${num.toLocaleString()}`;
 };
 
-export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, showToast, onNavigate, userRole }) {
+const normalizeTown = (town = {}) => ({
+  ...town,
+  Town_Name: town.Town_Name || town.town_name || town.name || '',
+  Total_Plots: town.Total_Plots ?? town.total_plots ?? 0,
+  Total_Shops: town.Total_Shops ?? town.total_shops ?? 0,
+  Total_Income_PKR: town.Total_Income_PKR ?? town.total_income_pkr ?? 0,
+  Total_Expenses_PKR: town.Total_Expenses_PKR ?? town.total_expenses_pkr ?? 0,
+  Profit_Loss: town.Profit_Loss ?? town.profit_loss ?? 0,
+  Status: town.Status || town.status || 'Active',
+});
+
+export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelect, onLogout, showToast, onNavigate, userRole }) {
   const [towns, setTowns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -21,71 +31,30 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
   const [acName, setAcName] = useState('');
   const [acEmail, setAcEmail] = useState('');
   const [acPassword, setAcPassword] = useState('');
+  const [acTown, setAcTown] = useState('');
   const [acLoading, setAcLoading] = useState(false);
   const [acError, setAcError] = useState('');
   const [acSuccess, setAcSuccess] = useState('');
-  const [pendingCommissions, setPendingCommissions] = useState([]);
-  const [commissionsLoading, setCommissionsLoading] = useState(false);
-  const [syncingToCloud, setSyncingToCloud] = useState(false);
-  const [syncCloudProgress, setSyncCloudProgress] = useState(0);
-  const [syncCloudMsg, setSyncCloudMsg] = useState('');
+  const [portfolioStats, setPortfolioStats] = useState(null);
 
   useEffect(() => {
     loadTowns();
-    loadPendingCommissions();
   }, []);
 
   useEffect(() => {
-    if (window.api?.onSyncToCloudProgress) {
-      window.api.onSyncToCloudProgress((percent, msg) => {
-        setSyncCloudProgress(percent);
-        setSyncCloudMsg(msg);
-        if (percent >= 100) {
-          setSyncingToCloud(false);
-          loadTowns();
-          loadPendingCommissions();
-        }
-      });
-    }
-    return () => {
-      if (window.api?.removeSyncToCloudProgress) {
-        window.api.removeSyncToCloudProgress();
-      }
-    };
-  }, []);
-
-  const loadPendingCommissions = async () => {
-    setCommissionsLoading(true);
-    try {
-      const result = await window.api.getCommissions({ status: 'pending' });
-      if (result?.data) setPendingCommissions(result.data);
-    } catch (e) {
-      console.error('Failed to load pending commissions:', e);
-    }
-    setCommissionsLoading(false);
-  };
-
-  const handleMarkCommissionPaid = async (id) => {
-    try {
-      const result = await window.api.markCommissionPaid(id);
-      if (result?.error) {
-        showToast(result.error, 'error');
-      } else {
-        showToast('Commission marked as paid!', 'success');
-        loadPendingCommissions();
-      }
-    } catch (e) {
-      showToast('Failed to mark commission paid: ' + (e.message || e), 'error');
-    }
-  };
+    if (refreshKey > 0) loadTowns();
+  }, [refreshKey]);
 
   const loadTowns = async () => {
     setLoading(true);
     try {
       const data = await window.api.getTowns();
+      const stats = await window.api.getDashboardStats?.();
+      if (stats && !stats.error) setPortfolioStats(stats);
       if (Array.isArray(data)) {
-        setTowns(data);
-        await loadSoldCounts(data);
+        const normalized = data.map(normalizeTown).filter((town) => town.Town_Name);
+        setTowns(normalized);
+        await loadSoldCounts(normalized);
       }
     } catch (e) {
       console.error(e);
@@ -95,47 +64,24 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
 
   const loadSoldCounts = async (townList) => {
     const stats = {};
-    const entries = await Promise.all(
-      townList.map(async (town) => {
-        try {
-          const [plots, shops] = await Promise.all([
-            window.api.getAllPlots(town.Town_Name),
-            window.api.getAllShops(town.Town_Name),
-          ]);
-          const soldPlots = Array.isArray(plots)
-            ? plots.filter((p) => p.Status === 'Sold').length
-            : 0;
-          const soldShops = Array.isArray(shops)
-            ? shops.filter((s) => s.Status === 'Sold').length
-            : 0;
-          return { name: town.Town_Name, soldPlots, soldShops };
-        } catch {
-          return { name: town.Town_Name, soldPlots: 0, soldShops: 0 };
-        }
-      })
-    );
+    let entries = [];
+    try {
+      const all = await window.api.getAllProperties?.();
+      const plots = Array.isArray(all?.plots) ? all.plots : [];
+      const shops = Array.isArray(all?.shops) ? all.shops : [];
+      entries = townList.map((town) => {
+        const townName = town.Town_Name || town.town_name || '';
+        const soldPlots = plots.filter((p) => String(p.Town_Name || p.town_name || '') === townName && String(p.Status || p.status || '').toLowerCase() === 'sold').length;
+        const soldShops = shops.filter((s) => String(s.Town_Name || s.town_name || '') === townName && String(s.Status || s.status || '').toLowerCase() === 'sold').length;
+        return { name: townName, soldPlots, soldShops };
+      });
+    } catch {
+      entries = townList.map((town) => ({ name: town.Town_Name || town.town_name || '', soldPlots: 0, soldShops: 0 }));
+    }
     entries.forEach((e) => {
       stats[e.name] = { soldPlots: e.soldPlots, soldShops: e.soldShops };
     });
     setTownStats(stats);
-  };
-
-  const handleSyncToCloud = async () => {
-    try {
-      setSyncingToCloud(true);
-      setSyncCloudProgress(0);
-      setSyncCloudMsg('Starting sync...');
-      const result = await window.api.syncToCloud();
-      if (result?.error) throw new Error(result.error);
-      const parts = [];
-      if (Number.isFinite(result?.salesSynced)) parts.push(`${result.salesSynced} sales`);
-      if (Number.isFinite(result?.filesUploaded)) parts.push(`${result.filesUploaded} files uploaded`);
-      if (Number.isFinite(result?.salesSkipped) && result.salesSkipped > 0) parts.push(`${result.salesSkipped} local income rows skipped`);
-      showToast(parts.length ? `Cloud sync complete: ${parts.join(', ')}` : 'All data synced to cloud successfully', 'success');
-    } catch (e) {
-      showToast('Sync to Cloud failed: ' + e.message, 'error');
-      setSyncingToCloud(false);
-    }
   };
 
   const handleDeleteTown = async (town) => {
@@ -155,7 +101,7 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
   };
 
   const filteredTowns = towns.filter((t) =>
-    t.Town_Name.toLowerCase().includes(search.toLowerCase().trim())
+    String(t.Town_Name || '').toLowerCase().includes(search.toLowerCase().trim())
   );
 
   const totalProperties = towns.reduce(
@@ -174,6 +120,9 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
     (sum, t) => sum + (parseFloat(t.Profit_Loss) || 0),
     0
   );
+  const totalReceivedMetric = portfolioStats?.totalReceived ?? portfolioStats?.totalIncome ?? totalIncome;
+  const totalExpensesMetric = portfolioStats?.totalExpenses ?? totalExpenses;
+  const cashBalanceMetric = portfolioStats?.cashBalance ?? portfolioStats?.netProfitLoss ?? netPortfolioPl;
 
   const dashboardContent = loading ? (
     <div className="loading flex-center flex-1">
@@ -188,7 +137,7 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
             CEO Financial Summary
           </h2>
           <p>
-            Total property receipts minus all expenses
+            Actual cash received minus every approved cash-out
           </p>
         </div>
 
@@ -198,7 +147,7 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
               Total Received
             </div>
             <div className="ui-finance-hero-value text-green">
-              {fmtPkr(totalIncome)}
+              {fmtPkr(totalReceivedMetric)}
             </div>
           </div>
 
@@ -209,7 +158,7 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
               Total Expenses
             </div>
             <div className="ui-finance-hero-value text-red">
-              {fmtPkr(totalExpenses)}
+              {fmtPkr(totalExpensesMetric)}
             </div>
           </div>
 
@@ -217,51 +166,14 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
 
           <div className="ui-finance-hero-metric">
             <div className="ui-finance-hero-label">
-              Net Portfolio P&L
+              Cash Balance
             </div>
-            <div className={`ui-finance-hero-value ui-finance-hero-value-main ${netPortfolioPl >= 0 ? 'text-green' : 'text-red'}`}>
-              {fmtPkr(netPortfolioPl)}
+            <div className={`ui-finance-hero-value ui-finance-hero-value-main ${cashBalanceMetric >= 0 ? 'text-green' : 'text-red'}`}>
+              {fmtPkr(cashBalanceMetric)}
             </div>
           </div>
         </div>
       </div>
-
-      {/* Pending Commissions Section */}
-      {pendingCommissions.length > 0 && (
-        <div className="ui-alert-strip">
-          <div>
-            <div className="ui-alert-title">
-              ⏳ Pending Commissions ({pendingCommissions.length})
-            </div>
-            <div className="ui-alert-subtitle">
-              Total: {fmtPkr(pendingCommissions.reduce((s, c) => s + (parseFloat(c.commission_amount) || 0), 0))}
-            </div>
-          </div>
-          <div className="ui-alert-items">
-            {pendingCommissions.slice(0, 5).map((c) => (
-              <div key={c.id} className="ui-alert-mini-card">
-                <div className="ui-alert-mini-title">
-                  {c.agent_name || c.agent_id?.slice(0, 8) || 'Agent'}
-                </div>
-                <div className="ui-alert-mini-subtitle">
-                  PKR {(parseFloat(c.commission_amount) || 0).toLocaleString()}
-                </div>
-                <button
-                  onClick={() => handleMarkCommissionPaid(c.id)}
-                  className="btn btn-success btn-sm"
-                >
-                  Mark Paid
-                </button>
-              </div>
-            ))}
-            {pendingCommissions.length > 5 && (
-              <div className="ui-alert-more">
-                +{pendingCommissions.length - 5} more
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Summary Row */}
       <div className="ui-summary-row">
@@ -274,8 +186,8 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
           <div className="ui-summary-value">{totalProperties}</div>
         </div>
         <div className="ui-summary-card">
-          <div className="ui-label">Net Portfolio P/L</div>
-          <div className={`ui-summary-value ${netPortfolioPl >= 0 ? 'text-green' : 'text-red'}`}>{fmtPkr(netPortfolioPl)}</div>
+          <div className="ui-label">Cash Balance</div>
+          <div className={`ui-summary-value ${cashBalanceMetric >= 0 ? 'text-green' : 'text-red'}`}>{fmtPkr(cashBalanceMetric)}</div>
         </div>
       </div>
 
@@ -430,22 +342,6 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
       );
     }
 
-    if (activePage === 'agents') {
-      return (
-        <div style={{ padding: 8 }}>
-          <div className="ui-screen-header">
-            <h2 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Agents</h2>
-            <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: 12 }}>
-              Distribution & management
-            </p>
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <AgentManagement />
-          </div>
-        </div>
-      );
-    }
-
     return dashboardContent;
   })();
 
@@ -459,7 +355,7 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
         </div>
         <div className="ui-topbar-title">CEO Portfolio Hub</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {(userRole === 'ceo' || userRole === 'accountant') && (
+          {userRole === 'ceo' && (
             <>
               <button
                 onClick={() => onNavigate?.('dashboard')}
@@ -483,17 +379,6 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
               >
                 Appeals
               </button>
-              <button
-                onClick={() => onNavigate?.('agents')}
-                className="btn btn-ghost btn-sm"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  background: activePage === 'agents' ? 'var(--accent-blue)' : undefined,
-                  color: activePage === 'agents' ? '#fff' : undefined,
-                }}
-              >
-                Agents
-              </button>
               {userRole === 'ceo' && (
                 <button
                   onClick={() => { setShowCreateAccountant(true); setAcError(''); setAcSuccess(''); }}
@@ -503,18 +388,23 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
                   + Accountant
                 </button>
               )}
-              <button
-                onClick={handleSyncToCloud}
-                disabled={syncingToCloud}
-                className="btn btn-ghost btn-sm"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  background: syncingToCloud ? 'var(--accent-green)' : undefined,
-                  color: syncingToCloud ? '#fff' : undefined,
-                }}
-              >
-                {syncingToCloud ? `Syncing ${syncCloudProgress}%` : 'Sync to Cloud'}
-              </button>
+              {userRole === 'ceo' && (
+                <button
+                  onClick={async () => {
+                    if (!window.confirm('Permanently delete old agent commissions and agent-linked sales from local handover data?')) return;
+                    const result = await window.api.cleanupLegacyAgentData?.();
+                    if (result?.error) showToast(result.error, 'error');
+                    else {
+                      showToast('Legacy agent data cleanup complete', 'success');
+                      loadTowns();
+                    }
+                  }}
+                  className="btn btn-ghost btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  Cleanup Agent Data
+                </button>
+              )}
             </>
           )}
           <button
@@ -583,7 +473,7 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
                 setAcLoading(true);
                 setAcError('');
                 try {
-                  const r = await window.api.createAccountant({ fullName: acName, email: acEmail, password: acPassword });
+                  const r = await window.api.createAccountant({ fullName: acName, email: acEmail, password: acPassword, townName: acTown });
                   if (r?.error) { setAcError(r.error); setAcLoading(false); return; }
                   setAcSuccess('Account created!');
                 } catch (err) { setAcError(err.message); }
@@ -609,6 +499,13 @@ export default function CEOProjectsHub({ activePage, onTownSelect, onLogout, sho
                 <div className="form-group">
                   <label>Password *</label>
                   <input type="password" value={acPassword} onChange={(e) => setAcPassword(e.target.value)} required placeholder="Min 6 characters" minLength={6} />
+                </div>
+                <div className="form-group">
+                  <label>Assigned Town *</label>
+                  <select value={acTown} onChange={(e) => setAcTown(e.target.value)} required>
+                    <option value="">Select town</option>
+                    {towns.map((town) => <option key={town.Town_Name} value={town.Town_Name}>{town.Town_Name}</option>)}
+                  </select>
                 </div>
                 <button type="submit" disabled={acLoading} className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
                   {acLoading ? 'Creating...' : 'Create Accountant'}

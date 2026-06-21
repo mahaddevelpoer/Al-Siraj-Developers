@@ -1,6 +1,16 @@
 const supabase = require('../supabase');
 const crypto = require('crypto');
-const { toCloudRow, toCloudMatch, getRowVal } = require('../syncHelpers');
+const {
+  toCloudRow,
+  toCloudMatch,
+  getRowVal,
+  mapTownFromCloud,
+  mapPropertyFromCloud,
+  mapDailyEntryFromCloud,
+  mapSalaryRecordFromCloud,
+  mapCeoExpenseFromCloud,
+  mapGenericFromCloud,
+} = require('../syncHelpers');
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
@@ -8,6 +18,53 @@ function generateId() {
 
 function uuid() {
   return crypto.randomUUID();
+}
+
+const UPSERT_CONFLICT = {
+  towns: 'town_name',
+  properties: 'property_type,property_number,town_name',
+  all_sales: 'sale_id',
+  installments: 'tracker_id',
+  expenses: 'expense_id',
+  ceo_expenses: 'expense_id',
+  ceo_salary: 'salary_id',
+  notifications: 'notification_id',
+  employees: 'employee_id',
+  employees_v2: 'employee_id',
+  advance_salaries: 'advance_id',
+  salary_records: 'receipt_number',
+  salary_payments: 'receipt_number',
+  daily_entries: 'entry_id',
+  town_agents: 'agent_id',
+  investors: 'investor_id',
+  investor_transactions: 'transaction_id',
+  construction_projects: 'project_id',
+  construction_payments: 'payment_id',
+  commission_receipts: 'receipt_id',
+  receipt_archive: 'receipt_id',
+  money_ledger: 'ledger_id',
+  town_financial_summary: 'town_name',
+};
+
+function normalizeCloudRow(table, row) {
+  if (!row || typeof row !== 'object') return row;
+  const type = getRowVal(row, 'Property_Type');
+  let mapped;
+  if (table === 'towns') mapped = mapTownFromCloud(row);
+  else if (table === 'properties') mapped = mapPropertyFromCloud(row, type === 'Shop' ? 'Shop' : 'Plot');
+  else if (table === 'daily_entries') mapped = mapDailyEntryFromCloud(row);
+  else if (table === 'salary_records' || table === 'salary_payments') mapped = mapSalaryRecordFromCloud(row);
+  else if (table === 'ceo_expenses') mapped = mapCeoExpenseFromCloud(row);
+  else mapped = mapGenericFromCloud(table, row);
+  return { ...row, ...mapped };
+}
+
+function normalizeCloudRows(table, rows) {
+  return (rows || []).map((row) => normalizeCloudRow(table, row));
+}
+
+function isMissingConflictConstraint(error) {
+  return String(error?.message || '').toLowerCase().includes('no unique or exclusion constraint matching the on conflict specification');
 }
 
 // ─── GENERIC ───────────────────────────────────────────────────
@@ -18,23 +75,38 @@ async function getAll(table) {
     ({ data, error } = await supabase.from(table).select('*'));
   }
   if (error) throw error;
-  return data || [];
+  return normalizeCloudRows(table, data);
 }
 
 async function insert(table, row) {
-  const { data, error } = await supabase.from(table).insert([toCloudRow(table, row)]).select();
+  const now = new Date().toISOString();
+  const cloudRow = toCloudRow(table, {
+    client_write_id: row?.client_write_id || row?.Client_Write_ID || row?.clientWriteId || `${table}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    created_at: row?.created_at || row?.Created_At || now,
+    updated_at: now,
+    sync_status: 'synced',
+    ...row,
+  });
+  const conflict = UPSERT_CONFLICT[table];
+  let query = conflict
+    ? supabase.from(table).upsert([cloudRow], { onConflict: conflict }).select()
+    : supabase.from(table).insert([cloudRow]).select();
+  let { data, error } = await query;
+  if (error && conflict && isMissingConflictConstraint(error)) {
+    ({ data, error } = await supabase.from(table).insert([cloudRow]).select());
+  }
   if (error) throw error;
-  return data?.[0] || row;
+  return normalizeCloudRow(table, data?.[0]) || row;
 }
 
 async function updateWhere(table, match, updates) {
-  let query = supabase.from(table).update(toCloudRow(table, updates)).select();
+  let query = supabase.from(table).update(toCloudRow(table, { ...updates, updated_at: new Date().toISOString(), sync_status: 'synced' })).select();
   for (const [key, val] of Object.entries(toCloudMatch(table, match))) {
     query = query.eq(key, val);
   }
   const { data, error } = await query;
   if (error) throw error;
-  return data;
+  return normalizeCloudRows(table, data);
 }
 
 async function deleteWhere(table, match) {
@@ -54,7 +126,7 @@ async function findOne(table, match) {
   }
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
-  return data;
+  return normalizeCloudRow(table, data);
 }
 
 function buildSelectQuery(table, match) {
@@ -71,7 +143,7 @@ async function findMany(table, match) {
     ({ data, error } = await buildSelectQuery(table, match));
   }
   if (error) throw error;
-  return data || [];
+  return normalizeCloudRows(table, data);
 }
 
 // ─── PROPERTIES ────────────────────────────────────────────────
@@ -98,10 +170,10 @@ async function getSoldProperties() {
     .select('*')
     .in('status', ['Sold', 'Resold', 'sold', 'resold']);
   if (error) throw error;
-  const all = data || [];
+  const all = normalizeCloudRows('properties', data);
   return {
-    plots: all.filter(p => getRowVal(p, 'Property_Type') === 'Plot'),
-    shops: all.filter(p => getRowVal(p, 'Property_Type') === 'Shop'),
+    plots: all.filter(p => getRowVal(p, 'Property_Type') === 'Plot' || p.Plot_Number),
+    shops: all.filter(p => getRowVal(p, 'Property_Type') === 'Shop' || p.Shop_Number),
   };
 }
 
@@ -118,7 +190,7 @@ async function updateProperty(type, number, townName, updates) {
     .eq('town_name', townName)
     .select();
   if (error) throw error;
-  return data?.[0];
+  return normalizeCloudRow('properties', data?.[0]);
 }
 
 // ─── SALES ─────────────────────────────────────────────────────
@@ -174,7 +246,7 @@ async function createInstallments(installmentsArray) {
   const rows = installmentsArray.map((row) => toCloudRow('installments', row));
   const { data, error } = await supabase.from('installments').insert(rows).select();
   if (error) throw error;
-  return data || [];
+  return normalizeCloudRows('installments', data);
 }
 
 async function getAllInstallments() {
@@ -316,7 +388,7 @@ async function getInstallmentProperties(townName) {
     .eq('town_name', townName)
     .in('installment_status', ['Active', 'active']);
   if (error) throw error;
-  return data || [];
+  return normalizeCloudRows('properties', data);
 }
 
 async function getPropertyInstallments(propertyId) {
@@ -596,31 +668,28 @@ async function resellProperty(data) {
 // ─── DASHBOARD STATS ───────────────────────────────────────────
 
 async function getDashboardStats() {
-  const [allSales, allExpenses, allTowns] = await Promise.all([
-    getAllSales(),
-    getAll('expenses'),
+  const [summaries, allTowns, allSales] = await Promise.all([
+    getAll('town_financial_summary').catch(() => []),
     getAll('towns'),
+    getAllSales().catch(() => []),
   ]);
 
-  // INCOME RULE: Only received_amount counts as income
-  // Never use total_price until fully received
-  const totalReceived = allSales.reduce((s, r) => s + (parseFloat(r.Received_Amount) || 0), 0);
+  const totalReceived = summaries.reduce((s, r) => s + (parseFloat(r.Total_Received || r.total_received) || 0), 0);
+  const totalExpenses = summaries.reduce((s, r) => s + (parseFloat(r.Total_Expenses || r.total_expenses) || 0), 0);
+  const cashBalance = summaries.reduce((s, r) => s + (parseFloat(r.Cash_Balance || r.cash_balance) || 0), 0);
   const totalPending = allSales.reduce((s, r) => s + (parseFloat(r.Remaining_Amount) || 0), 0);
-
-  // Commission: sum of all commission amounts from sales
-  const totalCommission = allSales.reduce((s, r) => s + (parseFloat(r.Commission_Amount) || 0), 0);
-  const totalExpenses = allExpenses.reduce((s, e) => s + (parseFloat(e.Amount_PKR) || 0), 0);
-  const netProfitLoss = totalReceived - totalCommission - totalExpenses;
+  const totalCommission = 0;
   const soldPlots = allSales.filter(s => s.Type === 'Plot').length;
   const soldShops = allSales.filter(s => s.Type === 'Shop').length;
 
   const townPerformance = allTowns.map(town => {
-    const townSales = allSales.filter(s => s.Town_Name === town.Town_Name);
-    const income = townSales.reduce((s, r) => s + (parseFloat(r.Received_Amount) || 0), 0);
-    const expenses = allExpenses
-      .filter(e => e.Town_Name === town.Town_Name)
-      .reduce((s, e) => s + (parseFloat(e.Amount_PKR) || 0), 0);
-    return { name: town.Town_Name, income, expenses };
+    const summary = summaries.find((s) => String(s.Town_Name || s.town_name || '') === String(town.Town_Name));
+    return {
+      name: town.Town_Name,
+      income: parseFloat(summary?.Total_Received || summary?.total_received) || 0,
+      expenses: parseFloat(summary?.Total_Expenses || summary?.total_expenses) || 0,
+      profit: parseFloat(summary?.Cash_Balance || summary?.cash_balance) || 0,
+    };
   });
 
   return {
@@ -628,7 +697,8 @@ async function getDashboardStats() {
     totalPending,
     totalExpenses,
     totalCommission,
-    netProfitLoss,
+    cashBalance,
+    netProfitLoss: cashBalance,
     soldPlots,
     soldShops,
     totalTowns: allTowns.length,
@@ -638,6 +708,70 @@ async function getDashboardStats() {
 }
 
 // ─── APPEALS ───────────────────────────────────────────────────
+
+async function getTownPerformance(townName) {
+  const summary = await findOne('town_financial_summary', { Town_Name: townName }).catch(() => null);
+  if (summary) {
+    const [plots, shops] = await Promise.all([
+      getPropertiesByTown(townName, 'Plot').catch(() => []),
+      getPropertiesByTown(townName, 'Shop').catch(() => []),
+    ]);
+    const totalReceived = parseFloat(summary.Total_Received || summary.total_received) || 0;
+    const totalExpenses = parseFloat(summary.Total_Expenses || summary.total_expenses) || 0;
+    const cashBalance = parseFloat(summary.Cash_Balance || summary.cash_balance) || (totalReceived - totalExpenses);
+    return {
+      townName,
+      actualIncome: totalReceived,
+      totalReceived,
+      totalExpenses,
+      cashBalance,
+      netProfit: cashBalance,
+      pendingCollection: parseFloat(summary.Pending_Collection || summary.pending_collection) || 0,
+      investorBalance: parseFloat(summary.Investor_Balance || summary.investor_balance) || 0,
+      soldPlots: (plots || []).filter((p) => String(p.Status || p.status || '').toLowerCase() === 'sold').length,
+      soldShops: (shops || []).filter((s) => String(s.Status || s.status || '').toLowerCase() === 'sold').length,
+      totalPlots: (plots || []).length,
+      totalShops: (shops || []).length,
+    };
+  }
+  const [sales, expenses, ceoExpenses, ceoSalary, salaryRecords, investorTx, constructionPayments, commissionReceipts, plots, shops] = await Promise.all([
+    findMany('all_sales', { Town_Name: townName }).catch(() => []),
+    findMany('expenses', { Town_Name: townName }).catch(() => []),
+    findMany('ceo_expenses', { Town_Name: townName }).catch(() => []),
+    findMany('ceo_salary', { Town_Name: townName }).catch(() => []),
+    findMany('salary_records', { Town_Name: townName }).catch(() => []),
+    findMany('investor_transactions', { Town_Name: townName }).catch(() => []),
+    findMany('construction_payments', { Town_Name: townName }).catch(() => []),
+    findMany('commission_receipts', { Town_Name: townName }).catch(() => []),
+    getPropertiesByTown(townName, 'Plot').catch(() => []),
+    getPropertiesByTown(townName, 'Shop').catch(() => []),
+  ]);
+
+  const saleReceived = (sales || []).reduce((s, r) => s + (parseFloat(r.Received_Amount || r.received_amount || r.Advance_Amount_PKR) || 0), 0);
+  const investorCredit = (investorTx || []).filter((t) => String(t.Type || t.type || '').toLowerCase() !== 'debit').reduce((s, t) => s + (parseFloat(t.Amount || t.amount) || 0), 0);
+  const investorDebit = (investorTx || []).filter((t) => String(t.Type || t.type || '').toLowerCase() === 'debit').reduce((s, t) => s + (parseFloat(t.Amount || t.amount) || 0), 0);
+  const dailyExpenses = (expenses || []).reduce((s, e) => s + (parseFloat(e.Amount_PKR || e.amount_pkr) || 0), 0);
+  const ceoExpenseTotal = (ceoExpenses || []).reduce((s, e) => s + (parseFloat(e.Amount_PKR || e.amount_pkr) || 0), 0);
+  const ceoSalaryTotal = (ceoSalary || []).reduce((s, e) => s + (parseFloat(e.Amount_PKR || e.amount_pkr) || 0), 0);
+  const salaryTotal = (salaryRecords || []).reduce((s, e) => s + (parseFloat(e.Amount || e.amount) || 0), 0);
+  const constructionTotal = (constructionPayments || []).reduce((s, e) => s + (parseFloat(e.Amount || e.amount) || 0), 0);
+  const commissionTotal = (commissionReceipts || []).reduce((s, e) => s + (parseFloat(e.Amount || e.amount) || 0), 0);
+  const totalReceived = saleReceived + investorCredit;
+  const totalExpenses = dailyExpenses + ceoExpenseTotal + ceoSalaryTotal + salaryTotal + constructionTotal + commissionTotal + investorDebit;
+
+  return {
+    townName,
+    actualIncome: totalReceived,
+    totalReceived,
+    totalExpenses,
+    cashBalance: totalReceived - totalExpenses,
+    netProfit: totalReceived - totalExpenses,
+    soldPlots: (plots || []).filter((p) => String(p.Status || p.status || '').toLowerCase() === 'sold').length,
+    soldShops: (shops || []).filter((s) => String(s.Status || s.status || '').toLowerCase() === 'sold').length,
+    totalPlots: (plots || []).length,
+    totalShops: (shops || []).length,
+  };
+}
 
 async function getPendingAppeals(userId, appealType) {
   let query = supabase.from('appeals').select('*').eq('status', 'pending');
@@ -737,7 +871,7 @@ async function getPendingCollections(agentName) {
 
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+  return normalizeCloudRows('all_sales', data);
 }
 
 async function getCollectionHistory(saleId) {
@@ -815,7 +949,7 @@ module.exports = {
   // Complete flows
   sellProperty, cancelDeal, updateFileStatus, resellProperty,
   // Stats
-  getDashboardStats,
+  getDashboardStats, getTownPerformance,
   // Appeals
   getPendingAppeals,
   // Commissions

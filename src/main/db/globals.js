@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
 const { getGlobalsPath, getPropertiesPath, readExcelFile, appendToExcel, updateExcelRow, generateId, ensureSheetColumns } = require('./core');
+const { recordMoneyEvent, getMoneySummary, backfillMoneyLedger, getAllTownFinancialSummaries } = require('./moneyLedger');
 
 function isPropertySale(row) {
   const type = String(row?.Type || '').trim().toLowerCase();
@@ -285,6 +286,17 @@ async function markInstallmentPaid(data) {
   if (sale && newRemainingForSale !== null && newRemainingForSale <= 0) {
     await upsertCommissionForSaleLocal({ ...sale, Received_Amount: newReceivedForSale, Remaining_Amount: newRemainingForSale });
   }
+  await recordMoneyEvent({
+    sourceType: 'installment_payment',
+    sourceId: item.Tracker_ID,
+    direction: 'income',
+    amount: item.Monthly_Amount,
+    townName: item.Town_Name,
+    date: new Date().toISOString().split('T')[0],
+    partyName: item.Customer_Name,
+    description: `${item.Type || 'Property'} ${item.Plot_Shop_Number || ''} installment ${item.Month_Number || ''}`,
+    createdBy: item.Agent_Name || 'System',
+  });
 
   return { success: true };
 }
@@ -404,46 +416,49 @@ async function deleteCeoSalary(salaryId) {
 }
 
 async function getDashboardStats() {
+  await backfillMoneyLedger();
   const sales = await readExcelFile(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data');
-  const expenses = await readExcelFile(path.join(getGlobalsPath(), 'All_Expenses.xlsx'), 'Data');
-  const ceoExp = await readExcelFile(path.join(getGlobalsPath(), 'CEO_Expenses.xlsx'), 'Data');
-  const ceoSalary = await readExcelFile(path.join(getGlobalsPath(), 'CEO_Salary.xlsx'), 'Data');
-  const allInstallments = await readExcelFile(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data');
   const { getTowns } = require('./towns');
   const towns = await getTowns();
+  const summaries = await getAllTownFinancialSummaries();
+  const money = summaries.length
+    ? {
+      totalReceived: summaries.reduce((s, r) => s + (parseFloat(r.Total_Received) || 0), 0),
+      totalExpenses: summaries.reduce((s, r) => s + (parseFloat(r.Total_Expenses) || 0), 0),
+      cashBalance: summaries.reduce((s, r) => s + (parseFloat(r.Cash_Balance) || 0), 0),
+    }
+    : await getMoneySummary();
 
   // REAL ESTATE FORMULA:
   // Income   = Gross money actually received (advance + paid installments, or full for lump-sum)
   // Commission = Commission_Amount from All_Sales + any expense entries tagged as commission
   // Net P/L  = Income - Commission - Operation Expenses - CEO Expenses - CEO Salary
 
-  const totalIncome = sales.reduce((s, r) => s + computeSaleReceived(r, allInstallments), 0);
-
-  // Commission from sales records
-  const commFromSales = sales.reduce((s, r) => s + (parseFloat(r.Commission_Amount) || 0), 0);
-  // Commission from expense records (category/name includes 'commission')
-  const commFromExp   = expenses.filter(e => isCommissionRow(e)).reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-  const commFromCeo   = ceoExp.filter(e => isCommissionRow(e)).reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-  const totalCommission = commFromSales + commFromExp + commFromCeo;
-
-  // Operation expenses: exclude CEO rows AND commission rows (commission shown separately)
-  const totalExpenses  = expenses.filter(e => !isCeoExpenseRow(e) && !isCommissionRow(e)).reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-  // CEO expenses: exclude commission rows
-  const totalCeoExp    = ceoExp.filter(e => !isCommissionRow(e)).reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-  const totalCeoSalary = ceoSalary.reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
+  const totalIncome = money.totalReceived;
+  const totalExpenses = money.totalExpenses;
+  const totalCommission = 0;
+  const totalCeoSalary = 0;
   const soldPlots      = sales.filter(s => s.Type === 'Plot').length;
   const soldShops      = sales.filter(s => s.Type === 'Shop').length;
 
-  const townPerformance = towns.map(t => ({ name: t.Town_Name, income: parseFloat(t.Total_Income_PKR) || 0, expenses: parseFloat(t.Total_Expenses_PKR) || 0, profit: parseFloat(t.Profit_Loss) || 0 }));
+  const townPerformance = towns.map(t => {
+    const summary = summaries.find((s) => String(s.Town_Name) === String(t.Town_Name));
+    return {
+      name: t.Town_Name,
+      income: parseFloat(summary?.Total_Received ?? t.Total_Income_PKR) || 0,
+      expenses: parseFloat(summary?.Total_Expenses ?? t.Total_Expenses_PKR) || 0,
+      profit: parseFloat(summary?.Cash_Balance ?? t.Profit_Loss) || 0,
+    };
+  });
 
-  const pureExpenses   = totalExpenses + totalCeoExp + totalCeoSalary; // CEO + Employee only, no commission
-  const allDeductions  = totalCommission + pureExpenses;
   return {
     totalIncome,
+    totalReceived: totalIncome,
     totalCommission,
-    totalExpenses: pureExpenses,   // ONLY expenses, no commission
+    totalExpenses,
+    cashBalance: money.cashBalance,
     totalCeoSalary,
-    netProfitLoss: totalIncome - allDeductions,
+    netProfitLoss: money.cashBalance,
     soldPlots, soldShops, totalTowns: towns.length, townPerformance,
     monthlySales: sales.slice(-12)
   };
@@ -501,6 +516,18 @@ async function recordSalaryPayment(data) {
     Added_By: 'CEO',
   };
   await appendToExcel(path.join(getGlobalsPath(), 'All_Expenses.xlsx'), 'Data', expData);
+  await recordMoneyEvent({
+    sourceType: 'salary_payment',
+    sourceId: receiptNumber,
+    direction: 'expense',
+    amount: salaryData.Amount,
+    townName,
+    date: dateStr,
+    partyName: employeeName || '',
+    description: `${type || 'Employee'} salary ${month || ''}`,
+    receiptNumber,
+    createdBy: 'CEO',
+  });
 
   // Update town financials
   const { updateTownFinancials } = require('./properties');
@@ -516,83 +543,51 @@ async function getSalaryRecords(townName) {
 
 async function getProfitLossReport() {
   const { getTowns } = require('./towns');
+  await backfillMoneyLedger();
   const towns = await getTowns();
-  const sales = await readExcelFile(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data');
-  const expenses = await readExcelFile(path.join(getGlobalsPath(), 'All_Expenses.xlsx'), 'Data');
-  const ceoExp = await readExcelFile(path.join(getGlobalsPath(), 'CEO_Expenses.xlsx'), 'Data');
-  const ceoSalary = await readExcelFile(path.join(getGlobalsPath(), 'CEO_Salary.xlsx'), 'Data');
-  const allInstallments = await readExcelFile(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data');
 
-  return towns.map(t => {
-    const tSales = sales.filter(s => s.Town_Name === t.Town_Name);
-    // Operation expenses: exclude CEO rows AND commission rows
-    const tExp    = expenses.filter(e => e.Town_Name === t.Town_Name && !isCeoExpenseRow(e) && !isCommissionRow(e));
-    // CEO expenses: exclude commission rows
-    const tCeo    = ceoExp.filter(e => e.Town_Name === t.Town_Name && !isCommissionRow(e));
-    const tSalary = ceoSalary.filter(e => e.Town_Name === t.Town_Name);
-
-    // Gross received (advance + paid installments, capped at Total_Amount_PKR to prevent rounding overflow)
-    const income = tSales.reduce((s, r) => {
-      return s + computeSaleReceived(r, allInstallments);
-    }, 0);
-
-    // Commission: sale records + expense entries tagged as commission
-    const commFromSales = tSales.reduce((s, r) => s + (parseFloat(r.Commission_Amount) || 0), 0);
-    const commFromExp   = expenses.filter(e => e.Town_Name === t.Town_Name && isCommissionRow(e)).reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-    const commFromCeo   = ceoExp.filter(e => e.Town_Name === t.Town_Name && isCommissionRow(e)).reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-    const commission = commFromSales + commFromExp + commFromCeo;
-
-    const exp    = tExp.reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-    const ceo    = tCeo.reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-    const salary = tSalary.reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-    const totalDeductions = commission + exp + ceo + salary;
-    return {
+  const reports = [];
+  for (const t of towns) {
+    const money = await getMoneySummary(t.Town_Name);
+    reports.push({
       Town_Name: t.Town_Name,
-      Total_Income: income,
-      Commission: commission,
-      Operation_Expenses: exp,
-      CEO_Expenses: ceo,
-      CEO_Salary: salary,
-      Total_Expenses: totalDeductions,
-      Net_Profit_Loss: income - totalDeductions,
-    };
-  });
+      Total_Income: money.totalReceived,
+      Total_Received: money.totalReceived,
+      Commission: 0,
+      Operation_Expenses: money.totalExpenses,
+      CEO_Expenses: 0,
+      CEO_Salary: 0,
+      Total_Expenses: money.totalExpenses,
+      Cash_Balance: money.cashBalance,
+      Net_Profit_Loss: money.cashBalance,
+    });
+  }
+  return reports;
 }
 
 async function getTownPerformance(townName) {
   const { getTowns } = require('./towns');
+  await backfillMoneyLedger();
   const towns = await getTowns();
   const town = towns.find(t => t.Town_Name === townName);
   if (!town) return { error: 'Town not found' };
 
-  const townFilePath = path.join(getPropertiesPath(), `${townName}.xlsx`);
   const sales = await readExcelFile(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data');
-  const expenses = await readExcelFile(path.join(getGlobalsPath(), 'All_Expenses.xlsx'), 'Data');
-  const ceoExp = await readExcelFile(path.join(getGlobalsPath(), 'CEO_Expenses.xlsx'), 'Data');
-  const ceoSalary = await readExcelFile(path.join(getGlobalsPath(), 'CEO_Salary.xlsx'), 'Data');
-  const allInstallments = await readExcelFile(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data');
+  const money = await getMoneySummary(townName);
 
   const tSales = sales.filter(s => s.Town_Name === townName);
-  const tExp = expenses.filter(e => e.Town_Name === townName && !isCeoExpenseRow(e) && !isCommissionRow(e));
-  const tCeo = ceoExp.filter(e => e.Town_Name === townName && !isCommissionRow(e));
-  const tSalary = ceoSalary.filter(e => e.Town_Name === townName);
+  const income = money.totalReceived;
+  const opExp = money.totalExpenses;
+  const commission = 0;
+  const ceo = 0;
+  const salary = 0;
 
-  const income = tSales.reduce((s, r) => {
-    return s + computeSaleReceived(r, allInstallments);
-  }, 0);
-
-  const commFromSales = tSales.reduce((s, r) => s + (parseFloat(r.Commission_Amount) || 0), 0);
-  const commFromExp = expenses.filter(e => e.Town_Name === townName && isCommissionRow(e)).reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-  const commFromCeo = ceoExp.filter(e => e.Town_Name === townName && isCommissionRow(e)).reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-  const commission = commFromSales + commFromExp + commFromCeo;
-  const opExp = tExp.reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-  const ceo = tCeo.reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-  const salary = tSalary.reduce((s, r) => s + (parseFloat(r.Amount_PKR) || 0), 0);
-
-  const allPlots = await readExcelFile(townFilePath, 'Plots');
-  const allShops = await readExcelFile(townFilePath, 'Shops');
-  let prices = [];
-  try { prices = await readExcelFile(townFilePath, 'Prices'); } catch {}
+  const { getAllPropertiesByTown } = require('./properties');
+  const { getTownPrices } = require('./towns');
+  const allPlots = await getAllPropertiesByTown(townName, 'Plot');
+  const allShops = await getAllPropertiesByTown(townName, 'Shop');
+  let prices = {};
+  try { prices = await getTownPrices(townName); } catch {}
 
   const soldPlots = tSales.filter(s => s.Type === 'Plot').length;
   const soldShops = tSales.filter(s => s.Type === 'Shop').length;
@@ -606,23 +601,21 @@ async function getTownPerformance(townName) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([m, v]) => ({ month: m, income: v }));
 
-  let plotPricePerMarla = 0;
-  const priceRow = prices.find(p => String(p.Type || '').toLowerCase() === 'plot');
-  if (priceRow) plotPricePerMarla = parseFloat(priceRow.Price_PKR_Per_Marla) || 0;
+  const plotPricePerMarla = parseFloat(prices.Residential_Plot_Price || prices.Plot_Price || 0) || 0;
 
   const plotBreakdown = allPlots.map(p => {
-    const marla = parseFloat(p.Plot_Size) || 0;
+    const marla = parseFloat(p.Plot_Marla || p.Marla || p.Plot_Size) || 0;
     const isSold = tSales.some(s => s.Type === 'Plot' && String(s.Plot_Shop_Number) === String(p.Plot_Number));
-    return { number: p.Plot_Number, marla, pricePerMarla: plotPricePerMarla, estimate: marla * plotPricePerMarla, status: isSold || p.Status === 'Sold' ? 'Sold' : 'Available' };
+    const pricePerMarla = parseFloat(p.Per_Marla_Price) || plotPricePerMarla;
+    return { number: p.Plot_Number, marla, pricePerMarla, estimate: marla * pricePerMarla, status: isSold || p.Status === 'Sold' || p.Status === 'Resold' ? 'Sold' : 'Available' };
   });
   const estimatePlots = plotBreakdown.filter(p => p.status !== 'Sold').reduce((s, p) => s + p.estimate, 0);
 
   const roadMap = {};
   allShops.forEach(s => {
     const road = s.Road_Type || 'General';
-    const size = parseFloat(s.Shop_Size) || 0;
-    const priceRowR = prices.find(p => String(p.Type || '').toLowerCase() === 'shop' && String(p.Road_Type || '') === road);
-    const price = priceRowR ? (parseFloat(priceRowR.Price_PKR_Per_Marla) || 0) : 0;
+    const size = parseFloat(s.Shop_Marla || s.Marla || s.Shop_Size) || 0;
+    const price = parseFloat(s.Per_Marla_Price || prices.Commercial_Shop_Price || prices.Residential_Shop_Price || 0) || 0;
     const estimate = size * price;
     const isSold = tSales.some(sl => sl.Type === 'Shop' && String(sl.Plot_Shop_Number) === String(s.Shop_Number));
     if (!roadMap[road]) roadMap[road] = { label: road, count: 0, totalMarla: 0, estimate: 0 };
@@ -635,8 +628,9 @@ async function getTownPerformance(townName) {
 
   return {
     actualIncome: income,
-    totalExpenses: opExp + ceo + salary + commission,
-    netProfit: income - (opExp + ceo + salary + commission),
+    totalExpenses: opExp,
+    cashBalance: money.cashBalance,
+    netProfit: money.cashBalance,
     estimateTotal: estimatePlots + estimateShops,
     estimatePlots, estimateShops,
     totalPlots: allPlots.length, soldPlots,
@@ -761,8 +755,9 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
   const historyPath = path.join(getGlobalsPath(), 'Collection_Payments.xlsx');
   await ensureCollectionPaymentsFile(historyPath);
   await ensureSheetColumns(historyPath, 'Data', ['Payment_ID','Sale_ID','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes']);
+  const paymentId = generateId();
   await appendToExcel(historyPath, 'Data', {
-    Payment_ID: generateId(),
+    Payment_ID: paymentId,
     Sale_ID: item.Sale_ID || saleId || `${item.Type}|${item.Plot_Shop_Number}|${item.Town_Name}`,
     Type: item.Type || type,
     Plot_Shop_Number: item.Plot_Shop_Number || plotShopNumber,
@@ -776,6 +771,17 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
     Payment_Date: new Date().toISOString().split('T')[0],
     Payment_Method: paymentMethod || 'Cash',
     Notes: notes || '',
+  });
+  await recordMoneyEvent({
+    sourceType: 'collection_payment',
+    sourceId: paymentId,
+    direction: 'income',
+    amount: receivedAmount,
+    townName: item.Town_Name || townName,
+    date: new Date().toISOString().split('T')[0],
+    partyName: item.Customer_Name || '',
+    description: `${item.Type || type} ${item.Plot_Shop_Number || plotShopNumber} collection received`,
+    createdBy: item.Agent_Name || 'System',
   });
 
   if (newRemaining <= 0) {

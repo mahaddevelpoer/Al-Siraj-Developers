@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { BriefcaseIcon, UsersIcon, WarnIcon } from './Icons';
-import { supabase } from '../lib/supabase';
 
 export default function CommissionTracker({ showToast, townName }) {
   const [sales, setSales] = useState([]);
   const [registeredAgents, setRegisteredAgents] = useState([]);
+  const [commissions, setCommissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [agentFilter, setAgentFilter] = useState('all');
@@ -14,16 +14,14 @@ export default function CommissionTracker({ showToast, townName }) {
   const loadData = async () => {
     if (!window.api) { setLoading(false); return; }
     try {
-      const [d, agentRes] = await Promise.all([
+      const [d, agents, commissionRes] = await Promise.all([
         window.api.getAllSales(),
-        supabase
-          .from('users')
-          .select('id, full_name, email, phone, town, is_active, created_at')
-          .eq('role', 'agent')
-          .order('created_at', { ascending: false }),
+        window.api.getTownAgents?.(townName),
+        window.api.getCommissions?.({ status: 'pending' }),
       ]);
       if (Array.isArray(d)) setSales(d);
-      if (!agentRes?.error) setRegisteredAgents(agentRes?.data || []);
+      setRegisteredAgents(Array.isArray(agents) ? agents : []);
+      setCommissions(Array.isArray(commissionRes?.data) ? commissionRes.data : []);
     } catch(e) {
       console.error('Failed to load commission data:', e);
       showToast?.('Commission tracker data load failed', 'error');
@@ -39,8 +37,8 @@ export default function CommissionTracker({ showToast, townName }) {
 
   const normalizeAgentName = (name) => String(name || '').trim() || 'No Agent';
   const registeredAgentNames = registeredAgents
-    .filter(a => !townName || !a.town || String(a.town) === String(townName))
-    .map(a => a.full_name || a.email)
+    .filter(a => !townName || !a.Town_Name || String(a.Town_Name) === String(townName))
+    .map(a => a.Agent_Name)
     .filter(Boolean);
   const agents = ['all', ...Array.from(new Set([
     ...registeredAgentNames,
@@ -61,14 +59,14 @@ export default function CommissionTracker({ showToast, townName }) {
   // Group by agent for summary
   const agentSummary = {};
   for (const a of registeredAgents) {
-    if (townName && a.town && String(a.town) !== String(townName)) continue;
-    const agent = normalizeAgentName(a.full_name || a.email);
+    if (townName && a.Town_Name && String(a.Town_Name) !== String(townName)) continue;
+    const agent = normalizeAgentName(a.Agent_Name);
     agentSummary[agent] = {
       count: 0,
       commission: 0,
-      email: a.email || '',
-      phone: a.phone || '',
-      isActive: !!a.is_active,
+      email: '',
+      phone: a.Phone_Number || '',
+      isActive: String(a.Status || 'Active') === 'Active',
     };
   }
   for (const s of townFiltered) {
@@ -113,7 +111,9 @@ export default function CommissionTracker({ showToast, townName }) {
             Agent-wise Commission Summary
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {Object.entries(agentSummary).map(([agent, data]) => (
+            {Object.entries(agentSummary).map(([agent, data]) => {
+              const pending = commissions.find(c => normalizeAgentName(c.agent_name || c.Agent_Name) === agent && (!townName || String(c.Town_Name || c.town_name || '') === String(townName)));
+              return (
               <div
                 key={agent}
                 onClick={() => setAgentFilter(agentFilter === agent ? 'all' : agent)}
@@ -138,8 +138,22 @@ export default function CommissionTracker({ showToast, townName }) {
                 <div style={{ fontSize: 14, fontWeight: 800, color: data.commission > 0 ? 'var(--accent-red)' : 'var(--text-muted)', marginTop: 4 }}>
                   {data.commission > 0 ? fmt(data.commission) : 'PKR 0'}
                 </div>
+                {pending && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const r = await window.api.markCommissionPaid(pending.id || pending.Commission_ID);
+                      if (r?.error) showToast?.(r.error, 'error');
+                      else { showToast?.('Commission paid'); loadData(); }
+                    }}
+                  >
+                    Give Commission
+                  </button>
+                )}
               </div>
-            ))}
+            );})}
           </div>
         </div>
       )}

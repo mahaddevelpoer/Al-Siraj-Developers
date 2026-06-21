@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
 const { getPropertiesPath, getTownsPath, getGlobalsPath, readExcelFile, appendToExcel, generateId, deleteExcelRow, syncMirrorsForFile, getHeaderKeys, withFileWriteLock, writeWorkbookAtomic, ensureSheetColumns } = require('./core');
+const { recordMoneyEvent, getMoneySummary, backfillMoneyLedger } = require('./moneyLedger');
 
 function safeFolderName(name) {
   return String(name || '')
@@ -57,7 +58,7 @@ async function upsertCommissionForSaleLocal(sale) {
 }
 
 const PLOT_COLUMNS = [
-  'Plot_Number','Town_Name','Plot_Size','Plot_Marla','Per_Marla_Price','Total_Price','Owner_Name','Customer_Name','CNIC',
+  'Plot_Number','Town_Name','Plot_Size','Plot_Marla','Length_Ft','Width_Ft','Area_Sqft','Per_Marla_Price','Total_Price','Owner_Name','Customer_Name','CNIC',
   'Phone_Number','Sell_Date','Total_Amount_PKR','Advance_Amount_PKR',
   'Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount',
   'Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount',
@@ -67,7 +68,7 @@ const PLOT_COLUMNS = [
 ];
 
 const SHOP_COLUMNS = [
-  'Shop_Number','Town_Name','Shop_Size','Shop_Marla','Road_Type','Road_Key','Per_Marla_Price','Total_Price','Owner_Name','Customer_Name','CNIC',
+  'Shop_Number','Town_Name','Shop_Size','Shop_Marla','Length_Ft','Width_Ft','Area_Sqft','Road_Type','Road_Key','Per_Marla_Price','Total_Price','Owner_Name','Customer_Name','CNIC',
   'Phone_Number','Sell_Date','Total_Amount_PKR','Advance_Amount_PKR',
   'Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount',
   'Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount',
@@ -128,12 +129,15 @@ async function createPropertyFile(type, number, townName, data) {
 }
 
 async function addPlot(data) {
-  const { Plot_Number, Town_Name, Plot_Size, Plot_Marla, Per_Marla_Price, Total_Price, Owner_Name, Property_Category } = data;
+  const { Plot_Number, Town_Name, Plot_Size, Plot_Marla, Length_Ft, Width_Ft, Area_Sqft, Per_Marla_Price, Total_Price, Owner_Name, Property_Category } = data;
   return await createPropertyFile('Plot', Plot_Number, Town_Name, {
     Plot_Number,
     Town_Name,
     Plot_Size: Plot_Size || '',
     Plot_Marla: Plot_Marla || '',
+    Length_Ft: Length_Ft || '',
+    Width_Ft: Width_Ft || '',
+    Area_Sqft: Area_Sqft || '',
     Per_Marla_Price: Per_Marla_Price || '',
     Total_Price: Total_Price || '',
     Owner_Name: Owner_Name || '',
@@ -143,12 +147,15 @@ async function addPlot(data) {
 }
 
 async function addShop(data) {
-  const { Shop_Number, Town_Name, Shop_Size, Shop_Marla, Road_Type, Road_Key, Per_Marla_Price, Total_Price, Owner_Name, Property_Category } = data;
+  const { Shop_Number, Town_Name, Shop_Size, Shop_Marla, Length_Ft, Width_Ft, Area_Sqft, Road_Type, Road_Key, Per_Marla_Price, Total_Price, Owner_Name, Property_Category } = data;
   return await createPropertyFile('Shop', Shop_Number, Town_Name, {
     Shop_Number,
     Town_Name,
     Shop_Size: Shop_Size || '',
     Shop_Marla: Shop_Marla || '',
+    Length_Ft: Length_Ft || '',
+    Width_Ft: Width_Ft || '',
+    Area_Sqft: Area_Sqft || '',
     Road_Type: Road_Type || '',
     Road_Key: Road_Key || '',
     Per_Marla_Price: Per_Marla_Price || '',
@@ -354,6 +361,20 @@ async function sellProperty(data) {
     Transfer_Image: data.Transfer_Image || '',
   };
   await appendToExcel(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', saleData);
+  if (advanceAmount > 0) {
+    await recordMoneyEvent({
+      sourceType: 'sale_advance',
+      sourceId: saleId,
+      direction: 'income',
+      amount: advanceAmount,
+      townName,
+      date: updates.Sell_Date,
+      partyName: data.Customer_Name,
+      description: `${type} ${number} advance received`,
+      receiptNumber: data.Receipt_Number,
+      createdBy: data.Agent_Name || 'System',
+    });
+  }
   if (remaining <= 0) await upsertCommissionForSaleLocal(saleData);
 
   // Ensure Installments_Tracker has Agent_Name column
@@ -401,6 +422,17 @@ async function sellProperty(data) {
       Added_By: data.Agent_Name || 'System',
     };
     await appendToExcel(path.join(getGlobalsPath(), 'All_Expenses.xlsx'), 'Data', expenseData);
+    await recordMoneyEvent({
+      sourceType: 'sale_expense',
+      sourceId: expenseData.Expense_ID,
+      direction: 'expense',
+      amount: expenseTotal,
+      townName,
+      date: updates.Sell_Date,
+      partyName: data.Agent_Name || 'System',
+      description: expenseData.Expense_Name,
+      createdBy: data.Agent_Name || 'System',
+    });
   }
 
   // Update town file
@@ -569,53 +601,14 @@ async function updateTownFinancials(townName) {
   const townFilePath = path.join(getTownsPath(), `${townName}.xlsx`);
   if (!fs.existsSync(townFilePath)) return;
 
+  await backfillMoneyLedger();
+  const money = await getMoneySummary(townName);
   // Get all sales for this town
   const sales = await readExcelFile(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data');
-  const allInstallments = await readExcelFile(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data');
   const townSales = sales.filter(s => s.Town_Name === townName);
-  const totalIncome = townSales.reduce((sum, s) => {
-    const total = parseFloat(s.Total_Amount_PKR) || 0;
-    const advance = parseFloat(s.Advance_Amount_PKR) || 0;
-    const instMonths = parseInt(s.Total_Installments) || 0;
-
-    if (instMonths > 0) {
-      const paidInst = allInstallments.filter(inst => {
-        const sameSale = s.Sale_ID && inst.Sale_ID
-          ? String(inst.Sale_ID) === String(s.Sale_ID)
-          : String(inst.Plot_Shop_Number) === String(s.Plot_Shop_Number) &&
-            String(inst.Town_Name) === String(s.Town_Name) &&
-            String(inst.Type) === String(s.Type);
-        return sameSale && (inst.Status || '').toLowerCase() === 'paid';
-      });
-      const paidSum = paidInst.reduce((ps, inst) => ps + (parseFloat(inst.Monthly_Amount) || 0), 0);
-      const recordedReceived = parseFloat(s.Received_Amount) || 0;
-      // Cap at Total_Amount_PKR to prevent Math.ceil rounding overflow.
-      // Collections can clear a balance without marking every installment row paid.
-      return sum + Math.min(Math.max(recordedReceived, advance + paidSum), total);
-    }
-    return sum + total; // lump sum: full amount
-  }, 0);
-
-  // Commission: separate deduction (agent fee from All_Sales records)
-  const totalCommission = townSales.reduce((sum, s) => sum + (parseFloat(s.Commission_Amount) || 0), 0);
-
-  // Get all expenses for this town
-  const expenses = await readExcelFile(path.join(getGlobalsPath(), 'All_Expenses.xlsx'), 'Data');
-  // Avoid double-count: CEO expenses also exist in CEO_Expenses.xlsx
-  const townExpenses = expenses.filter(e => e.Town_Name === townName && String(e.Category || '').toLowerCase() !== 'ceo' && !String(e.Expense_Name || '').startsWith('CEO:'));
-  const totalExpenses = townExpenses.reduce((sum, e) => sum + (parseFloat(e.Amount_PKR) || 0), 0);
-
-  // Get CEO expenses (only from CEO_Expenses.xlsx, not from All_Expenses to avoid doubling)
-  const ceoExpenses = await readExcelFile(path.join(getGlobalsPath(), 'CEO_Expenses.xlsx'), 'Data');
-  const townCeoExpenses = ceoExpenses.filter(e => e.Town_Name === townName);
-  const totalCeoExpenses = townCeoExpenses.reduce((sum, e) => sum + (parseFloat(e.Amount_PKR) || 0), 0);
-
-  // Get CEO salary for this town
-  const ceoSalary = await readExcelFile(path.join(getGlobalsPath(), 'CEO_Salary.xlsx'), 'Data');
-  const townCeoSalary = ceoSalary.filter(e => e.Town_Name === townName);
-  const totalCeoSalary = townCeoSalary.reduce((sum, e) => sum + (parseFloat(e.Amount_PKR) || 0), 0);
-
-  const profitLoss = totalIncome - totalCommission - totalExpenses - totalCeoExpenses - totalCeoSalary;
+  const totalIncome = money.totalReceived;
+  const totalExpenses = money.totalExpenses;
+  const profitLoss = money.cashBalance;
 
   // Count sold plots and shops
   const plots = await getAllPropertiesByTown(townName, 'Plot');
@@ -636,7 +629,7 @@ async function updateTownFinancials(townName) {
 
     const row = sheet.getRow(keyRowNumber + 1);
     if (headers.Total_Income_PKR) row.getCell(headers.Total_Income_PKR).value = totalIncome;
-    if (headers.Total_Expenses_PKR) row.getCell(headers.Total_Expenses_PKR).value = totalExpenses + totalCeoExpenses + totalCeoSalary;
+    if (headers.Total_Expenses_PKR) row.getCell(headers.Total_Expenses_PKR).value = totalExpenses;
     if (headers.Profit_Loss) row.getCell(headers.Profit_Loss).value = profitLoss;
 
     // reserved: soldPlots/soldShops computed above for future use
@@ -681,7 +674,11 @@ async function resellProperty(data) {
   const totalPeriodMonths = installmentsEnabled ? (parseInt(Total_Period_Months, 10) || totalInstallments) : 0;
   const gapDays = installmentsEnabled ? (parseInt(Gap_Days, 10) || 30) : 0;
   const gapLabel = installmentsEnabled ? (Gap_Label || `${gapDays} days`) : '';
-  const advanceAmount = installmentsEnabled ? Math.max(0, parseFloat(Advance_Amount_PKR) || 0) : resellAmount;
+  const rawAdvanceAmount = parseFloat(Advance_Amount_PKR);
+  const advanceAmount = Math.min(
+    resellAmount,
+    Math.max(0, Number.isFinite(rawAdvanceAmount) ? rawAdvanceAmount : resellAmount)
+  );
   const remaining = Math.max(0, resellAmount - advanceAmount);
   const monthlyInstallment = installmentsEnabled && totalInstallments > 0
     ? (parseFloat(Monthly_Installment) || Math.ceil(remaining / totalInstallments))
@@ -732,6 +729,19 @@ async function resellProperty(data) {
     Monthly_Installment: monthlyInstallment,
   };
   await appendToExcel(path.join(getGlobalsPath(), 'Resell_History.xlsx'), 'Data', resellData);
+  if (refundAmount > 0) {
+    await recordMoneyEvent({
+      sourceType: 'resell_refund',
+      sourceId: resellId,
+      direction: 'expense',
+      amount: refundAmount,
+      townName,
+      date: resellDate,
+      partyName: property.Customer_Name || '',
+      description: `${type} ${number} resell refund`,
+      receiptNumber: Receipt_Number || '',
+    });
+  }
 
   const saleId = resellId;
   await ensureSheetColumns(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', ['Sale_ID', 'Received_Amount','Remaining_Amount','Payment_Method','Cheque_Number','Cheque_Bank','Transaction_ID','Transfer_Bank', 'Sale_Type']);
@@ -769,6 +779,19 @@ async function resellProperty(data) {
     Transaction_ID: Transaction_ID || '',
     Transfer_Bank: Transfer_Bank || '',
   });
+  if (advanceAmount > 0) {
+    await recordMoneyEvent({
+      sourceType: 'resell_advance',
+      sourceId: saleId,
+      direction: 'income',
+      amount: advanceAmount,
+      townName,
+      date: resellDate,
+      partyName: Customer_Name || property.Customer_Name || '',
+      description: `${type} ${number} resell advance received`,
+      receiptNumber: Receipt_Number || '',
+    });
+  }
   if (remaining <= 0) {
     await upsertCommissionForSaleLocal({
       Sale_ID: saleId,

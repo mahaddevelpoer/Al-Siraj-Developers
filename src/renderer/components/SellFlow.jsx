@@ -6,13 +6,12 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 
 
-export default function SellFlow({ showToast, loadNotifications, panel }) {
+export default function SellFlow({ showToast, loadNotifications, panel, lockedTownName = '' }) {
   const { t } = useLang();
   const { user, userProfile } = useAuth();
   const [step, setStep] = useState(0);
   const [towns, setTowns] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [agentAllowedProperties, setAgentAllowedProperties] = useState([]);
+  const [townAgents, setTownAgents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [useInstallment, setUseInstallment] = useState(false);
   const [propertyDetails, setPropertyDetails] = useState(null);
@@ -55,7 +54,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
 
   const [form, setForm] = useState({
     Sell_Date: new Date().toISOString().split('T')[0],
-    townName: '', type: 'Plot', number: '', Owner_Name: '',
+    townName: lockedTownName || '', type: 'Plot', number: '', Owner_Name: '',
     Customer_Name: '', CNIC: '', Receipt_Number: '', Phone_Number: '',
     Total_Amount_PKR: '', Advance_Amount_PKR: '', 
     Total_Installments: '12', Total_Time_Period: '1', Period_Unit: 'Years',
@@ -65,61 +64,25 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
   useEffect(() => {
     if (window.api) {
       window.api.getTowns().then(d => { if (Array.isArray(d)) setTowns(d); });
-      window.api.getEmployees().then(d => { if (Array.isArray(d)) setEmployees(d.filter(e => e.Status === 'Active')); });
     }
   }, []);
 
   useEffect(() => {
-    if (panel === 'employee' && userProfile?.full_name) {
-      setForm(f => ({ ...f, Agent_Name: userProfile.full_name }));
-    }
-  }, [panel, userProfile?.full_name]);
+    if (!lockedTownName) return;
+    setForm(f => f.townName === lockedTownName ? f : ({ ...f, townName: lockedTownName }));
+  }, [lockedTownName]);
 
   useEffect(() => {
-    async function loadAgentAccess() {
-      if (userProfile?.role !== 'agent' || !userProfile?.id) {
-        setAgentAllowedProperties([]);
+    async function loadTownAgents() {
+      if (!form.townName || !window.api?.getTownAgents) {
+        setTownAgents([]);
         return;
       }
-      try {
-        const { data: accessRows, error: accessError } = await supabase
-          .from('agent_property_access')
-          .select('property_id')
-          .eq('agent_id', userProfile.id);
-        if (accessError) throw accessError;
-        const ids = (accessRows || []).map(r => r.property_id).filter(Boolean);
-        if (!ids.length) {
-          setAgentAllowedProperties([]);
-          return;
-        }
-        const { data: props, error: propError } = await supabase
-          .from('properties')
-          .select('id, Property_Type, Property_Number, Town_Name, Status')
-          .in('id', ids);
-        if (propError) throw propError;
-        setAgentAllowedProperties(props || []);
-      } catch (e) {
-        console.warn('Failed to load agent property access', e);
-        setAgentAllowedProperties([]);
-      }
+      const rows = await window.api.getTownAgents(form.townName);
+      setTownAgents(Array.isArray(rows) ? rows : []);
     }
-    loadAgentAccess();
-  }, [userProfile?.role, userProfile?.id]);
-
-  const isAgent = userProfile?.role === 'agent';
-  const visibleTowns = isAgent
-    ? towns.filter(town => agentAllowedProperties.some(p => p.Town_Name === town.Town_Name))
-    : towns;
-  const allowedNumbers = isAgent
-    ? agentAllowedProperties
-        .filter(p => p.Town_Name === form.townName && p.Property_Type === form.type)
-        .map(p => String(p.Property_Number))
-    : [];
-  const hasAgentAccessToSelected = !isAgent || agentAllowedProperties.some(p =>
-    p.Town_Name === form.townName &&
-    p.Property_Type === form.type &&
-    String(p.Property_Number) === String(form.number)
-  );
+    loadTownAgents();
+  }, [form.townName]);
 
   const u = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -289,6 +252,28 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
   }, [user?.id, form.type, form.number, form.townName]);
 
   useEffect(() => {
+    if (!dateOtpId || !user?.id) return;
+    let cancelled = false;
+    const checkApproval = async () => {
+      const { data, error } = await supabase
+        .from('appeals')
+        .select('id, appeal_type, requested_data, status')
+        .eq('id', dateOtpId)
+        .maybeSingle();
+      if (cancelled || error || !data) return;
+      const status = String(data.status || '').trim().toLowerCase();
+      if (status === 'approved') applyApprovedAppeal(data);
+      if (status === 'rejected') applyRejectedAppeal(data);
+    };
+    checkApproval().catch(() => {});
+    const timer = setInterval(() => { checkApproval().catch(() => {}); }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [dateOtpId, user?.id]);
+
+  useEffect(() => {
     if (form.townName && window.api?.generateReceiptNumber) {
       window.api.generateReceiptNumber(form.townName).then(num => {
         if (num && !num.error) {
@@ -304,11 +289,6 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
   useEffect(() => {
     async function fetchProp() {
       if (!form.townName || !form.number || !form.type) {
-        setPropertyDetails(null);
-        setForm(f => ({ ...f, Total_Amount_PKR: '' }));
-        return;
-      }
-      if (!hasAgentAccessToSelected) {
         setPropertyDetails(null);
         setForm(f => ({ ...f, Total_Amount_PKR: '' }));
         return;
@@ -331,11 +311,18 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
     }
     const timer = setTimeout(fetchProp, 500);
     return () => clearTimeout(timer);
-  }, [form.townName, form.number, form.type, hasAgentAccessToSelected]);
+  }, [form.townName, form.number, form.type]);
 
   const totalAmount = parseFloat(form.Total_Amount_PKR) || 0;
   const advanceAmount = parseFloat(form.Advance_Amount_PKR) || 0;
-  const remaining = totalAmount - advanceAmount;
+  const remaining = Math.max(0, totalAmount - advanceAmount);
+  const advanceOverLimit = totalAmount > 0 && advanceAmount > totalAmount;
+  const selectedPropertySize = propertyDetails
+    ? (propertyDetails.Plot_Marla || propertyDetails.Shop_Marla || propertyDetails.Marla || propertyDetails.Plot_Size || propertyDetails.Shop_Size || '')
+    : '';
+  const selectedPropertyMeasurement = propertyDetails?.Length_Ft && propertyDetails?.Width_Ft
+    ? `${propertyDetails.Length_Ft}ft x ${propertyDetails.Width_Ft}ft`
+    : '';
 
   // Custom installment & gap calculations (Feature 3 - NO INTEREST)
   const totalInstallments = useInstallment ? (parseInt(form.Total_Installments) || 0) : 0;
@@ -376,22 +363,18 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
               </button>
             </div>
           </div>
-          <div className="form-group"><label>{t.town} *</label><select value={form.townName} onChange={u('townName')} required><option value="">{t.selectTown}</option>{visibleTowns.map((t,i) => <option key={i} value={t.Town_Name}>{t.Town_Name}</option>)}</select></div>
+          <div className="form-group">
+            <label>{t.town} *</label>
+            {lockedTownName ? (
+              <input value={lockedTownName} readOnly required style={{ backgroundColor: 'var(--bg-secondary)', cursor: 'not-allowed', fontWeight: 800 }} />
+            ) : (
+              <select value={form.townName} onChange={u('townName')} required><option value="">{t.selectTown}</option>{towns.map((t,i) => <option key={i} value={t.Town_Name}>{t.Town_Name}</option>)}</select>
+            )}
+          </div>
           <div className="form-group"><label>{t.propertyType}</label><select value={form.type} onChange={u('type')}><option value="Plot">Plot</option><option value="Shop">Shop</option></select></div>
           <div className="form-group">
             <label>{form.type} {t.propertyNo} *</label>
-            <input list={isAgent ? 'agent-allowed-property-numbers' : undefined} placeholder={isAgent ? 'Select assigned property' : (form.type === 'Plot' ? 'e.g. 101' : 'e.g. 12')} value={form.number} onChange={u('number')} required />
-            {isAgent && (
-              <>
-                <datalist id="agent-allowed-property-numbers">
-                  {allowedNumbers.map(number => <option key={number} value={number} />)}
-                </datalist>
-                <div style={{ marginTop: 6, fontSize: 11, color: hasAgentAccessToSelected || !form.number ? 'var(--text-muted)' : 'var(--accent-red)', fontWeight: 700 }}>
-                  {allowedNumbers.length ? `${allowedNumbers.length} assigned ${form.type.toLowerCase()} properties available` : 'No assigned properties for this town/type'}
-                  {!hasAgentAccessToSelected && form.number ? ' - this property is not assigned to you' : ''}
-                </div>
-              </>
-            )}
+            <input placeholder={form.type === 'Plot' ? 'e.g. 101' : 'e.g. 12'} value={form.number} onChange={u('number')} required />
           </div>
           <div className="form-group"><label>{t.ownerNameOpt.replace(' (Optional)', ' *')}</label><input placeholder="" value={form.Owner_Name} onChange={handleTextOnly('Owner_Name')} required /></div>
         </div>
@@ -443,14 +426,46 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
       fields: (
         <div className="form-grid">
           <div className="form-group"><label>Total Amount (PKR) *</label><input type="number" placeholder="Total price" value={form.Total_Amount_PKR} onChange={u('Total_Amount_PKR')} required readOnly style={{ backgroundColor: 'var(--bg-secondary)', cursor: 'not-allowed' }} /></div>
-          <div className="form-group"><label>Advance Amount (PKR)</label><input type="number" placeholder="Advance payment" value={form.Advance_Amount_PKR} onChange={u('Advance_Amount_PKR')} /></div>
-          {panel === 'employee' ? (
-            <div className="form-group"><label>Employee / Agent</label><input value={form.Agent_Name} readOnly style={{ backgroundColor: 'var(--bg-secondary)', cursor: 'not-allowed', fontWeight: 700 }} /></div>
-          ) : (
-            <div className="form-group"><label>Employee / Agent</label><select value={form.Agent_Name} onChange={u('Agent_Name')}><option value="">Select Agent</option>{employees.map((e,i) => <option key={i} value={e.Employee_Name}>{e.Employee_Name}</option>)}</select></div>
-          )}
+          <div className="form-group">
+            <label>Advance Amount (PKR)</label>
+            <input
+              type="number"
+              min="0"
+              max={totalAmount || undefined}
+              placeholder="Advance payment"
+              value={form.Advance_Amount_PKR}
+              onChange={u('Advance_Amount_PKR')}
+              style={advanceOverLimit ? { borderColor: '#dc2626' } : undefined}
+            />
+            {advanceOverLimit && <div className="field-error-text">Advance cannot be greater than total amount.</div>}
+          </div>
+          <div className="form-group">
+            <label>Sales Agent (internal only)</label>
+            <select value={form.Agent_Name} onChange={u('Agent_Name')}>
+              <option value="">No agent</option>
+              {townAgents.map((a) => <option key={a.Agent_ID || a.Agent_Name} value={a.Agent_Name}>{a.Agent_Name}</option>)}
+            </select>
+            <div className="field-helper-text">Internal commission only. Agent name will not print on the agreement.</div>
+          </div>
           <div className="form-group"><label>Commission Rate (%)</label><input type="number" step="0.1" value={form.Commission_Rate} onChange={u('Commission_Rate')} disabled={panel !== 'ceo'} /></div>
           {panel !== 'employee' && <div className="form-group full"><label>Expenses (PKR)</label><input type="number" placeholder="0" value={form.Expense_Total} onChange={u('Expense_Total')} /></div>}
+
+          <div className="form-group full">
+            <div className="sale-money-strip">
+              <div>
+                <span>Total Price</span>
+                <strong>PKR {totalAmount.toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Received Now</span>
+                <strong className="text-green">PKR {advanceAmount.toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Pending Collection</span>
+                <strong className={remaining > 0 ? 'text-red' : 'text-green'}>PKR {remaining.toLocaleString()}</strong>
+              </div>
+            </div>
+          </div>
           
           {/* INSTALLMENT TOGGLE */}
           <div className="form-group full">
@@ -642,7 +657,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
               <div className="review-row"><span className="review-label">Installment Amount</span><span className="review-value text-green" style={{fontSize:16,fontWeight:900}}>PKR {monthlyInstallment.toLocaleString()}</span></div>
             </>
           )}
-          <div className="review-row"><span className="review-label">Agent</span><span className="review-value">{form.Agent_Name || 'N/A'}</span></div>
+          <div className="review-row"><span className="review-label">Sales Agent</span><span className="review-value">{form.Agent_Name || 'N/A'} <small>(internal only)</small></span></div>
           <div className="review-row"><span className="review-label">Commission ({commRate}%)</span><span className="review-value text-red">- PKR {commAmount.toLocaleString()}</span></div>
           <div className="review-row"><span className="review-label">Expenses</span><span className="review-value text-red">- PKR {expense.toLocaleString()}</span></div>
           <div className="review-row"><span className="review-label">Company Income</span><span className="review-value text-green">PKR {companyIncome.toLocaleString()}</span></div>
@@ -656,40 +671,8 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
     if (!form.townName || !form.number || !form.Customer_Name || !form.CNIC || !form.Receipt_Number || !form.Phone_Number || !form.Owner_Name) {
       showToast('Please fill all required fields', 'error'); return;
     }
-    if (isAgent && !hasAgentAccessToSelected) {
-      try {
-        const existing = await supabase
-          .from('appeals')
-          .select('id')
-          .eq('requested_by_user_id', user?.id)
-          .eq('appeal_type', 'property_access_request')
-          .eq('entity_type', form.type)
-          .eq('entity_id', form.number)
-          .eq('status', 'pending')
-          .maybeSingle();
-
-        if (!existing.data) {
-          await supabase.from('appeals').insert([{
-            requested_by_user_id: user?.id,
-            requested_by_role: 'agent',
-            appeal_type: 'property_access_request',
-            entity_type: form.type,
-            entity_id: form.number,
-            requested_data: {
-              townName: form.townName,
-              propertyType: form.type,
-              propertyNumber: form.number,
-              agentName: form.Agent_Name,
-            },
-            reason: `Agent requested access to ${form.type} ${form.number} in ${form.townName}`,
-            status: 'pending',
-          }]);
-        }
-        showToast('CEO access request sent. This property is not assigned to your account yet.', 'error');
-      } catch (e) {
-        showToast('CEO has not assigned this property to your account. Access request could not be sent.', 'error');
-      }
-      return;
+    if (advanceOverLimit) {
+      showToast('Advance amount cannot be greater than total amount', 'error'); return;
     }
     setLoading(true);
     try {
@@ -731,13 +714,13 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
           }).catch(() => {});
         }
 
-        // Create appeal for custom installment plan (agent sales)
-        if (useInstallment && panel === 'employee' && user?.id) {
+        // Create appeal for custom installment plan from accountant workspace.
+        if (useInstallment && panel === 'employee' && user?.id && userProfile?.role === 'accountant') {
           const otpCode = Math.random().toString().substring(2, 8);
 
           const appealPayload = {
             requested_by_user_id: user.id,
-            requested_by_role: 'agent',
+            requested_by_role: 'accountant',
             appeal_type: 'custom_installment_plan',
             entity_type: form.type,
             entity_id: form.number,
@@ -749,7 +732,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
               gap_days: gapDays,
               gap_label: gapText,
               monthly_installment: monthlyInstallment,
-              agent_name: form.Agent_Name,
+              accountant_name: userProfile?.full_name || user?.email || 'Accountant',
               sell_date: form.Sell_Date,
             },
             reason: `Custom Installment Plan for ${form.type} ${form.number} in ${form.townName}`,
@@ -780,7 +763,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
             if (window.api?.sendInstallmentOtpEmail) {
               window.api.sendInstallmentOtpEmail({
                 otpCode,
-                agentName: form.Agent_Name || 'Agent',
+                agentName: userProfile?.full_name || 'Accountant',
                 agentTown: form.townName,
                 propertyType: form.type,
                 propertyNumber: form.number,
@@ -805,10 +788,16 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
           transactionId,
           transferBankName,
           transferImageDataUrl,
-          Receipt_Number: form.Receipt_Number,
-          receiptNumber: form.Receipt_Number,
+          Receipt_Number: effectiveReceipt,
+          receiptNumber: effectiveReceipt,
+          Agent_Name: '',
+          agentName: '',
+          measurement: selectedPropertyMeasurement,
+          Length_Ft: propertyDetails?.Length_Ft || '',
+          Width_Ft: propertyDetails?.Width_Ft || '',
+          Area_Sqft: propertyDetails?.Area_Sqft || '',
         });
-        loadNotifications();
+        loadNotifications?.();
       }
     } catch (e) { 
       showToast('Sale failed', 'error'); 
@@ -833,7 +822,7 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
     setAutoReceiptNumber('');
     setForm({ 
       Sell_Date: new Date().toISOString().split('T')[0], 
-      townName: '', type: 'Plot', number: '', Owner_Name: '', 
+      townName: lockedTownName || '', type: 'Plot', number: '', Owner_Name: '', 
       Customer_Name: '', CNIC: '', Receipt_Number: '', Phone_Number: '', 
       Total_Amount_PKR: '', Advance_Amount_PKR: '', 
       Total_Installments: '12', Total_Time_Period: '1', Period_Unit: 'Years', 
@@ -1248,12 +1237,8 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
         <div className="form-title" style={{ fontSize: 15 }}>Step {step + 1} of {steps.length}: {steps[step].title}</div>
         
         {/* Dynamic Property Info Card at the top of Basic Info / Financials if property is found */}
-        {propertyDetails && step === 0 && (
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(59,130,246,0.08), rgba(16,185,129,0.05))',
-            border: '2px solid rgba(59,130,246,0.3)', borderRadius: 12, padding: '16px 20px',
-            marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16
-          }}>
+        {propertyDetails && step <= 2 && (
+          <div className="sale-property-card">
             <div style={{ fontSize: 32, display:'flex', alignItems:'center', color: form.type === 'Plot' ? '#3b82f6' : '#8b5cf6' }}>
               {form.type === 'Plot' ? <PlotIcon size={32}/> : <ShopIcon size={32}/>}
             </div>
@@ -1266,6 +1251,18 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{t.size}</div>
                   <div style={{ fontSize: 14, fontWeight: 700 }}>{propertyDetails.Plot_Size || propertyDetails.Shop_Size || '—'}</div>
                 </div>
+                {selectedPropertyMeasurement && (
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>Measurement</div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>{selectedPropertyMeasurement}</div>
+                  </div>
+                )}
+                {propertyDetails.Area_Sqft && (
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>Area</div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>{Number(propertyDetails.Area_Sqft || 0).toLocaleString()} sqft</div>
+                  </div>
+                )}
                 {propertyDetails.Road_Type && (
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{t.roadType}</div>
@@ -1300,6 +1297,9 @@ export default function SellFlow({ showToast, loadNotifications, panel }) {
                 }
                 if (step === 2 && !form.Total_Amount_PKR) {
                   showToast('Please fill all required fields in Financial Details', 'error'); return;
+                }
+                if (step === 2 && advanceOverLimit) {
+                  showToast('Advance amount cannot be greater than total amount', 'error'); return;
                 }
                 setStep(step + 1);
               }}>Next →</button>

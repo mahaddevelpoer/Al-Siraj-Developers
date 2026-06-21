@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
 const { getTownsPath, getGlobalsPath, readExcelFile, appendToExcel, generateId, updateExcelRow, deleteExcelRow, syncMirrorsForFile, getHeaderKeys, withFileWriteLock, writeWorkbookAtomic } = require('./core');
+const { recordMoneyEvent } = require('./moneyLedger');
 
 const TOWN_COLUMNS = ['Town_Name','Total_Plots','Total_Shops','Total_Income_PKR','Total_Expenses_PKR','Profit_Loss','Commission_Rate','Status','Location_Text','Location_Lat','Location_Lng'];
 
@@ -100,7 +101,7 @@ async function getTownPrices(townName) {
 
 async function setTownPrices(townName, prices) {
   const filePath = path.join(getGlobalsPath(), 'Town_Prices.xlsx');
-  const COLUMNS = ['Town_Name', 'Road_30', 'Road_40', 'Road_50', 'Road_60', 'Road_80', 'Custom_Name', 'Custom_Price', 'Plot_Price'];
+  const COLUMNS = ['Town_Name', 'Road_30', 'Road_40', 'Road_50', 'Road_60', 'Road_80', 'Custom_Name', 'Custom_Price', 'Plot_Price', 'Residential_Plot_Price', 'Commercial_Plot_Price', 'Residential_Shop_Price', 'Commercial_Shop_Price'];
   
   if (!fs.existsSync(filePath)) {
     const workbook = new ExcelJS.Workbook();
@@ -124,7 +125,11 @@ async function setTownPrices(townName, prices) {
     Road_80: prices.Road_80 || '',
     Custom_Name: prices.Custom_Name || '',
     Custom_Price: prices.Custom_Price || '',
-    Plot_Price: prices.Plot_Price || ''
+    Plot_Price: prices.Plot_Price || prices.Residential_Plot_Price || '',
+    Residential_Plot_Price: prices.Residential_Plot_Price || prices.Plot_Price || '',
+    Commercial_Plot_Price: prices.Commercial_Plot_Price || '',
+    Residential_Shop_Price: prices.Residential_Shop_Price || '',
+    Commercial_Shop_Price: prices.Commercial_Shop_Price || ''
   };
 
   if (existingIndex >= 0) {
@@ -152,6 +157,17 @@ async function addCeoExpense(data) {
 
   const allExpData = { Expense_ID: expenseData.Expense_ID, Town_Name, Expense_Name: `CEO: ${Expense_Name}`, Amount_PKR: parseFloat(Amount_PKR)||0, Description: Description||'', Category: Category||'CEO', Date: expenseData.Date, Added_By: 'CEO' };
   await appendToExcel(path.join(getGlobalsPath(), 'All_Expenses.xlsx'), 'Data', allExpData);
+  await recordMoneyEvent({
+    sourceType: 'ceo_expense',
+    sourceId: expenseData.Expense_ID,
+    direction: 'expense',
+    amount: expenseData.Amount_PKR,
+    townName: Town_Name,
+    date: expenseData.Date,
+    partyName: 'CEO',
+    description: Expense_Name,
+    createdBy: 'CEO',
+  });
 
   if (isOverLimit) {
     await appendToExcel(path.join(getGlobalsPath(), 'Notifications_Log.xlsx'), 'Data', { Notification_ID: generateId(), Type: 'Warning', Message: `CEO Expenses for ${Town_Name} exceeded 10% limit! Total: PKR ${newTotal}, Limit: PKR ${expenseLimit}`, Plot_Shop_Number: '', Town_Name, Customer_Name: '', Due_Date: '', Created_Date: new Date().toISOString().split('T')[0], Status: 'Active', Dismissed: 'No' });

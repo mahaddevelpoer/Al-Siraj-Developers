@@ -9,6 +9,11 @@ export function AuthProvider({ children }) {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const withTimeout = (promise, ms, label) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), ms)),
+  ]);
+
   useEffect(() => {
     checkAuth();
 
@@ -30,7 +35,7 @@ export function AuthProvider({ children }) {
 
   const checkAuth = async () => {
     try {
-      const { data: { session } } = await auth.getSession();
+      const { data: { session } } = await withTimeout(auth.getSession(), 5000, 'Auth session');
       if (session?.user) {
         setUser(session.user);
         await fetchUserProfile(session.user.id);
@@ -44,11 +49,11 @@ export function AuthProvider({ children }) {
 
   const fetchUserProfile = async (userId) => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await withTimeout(supabase
         .from('users')
         .select('*')
         .eq('id', userId)
-        .single();
+        .single(), 5000, 'User profile');
 
       if (error) throw error;
 
@@ -56,6 +61,8 @@ export function AuthProvider({ children }) {
       setUserRole(data.role);
     } catch (error) {
       console.error('Error fetching profile:', error);
+      setUserProfile(null);
+      setUserRole(null);
     }
   };
 

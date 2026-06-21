@@ -30,6 +30,8 @@ export default function OfficialReceipt({ data, onClose, townName }) {
   };
 
   const isSalary = data?.type === 'salary';
+  const isInvestor = data?.type === 'investor';
+  const isConstruction = data?.type === 'construction_deal' || data?.type === 'construction_payment';
   const isResell = data?.resellMode === true;
   const propertyKind = String(data?.type || '').toLowerCase() === 'shop' ? 'Shop' : 'Plot';
   const propertyNumberLabel = lang === 'en'
@@ -394,6 +396,200 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                   </span>
                 </div>
               </div>
+            ) : isInvestor ? (
+              <div style={{
+                fontSize: printSize === 'thermal' ? 10 : 14,
+                lineHeight: printSize === 'thermal' ? 1.6 : 2,
+              }}>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  marginBottom: printSize === 'thermal' ? 6 : 12,
+                  flexDirection: printSize === 'thermal' ? 'column' : 'row',
+                  textAlign: printSize === 'thermal' ? 'center' : undefined,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 15, flexDirection: printSize === 'thermal' ? 'column' : 'row' }}>
+                    {config.logoDataUrl && (
+                      <img src={config.logoDataUrl} style={{ height: printSize === 'thermal' ? 40 : 60, width: printSize === 'thermal' ? 40 : 60, objectFit: 'contain' }} />
+                    )}
+                    <div>
+                      <h1 style={{ margin: 0, fontSize: printSize === 'thermal' ? 12 : 24, fontWeight: 900, color: '#000', textTransform: 'uppercase', lineHeight: 1.2 }}>
+                        {config.projectName || 'AL-SIRAJ DEVELOPERS'}
+                      </h1>
+                      <div style={{ fontSize: printSize === 'thermal' ? 8 : 11, color: '#000', fontWeight: 600, marginTop: printSize === 'thermal' ? 2 : 0 }}>
+                        {config.projectAddress || 'Main Chowk Iqbal Avenue FBR Office Khan Pur'}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: lang === 'ur' ? 'left' : 'right', marginTop: printSize === 'thermal' ? 4 : 0 }}>
+                    <div style={{ fontSize: printSize === 'thermal' ? 9 : 12, fontWeight: 700 }}>{lang === 'en' ? 'Date:' : 'تاریخ:'} {data?.date}</div>
+                    <div style={{ fontSize: printSize === 'thermal' ? 9 : 12, fontWeight: 700 }}>{lang === 'en' ? 'Receipt #:' : 'رسید نمبر:'} {data?.receiptNumber}</div>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'center', margin: printSize === 'thermal' ? '6px 0' : '15px 0' }}>
+                  <div style={{
+                    display: 'inline-block',
+                    border: printSize === 'thermal' ? '1px dashed black' : '2px solid black',
+                    padding: printSize === 'thermal' ? '3px 12px' : '5px 28px',
+                    fontWeight: 900,
+                    fontSize: printSize === 'thermal' ? 11 : 16,
+                    textTransform: 'uppercase',
+                    backgroundColor: printSize === 'thermal' ? 'transparent' : '#000',
+                    color: printSize === 'thermal' ? '#000' : '#fff',
+                  }}>
+                    {data?.transactionType === 'Debit' ? 'INVESTOR DEBIT RECEIPT' : 'INVESTOR CREDIT RECEIPT'}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: printSize === 'thermal' ? '1fr' : '1fr 1fr', gap: printSize === 'thermal' ? 4 : 12, marginBottom: 12 }}>
+                  <div><strong>{lang === 'en' ? 'Town:' : 'ٹاؤن:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.townName || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Investor:' : 'انویسٹر:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.investorName || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Transaction:' : 'ٹرانزیکشن:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.transactionType || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Balance After:' : 'بعد کا بیلنس:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{fmtPkr(data?.balanceAfter)}</span></div>
+                </div>
+
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: printSize === 'thermal' ? '1px dashed #000' : '2px solid #000', fontSize: printSize === 'thermal' ? 10 : 13, marginBottom: 14 }}>
+                  <thead>
+                    <tr style={{ background: '#f3f4f6', borderBottom: '2px solid #000', color: '#000', fontWeight: 900 }}>
+                      <th style={{ padding: printSize === 'thermal' ? '4px 6px' : '8px 12px', textAlign: 'left', borderRight: '1px solid #000' }}>{lang === 'en' ? 'Description' : 'تفصیل'}</th>
+                      <th style={{ padding: printSize === 'thermal' ? '4px 6px' : '8px 12px', textAlign: 'right' }}>{lang === 'en' ? 'Amount' : 'رقم'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', borderRight: '1px solid #000' }}>
+                        {data?.transactionType === 'Debit' ? 'Investor debit / withdrawal' : 'Investor credit / investment'}
+                      </td>
+                      <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', textAlign: 'right', fontWeight: 900 }}>{fmtPkr(data?.amount)}</td>
+                    </tr>
+                    <tr style={{ background: '#e5e7eb', fontWeight: 900 }}>
+                      <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', borderRight: '1px solid #000' }}>{lang === 'en' ? 'Current Investor Balance' : 'موجودہ انویسٹر بیلنس'}</td>
+                      <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', textAlign: 'right' }}>{fmtPkr(data?.balanceAfter)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {printSize !== 'thermal' && (
+                  <div style={{ marginTop: 10, marginBottom: 20 }}>
+                    <strong>{lang === 'en' ? 'Note:' : 'نوٹ:'}</strong>
+                    <div style={{ border: '1px solid black', padding: 12, minHeight: 55, marginTop: 8 }}>{data?.note || '-'}</div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: 22, marginBottom: 10 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ borderTop: '1px solid black', width: 150, marginTop: 30 }} />
+                    <div style={{ fontSize: 11, fontWeight: 700 }}>{lang === 'en' ? 'Investor Signature' : 'دستخط انویسٹر'}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ borderTop: '1px solid black', width: 150, marginTop: 30 }} />
+                    <div style={{ fontSize: 11, fontWeight: 700 }}>{lang === 'en' ? 'Accountant Signature' : 'دستخط اکاؤنٹنٹ'}</div>
+                  </div>
+                </div>
+              </div>
+            ) : isConstruction ? (
+              <div style={{
+                fontSize: printSize === 'thermal' ? 10 : 14,
+                lineHeight: printSize === 'thermal' ? 1.6 : 2,
+              }}>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  marginBottom: printSize === 'thermal' ? 6 : 12,
+                  flexDirection: printSize === 'thermal' ? 'column' : 'row',
+                  textAlign: printSize === 'thermal' ? 'center' : undefined,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 15, flexDirection: printSize === 'thermal' ? 'column' : 'row' }}>
+                    {config.logoDataUrl && (
+                      <img src={config.logoDataUrl} style={{ height: printSize === 'thermal' ? 40 : 60, width: printSize === 'thermal' ? 40 : 60, objectFit: 'contain' }} />
+                    )}
+                    <div>
+                      <h1 style={{ margin: 0, fontSize: printSize === 'thermal' ? 12 : 24, fontWeight: 900, color: '#000', textTransform: 'uppercase', lineHeight: 1.2 }}>
+                        {config.projectName || 'AL-SIRAJ DEVELOPERS'}
+                      </h1>
+                      <div style={{ fontSize: printSize === 'thermal' ? 8 : 11, color: '#000', fontWeight: 600, marginTop: printSize === 'thermal' ? 2 : 0 }}>
+                        {config.projectAddress || 'Main Chowk Iqbal Avenue FBR Office Khan Pur'}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: lang === 'ur' ? 'left' : 'right', marginTop: printSize === 'thermal' ? 4 : 0 }}>
+                    <div style={{ fontSize: printSize === 'thermal' ? 9 : 12, fontWeight: 700 }}>{lang === 'en' ? 'Date:' : 'تاریخ:'} {data?.date}</div>
+                    <div style={{ fontSize: printSize === 'thermal' ? 9 : 12, fontWeight: 700 }}>{lang === 'en' ? 'Receipt #:' : 'رسید نمبر:'} {data?.receiptNumber}</div>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'center', margin: printSize === 'thermal' ? '6px 0' : '15px 0' }}>
+                  <div style={{
+                    display: 'inline-block',
+                    border: printSize === 'thermal' ? '1px dashed black' : '2px solid black',
+                    padding: printSize === 'thermal' ? '3px 12px' : '5px 28px',
+                    fontWeight: 900,
+                    fontSize: printSize === 'thermal' ? 11 : 16,
+                    textTransform: 'uppercase',
+                    backgroundColor: printSize === 'thermal' ? 'transparent' : '#000',
+                    color: printSize === 'thermal' ? '#000' : '#fff',
+                  }}>
+                    {data?.type === 'construction_deal' ? 'CONSTRUCTION DEAL RECEIPT' : 'CONSTRUCTION PAYMENT RECEIPT'}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: printSize === 'thermal' ? '1fr' : '1fr 1fr', gap: printSize === 'thermal' ? 4 : 12, marginBottom: 12 }}>
+                  <div><strong>{lang === 'en' ? 'Town:' : 'ٹاؤن:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.townName || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Category:' : 'کیٹیگری:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.category || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Constructor:' : 'کنسٹرکٹر:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.constructorName || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Company:' : 'کمپنی:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.companyName || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Phone:' : 'فون:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.phoneNumber || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Material:' : 'مٹیریل:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.materialName || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Quantity:' : 'مقدار:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.materialQuantity || '-'}</span></div>
+                  <div><strong>{lang === 'en' ? 'Rate:' : 'ریٹ:'}</strong> <span style={{ borderBottom: '1px solid #000', padding: '0 8px' }}>{data?.materialRate || '-'}</span></div>
+                </div>
+
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: printSize === 'thermal' ? '1px dashed #000' : '2px solid #000', fontSize: printSize === 'thermal' ? 10 : 13, marginBottom: 14 }}>
+                  <thead>
+                    <tr style={{ background: '#f3f4f6', borderBottom: '2px solid #000', color: '#000', fontWeight: 900 }}>
+                      <th style={{ padding: printSize === 'thermal' ? '4px 6px' : '8px 12px', textAlign: 'left', borderRight: '1px solid #000' }}>{lang === 'en' ? 'Description' : 'تفصیل'}</th>
+                      <th style={{ padding: printSize === 'thermal' ? '4px 6px' : '8px 12px', textAlign: 'right' }}>{lang === 'en' ? 'Amount' : 'رقم'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', borderRight: '1px solid #000' }}>
+                        {data?.type === 'construction_deal' ? 'Final construction deal amount' : 'Construction payment paid today'}
+                      </td>
+                      <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', textAlign: 'right', fontWeight: 900 }}>{fmtPkr(data?.dealAmount || data?.amount)}</td>
+                    </tr>
+                    {data?.type === 'construction_deal' && (
+                      <tr>
+                        <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', borderRight: '1px solid #000' }}>{lang === 'en' ? 'Paid so far' : 'اب تک ادا شدہ'}</td>
+                        <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', textAlign: 'right' }}>{fmtPkr(data?.paidAmount)}</td>
+                      </tr>
+                    )}
+                    <tr style={{ background: '#e5e7eb', fontWeight: 900 }}>
+                      <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', borderRight: '1px solid #000' }}>{lang === 'en' ? 'Remaining' : 'بقایا'}</td>
+                      <td style={{ padding: printSize === 'thermal' ? '5px 6px' : '10px 12px', textAlign: 'right' }}>{fmtPkr(data?.remainingAmount)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {printSize !== 'thermal' && (
+                  <div style={{ marginTop: 10, marginBottom: 20 }}>
+                    <strong>{lang === 'en' ? 'Terms / Note:' : 'شرائط / نوٹ:'}</strong>
+                    <div style={{ border: '1px solid black', padding: 12, minHeight: 65, marginTop: 8 }}>
+                      {data?.note || (data?.type === 'construction_deal' ? 'Constructor agrees to complete the selected construction work according to the finalized deal amount.' : '-')}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: 22, marginBottom: 10 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ borderTop: '1px solid black', width: 150, marginTop: 30 }} />
+                    <div style={{ fontSize: 11, fontWeight: 700 }}>{lang === 'en' ? 'Constructor Signature' : 'دستخط کنسٹرکٹر'}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ borderTop: '1px solid black', width: 150, marginTop: 30 }} />
+                    <div style={{ fontSize: 11, fontWeight: 700 }}>{lang === 'en' ? 'Accountant Signature' : 'دستخط اکاؤنٹنٹ'}</div>
+                  </div>
+                </div>
+              </div>
             ) : isSalary ? (
               /* ═══════════════════════════════════════════════════════
                  SALARY VOUCHER
@@ -634,6 +830,16 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                         <span style={{ fontWeight: 700 }}>{lang === 'en' ? 'Payment:' : 'پیمنٹ:'}</span>
                         <span style={{ borderBottom: '1px solid black', display: 'inline-block', width: '60px', textAlign: 'center' }}>{data?.payment || '—'}</span>
                       </div>
+                    </div>
+                  )}
+
+                  {(data?.measurement || data?.Length_Ft || data?.Width_Ft || data?.Area_Sqft) && (
+                    <div style={{ marginBottom: printSize === 'thermal' ? 4 : 10 }}>
+                      <span style={{ fontWeight: 700 }}>{lang === 'en' ? 'Measurement:' : 'پیمائش:'}</span>
+                      <span style={{ borderBottom: '1px solid black', display: 'inline-block', padding: '0 8px' }}>
+                        {data?.measurement || `${data?.Length_Ft || ''}ft x ${data?.Width_Ft || ''}ft`}
+                        {data?.Area_Sqft ? ` (${data.Area_Sqft} sqft)` : ''}
+                      </span>
                     </div>
                   )}
 

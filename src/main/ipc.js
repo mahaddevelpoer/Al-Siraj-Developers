@@ -13,11 +13,17 @@ const path = require('path');
 const fs = require('fs');
 const onlineDb = require('./db/online');
 const storage = require('./db/storage');
+const businessExtras = require('./db/businessExtras');
+const pendingSync = require('./db/pendingSync');
 
 let _windowGetter = null;
 let _queuedUploadTimer = null;
 let _queuedCloudSyncTimer = null;
+let _queuedCloudDownloadTimer = null;
+let _periodicCloudDownloadTimer = null;
+let _periodicCloudSyncTimer = null;
 let _cloudSyncInFlight = false;
+let _cloudDownloadInFlight = false;
 
 function getActiveWindow() {
   return typeof _windowGetter === 'function' ? _windowGetter() : _windowGetter;
@@ -32,15 +38,6 @@ function sendSyncWarning(message) {
 
 function scheduleQueuedFileUpload(delayMs = 3000) {
   storage.queueAllLocalFiles();
-  if (_queuedUploadTimer) clearTimeout(_queuedUploadTimer);
-  _queuedUploadTimer = setTimeout(async () => {
-    _queuedUploadTimer = null;
-    try {
-      await storage.flushUploadQueue();
-    } catch (e) {
-      sendSyncWarning('Cloud file sync error: ' + (e.message || 'Unknown'));
-    }
-  }, delayMs);
 }
 
 function scheduleQueuedCloudSync(delayMs = 1500) {
@@ -54,6 +51,7 @@ function scheduleQueuedCloudSync(delayMs = 1500) {
     _cloudSyncInFlight = true;
     try {
       await performFullSyncUp(() => {});
+      await pendingSync.markAllPendingSynced();
     } catch (e) {
       sendSyncWarning('Cloud database sync error: ' + (e.message || 'Unknown'));
     } finally {
@@ -62,13 +60,93 @@ function scheduleQueuedCloudSync(delayMs = 1500) {
   }, delayMs);
 }
 
-async function syncOnline(localFn, supabaseFn) {
-  const localResult = await localFn();
+function scheduleCloudDownload(delayMs = 1200) {
+  if (_queuedCloudDownloadTimer) clearTimeout(_queuedCloudDownloadTimer);
+  _queuedCloudDownloadTimer = setTimeout(async () => {
+    _queuedCloudDownloadTimer = null;
+    if (_cloudDownloadInFlight) return;
+    _cloudDownloadInFlight = true;
+    try {
+      const win = getActiveWindow();
+      const sendProgress = (percent, msg) => {
+        try {
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('cloud-refresh-progress', { percent, msg, background: true });
+          }
+        } catch (_) {}
+      };
+      if (await pendingSync.hasPendingSyncRows()) {
+        sendSyncWarning('Cloud download skipped: local changes are still waiting to sync.');
+        return;
+      }
+      sendProgress(5, 'Checking cloud database...');
+      await performFullSync((percent, msg) => {
+        const mapped = percent <= 30
+          ? Math.max(5, Math.round((percent / 30) * 50))
+          : 50 + Math.round(((percent - 30) / 70) * 50);
+        sendProgress(Math.min(100, mapped), msg);
+      });
+      if (win && !win.isDestroyed()) {
+        try {
+          win.webContents.send('cloud-refresh-progress', { percent: 100, msg: 'Excel cache updated from database', background: true });
+          win.webContents.send('cloud-data-refreshed', { background: true, at: new Date().toISOString() });
+        } catch {}
+      }
+    } catch (e) {
+      sendSyncWarning('Background cloud download error: ' + (e.message || 'Unknown'));
+    } finally {
+      _cloudDownloadInFlight = false;
+    }
+  }, delayMs);
+}
+
+function startPeriodicCloudDownload(intervalMs = 120000) {
+  if (_periodicCloudDownloadTimer) clearInterval(_periodicCloudDownloadTimer);
+  _periodicCloudDownloadTimer = setInterval(() => {
+    const role = String(storage.getSyncContext()?.role || '').toLowerCase();
+    if (role !== 'ceo' && role !== 'accountant') return;
+    scheduleCloudDownload(100);
+  }, intervalMs);
+}
+
+function startPeriodicCloudSync(intervalMs = 120000) {
+  if (_periodicCloudSyncTimer) clearInterval(_periodicCloudSyncTimer);
+  _periodicCloudSyncTimer = setInterval(() => {
+    const role = String(storage.getSyncContext()?.role || '').toLowerCase();
+    if (role !== 'ceo' && role !== 'accountant') return;
+    scheduleQueuedCloudSync(100);
+  }, intervalMs);
+}
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), ms)),
+  ]);
+}
+
+async function syncOnline(localFn, supabaseFn, options = {}) {
   let syncWarning = '';
+  const clientWriteId = options.clientWriteId || `${options.tableName || 'write'}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  const localResult = await localFn();
 
   if (typeof supabaseFn === 'function') {
     try {
-      await supabaseFn();
+      await pendingSync.addPendingSync({
+        operation: options.operation || 'upsert',
+        tableName: options.tableName || 'mixed',
+        clientWriteId,
+        payload: options.payload || localResult || {},
+        error: '',
+      });
+    } catch (e) {
+      sendSyncWarning('Pending sync queue failed: ' + (e.message || 'Unknown'));
+    }
+
+    try {
+      await withTimeout(supabaseFn(), 4000, 'Cloud quick sync');
+      await pendingSync.markPendingSynced(clientWriteId);
     } catch (e) {
       syncWarning = 'Cloud quick sync failed: ' + (e.message || 'Unknown');
       sendSyncWarning(syncWarning);
@@ -110,6 +188,122 @@ function assertPermanentDeleteAllowed() {
   }
 }
 
+function getAccountantTown() {
+  const ctx = storage.getSyncContext() || {};
+  if (String(ctx.role || '').toLowerCase() !== 'accountant') return '';
+  return String(ctx.accountantTown || ctx.town_name || ctx.town_id || '').trim();
+}
+
+function isAccountantScoped() {
+  return String(storage.getSyncContext()?.role || '').toLowerCase() === 'accountant';
+}
+
+function requireAccountantTown() {
+  const town = getAccountantTown();
+  if (!town) throw new Error('No town assigned to this accountant. CEO must assign a town first.');
+  return town;
+}
+
+function scopedTown(requestedTown, required = false) {
+  if (!isAccountantScoped()) {
+    if (required && !isNonEmpty(requestedTown)) throw new Error('Town name is required');
+    return requestedTown;
+  }
+  const assignedTown = requireAccountantTown();
+  if (isNonEmpty(requestedTown) && String(requestedTown) !== assignedTown) {
+    throw new Error(`Access denied. This accountant is assigned only to "${assignedTown}".`);
+  }
+  return assignedTown;
+}
+
+function assertTownAccess(townName) {
+  scopedTown(townName, true);
+}
+
+function filterRowsByScope(rows, townKey = 'Town_Name') {
+  if (!isAccountantScoped()) return rows;
+  const town = requireAccountantTown();
+  return (rows || []).filter((row) => String(row?.[townKey] || row?.town_name || row?.townName || '') === town);
+}
+
+function filterSoldByScope(result) {
+  if (!isAccountantScoped()) return result;
+  return {
+    plots: filterRowsByScope(result?.plots || []),
+    shops: filterRowsByScope(result?.shops || []),
+  };
+}
+
+async function purgeLocalTownBusinessData(townName) {
+  const town = String(townName || '').trim();
+  if (!town) return;
+  const { readExcelFile, deleteExcelRow, getGlobalsPath } = require('./db/core');
+  const files = [
+    'All_Sales.xlsx',
+    'All_Expenses.xlsx',
+    'Installments_Tracker.xlsx',
+    'Collection_Payments.xlsx',
+    'Resell_History.xlsx',
+    'CEO_Expenses.xlsx',
+    'CEO_Salary.xlsx',
+    'Salary_Records.xlsx',
+    'Daily_Entries.xlsx',
+    'Notifications_Log.xlsx',
+    'Commissions.xlsx',
+    'Commission_Receipts.xlsx',
+    'Town_Agents.xlsx',
+    'Investors.xlsx',
+    'Investor_Transactions.xlsx',
+    'Construction_Projects.xlsx',
+    'Construction_Payments.xlsx',
+    'Receipt_Archive.xlsx',
+    'Money_Ledger.xlsx',
+    'Town_Financial_Summary.xlsx',
+  ];
+  for (const file of files) {
+    const fp = path.join(getGlobalsPath(), file);
+    if (!fs.existsSync(fp)) continue;
+    let rows = [];
+    try { rows = await readExcelFile(fp, 'Data'); } catch (_) { continue; }
+    const targets = rows
+      .filter((row) => String(row.Town_Name || row.town_name || '') === town && row._rowNumber)
+      .map((row) => row._rowNumber)
+      .sort((a, b) => b - a);
+    for (const rowNumber of targets) await deleteExcelRow(fp, 'Data', rowNumber);
+  }
+}
+
+async function purgeCloudTownBusinessData(townName) {
+  const town = String(townName || '').trim();
+  if (!town) return;
+  const tables = [
+    'all_sales',
+    'expenses',
+    'installments',
+    'collection_payments',
+    'resell_history',
+    'ceo_expenses',
+    'ceo_salary',
+    'salary_records',
+    'salary_payments',
+    'daily_entries',
+    'notifications',
+    'commissions',
+    'commission_receipts',
+    'town_agents',
+    'investors',
+    'investor_transactions',
+    'construction_projects',
+    'construction_payments',
+    'receipt_archive',
+    'money_ledger',
+    'town_financial_summary',
+  ];
+  for (const table of tables) {
+    try { await onlineDb.deleteWhere(table, { Town_Name: town }); } catch (_) {}
+  }
+}
+
 function loadDevConfig() {
   const configPaths = [
     path.join(__dirname, '../../developer_config.json'),
@@ -129,22 +323,35 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   // Towns
   ipcMain.handle('get-towns', async () => {
     try {
-      return await dataLayer.read(
+      const towns = await dataLayer.read(
         () => getTowns(),
         () => onlineDb.getAll('towns')
       );
+      return filterRowsByScope(towns);
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('add-town', async (_, data) => {
     try {
       assertObjectPayload(data, 'town payload');
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
-      return await syncOnline(() => addTown(data), () => onlineDb.insert('towns', { Town_Name: data.Town_Name, Location: data.Location || '', Status: data.Status || 'Active', Total_Plots: parseInt(data.Total_Plots) || 0, Total_Shops: parseInt(data.Total_Shops) || 0 }));
+      if (isAccountantScoped()) throw new Error('Only CEO can create towns');
+      return await syncOnline(
+        async () => {
+          await purgeLocalTownBusinessData(data.Town_Name);
+          return await addTown(data);
+        },
+        async () => {
+          await purgeCloudTownBusinessData(data.Town_Name);
+          return await onlineDb.insert('towns', { Town_Name: data.Town_Name, Location: data.Location || '', Status: data.Status || 'Active', Total_Plots: parseInt(data.Total_Plots) || 0, Total_Shops: parseInt(data.Total_Shops) || 0 });
+        },
+        { tableName: 'towns', payload: data, clientWriteId: `town-${String(data.Town_Name).trim().toLowerCase()}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('update-town', async (_, townName, data) => {
     try {
       if (!isNonEmpty(townName)) throw new Error('Town name is required');
+      assertTownAccess(townName);
       assertObjectPayload(data, 'update payload');
       return await syncOnline(() => updateTown(townName, data), () => onlineDb.updateWhere('towns', { Town_Name: townName }, data));
     } catch(e) { return { error: e.message }; }
@@ -153,14 +360,27 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertPermanentDeleteAllowed();
       if (!isNonEmpty(townName)) throw new Error('Town name is required');
-      return await syncOnline(() => deleteTown(townName), () => onlineDb.deleteWhere('towns', { Town_Name: townName }));
+      if (isAccountantScoped()) throw new Error('Only CEO can delete towns');
+      return await syncOnline(
+        async () => {
+          const result = await deleteTown(townName);
+          await purgeLocalTownBusinessData(townName);
+          return result;
+        },
+        async () => {
+          await purgeCloudTownBusinessData(townName);
+          return await onlineDb.deleteWhere('towns', { Town_Name: townName });
+        },
+        { tableName: 'towns', operation: 'delete', payload: { Town_Name: townName }, clientWriteId: `town-delete-${String(townName).trim().toLowerCase()}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
-  ipcMain.handle('get-town-details', async (_, townName) => { try { if (!isNonEmpty(townName)) throw new Error('Town name is required'); return await dataLayer.read(() => getTownDetails(townName), () => onlineDb.findOne('towns', { Town_Name: townName })); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-town-prices', async (_, townName) => { try { if (!isNonEmpty(townName)) throw new Error('Town name is required'); return await dataLayer.read(() => getTownPrices(townName), () => onlineDb.findOne('towns', { Town_Name: townName })); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-town-details', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getTownDetails(town), () => onlineDb.findOne('towns', { Town_Name: town })); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-town-prices', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getTownPrices(town), () => onlineDb.findOne('towns', { Town_Name: town })); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('set-town-prices', async (_, townName, prices) => {
     try {
       if (!isNonEmpty(townName)) throw new Error('Town name is required');
+      assertTownAccess(townName);
       assertObjectPayload(prices, 'prices payload');
       return await syncOnline(() => setTownPrices(townName, prices), () => onlineDb.updateWhere('towns', { Town_Name: townName }, prices));
     } catch(e) { return { error: e.message }; }
@@ -172,6 +392,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertObjectPayload(data, 'plot payload');
       if (!isNonEmpty(data.Plot_Number)) throw new Error('Plot_Number is required');
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
+      assertTownAccess(data.Town_Name);
       return await syncOnline(() => addPlot(data), () => onlineDb.insert('properties', { Property_Type: 'Plot', Property_Number: data.Plot_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }));
     } catch(e) { return { error: e.message }; }
   });
@@ -180,33 +401,38 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertObjectPayload(data, 'shop payload');
       if (!isNonEmpty(data.Shop_Number)) throw new Error('Shop_Number is required');
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
+      assertTownAccess(data.Town_Name);
       return await syncOnline(() => addShop(data), () => onlineDb.insert('properties', { Property_Type: 'Shop', Property_Number: data.Shop_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }));
     } catch(e) { return { error: e.message }; }
   });
-  ipcMain.handle('get-plot', async (_, num, town) => { try { if (!isNonEmpty(num)) throw new Error('Plot number is required'); if (!isNonEmpty(town)) throw new Error('Town is required'); return await dataLayer.read(() => getPropertyFile('Plot', num, town), () => onlineDb.getProperty('Plot', num, town)); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-shop', async (_, num, town) => { try { if (!isNonEmpty(num)) throw new Error('Shop number is required'); if (!isNonEmpty(town)) throw new Error('Town is required'); return await dataLayer.read(() => getPropertyFile('Shop', num, town), () => onlineDb.getProperty('Shop', num, town)); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-plot', async (_, num, town) => { try { if (!isNonEmpty(num)) throw new Error('Plot number is required'); const scoped = scopedTown(town, true); return await dataLayer.read(() => getPropertyFile('Plot', num, scoped), () => onlineDb.getProperty('Plot', num, scoped)); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-shop', async (_, num, town) => { try { if (!isNonEmpty(num)) throw new Error('Shop number is required'); const scoped = scopedTown(town, true); return await dataLayer.read(() => getPropertyFile('Shop', num, scoped), () => onlineDb.getProperty('Shop', num, scoped)); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('get-all-plots', async (_, town) => {
     try {
+      const scoped = scopedTown(town, isAccountantScoped());
       return await dataLayer.read(
-        () => getAllPropertiesByTown(town, 'Plot'),
-        () => onlineDb.getPropertiesByTown(town, 'Plot')
+        () => getAllPropertiesByTown(scoped, 'Plot'),
+        () => onlineDb.getPropertiesByTown(scoped, 'Plot')
       );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-all-shops', async (_, town) => {
     try {
+      const scoped = scopedTown(town, isAccountantScoped());
       return await dataLayer.read(
-        () => getAllPropertiesByTown(town, 'Shop'),
-        () => onlineDb.getPropertiesByTown(town, 'Shop')
+        () => getAllPropertiesByTown(scoped, 'Shop'),
+        () => onlineDb.getPropertiesByTown(scoped, 'Shop')
       );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-all-properties', async () => {
     try {
-      return await dataLayer.read(
+      const result = await dataLayer.read(
         () => getAllProperties(),
         () => onlineDb.getAllProperties()
       );
+      if (!isAccountantScoped()) return result;
+      return { plots: filterRowsByScope(result?.plots || []), shops: filterRowsByScope(result?.shops || []) };
     } catch(e) { return { error: e.message }; }
   });
 
@@ -217,6 +443,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertEnum(data.type, ['Plot', 'Shop'], 'property type');
       if (!isNonEmpty(data.number)) throw new Error('Property number is required');
       if (!isNonEmpty(data.townName)) throw new Error('Town name is required');
+      assertTownAccess(data.townName);
       if (!isNonEmpty(data.Customer_Name)) throw new Error('Customer_Name is required');
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
       return await syncOnline(() => sellProperty(data), () => onlineDb.sellProperty(data));
@@ -229,6 +456,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertEnum(data.type, ['Plot', 'Shop'], 'property type');
       if (!isNonEmpty(data.number)) throw new Error('Property number is required');
       if (!isNonEmpty(data.townName)) throw new Error('Town name is required');
+      assertTownAccess(data.townName);
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
       return await syncOnline(() => cancelDeal(data), () => onlineDb.cancelDeal(data));
     } catch(e) { return { error: e.message }; }
@@ -237,29 +465,32 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('updateFileStatus', async (_, params) => {
     try {
       assertObjectPayload(params, 'updateFileStatus payload');
+      assertTownAccess(params.townName || params.Town_Name);
       return await syncOnline(() => updateFileStatus(params), () => onlineDb.updateFileStatus(params));
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-sold-properties', async () => {
     try {
-      return await dataLayer.read(
+      const result = await dataLayer.read(
         () => getSoldProperties(),
         () => onlineDb.getSoldProperties()
       );
+      return filterSoldByScope(result);
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-all-sales', async () => {
     try {
-      return await dataLayer.read(
+      const rows = await dataLayer.read(
         () => getAllSales(),
         () => onlineDb.getAllSales()
       );
+      return filterRowsByScope(rows);
     } catch(e) { return { error: e.message }; }
   });
 
   // Installments
-  ipcMain.handle('get-installments', async () => { try { return await dataLayer.read(() => getInstallments(), () => onlineDb.getAllInstallments()); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-due-installments', async () => { try { return await dataLayer.read(() => getDueInstallments(), async () => { const all = await onlineDb.getAllInstallments(); const today = new Date().toISOString().split('T')[0]; return (all || []).filter(i => { const s = (i.Status || '').toLowerCase(); if (s === 'paid') return false; const d = i.Due_Date || ''; return d < today; }).map(i => ({ ...i, Status: 'Overdue' })); }); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-installments', async () => { try { const rows = await dataLayer.read(() => getInstallments(), () => onlineDb.getAllInstallments()); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-due-installments', async () => { try { const rows = await dataLayer.read(() => getDueInstallments(), async () => { const all = await onlineDb.getAllInstallments(); const today = new Date().toISOString().split('T')[0]; return (all || []).filter(i => { const s = (i.Status || '').toLowerCase(); if (s === 'paid') return false; const d = i.Due_Date || ''; return d < today; }).map(i => ({ ...i, Status: 'Overdue' })); }); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('mark-installment-paid', async (_, data) => {
     try {
       assertObjectPayload(data, 'installment payload');
@@ -283,31 +514,46 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertEnum(data.type, ['Plot', 'Shop'], 'property type');
       if (!isNonEmpty(data.number)) throw new Error('Property number is required');
       if (!isNonEmpty(data.townName)) throw new Error('Town name is required');
+      assertTownAccess(data.townName);
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
       return await syncOnline(() => resellProperty(data), () => onlineDb.resellProperty(data));
     } catch(e) { return { error: e.message }; }
   });
-  ipcMain.handle('get-resell-history', async () => { try { return await dataLayer.read(() => getResellHistory(), () => onlineDb.getAll('resell_history')); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-resell-history', async () => { try { const rows = await dataLayer.read(() => getResellHistory(), () => onlineDb.getAll('resell_history')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
 
   // Expenses
   ipcMain.handle('add-expense', async (_, data) => {
     try {
       assertObjectPayload(data, 'expense payload');
+      if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
       const { generateId } = require('./db/core');
       const expData = { Expense_ID: generateId(), Town_Name: data.Town_Name||'', Expense_Name: data.Expense_Name||'', Amount_PKR: parseFloat(data.Amount_PKR)||0, Description: data.Description||'', Category: data.Category||'General', Date: data.Date || new Date().toISOString().split('T')[0], Added_By: data.Added_By||'Employee' };
       const { appendToExcel, getGlobalsPath } = require('./db/core');
+      const { recordMoneyEvent } = require('./db/moneyLedger');
       const p = require('path');
       await appendToExcel(p.join(getGlobalsPath(), 'All_Expenses.xlsx'), 'Data', expData);
+      await recordMoneyEvent({
+        sourceType: 'expense',
+        sourceId: expData.Expense_ID,
+        direction: 'expense',
+        amount: expData.Amount_PKR,
+        townName: expData.Town_Name,
+        date: expData.Date,
+        partyName: expData.Added_By,
+        description: expData.Expense_Name,
+        createdBy: expData.Added_By,
+      });
       return await syncOnline(() => expData, () => onlineDb.insert('expenses', expData));
     } catch(e) { return { error: e.message }; }
   });
-  ipcMain.handle('get-expenses', async (_, town) => { try { return await dataLayer.read(() => { const all = getAllExpenses(); return town ? all.filter(e => e.Town_Name === town) : all; }, async () => { const all = await onlineDb.getAll('expenses'); return town ? (all || []).filter(e => e.Town_Name === town) : (all || []); }); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-all-expenses', async () => { try { return await dataLayer.read(() => getAllExpenses(), () => onlineDb.getAll('expenses')); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-ceo-expenses', async () => { try { return await dataLayer.read(() => getCeoExpenses(), () => onlineDb.getAll('ceo_expenses')); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-expenses', async (_, town) => { try { const scoped = scopedTown(town, isAccountantScoped()); return await dataLayer.read(() => { const all = getAllExpenses(); return scoped ? all.filter(e => e.Town_Name === scoped) : all; }, async () => { const all = await onlineDb.getAll('expenses'); return scoped ? (all || []).filter(e => e.Town_Name === scoped) : (all || []); }); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-all-expenses', async () => { try { const rows = await dataLayer.read(() => getAllExpenses(), () => onlineDb.getAll('expenses')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-ceo-expenses', async () => { try { const rows = await dataLayer.read(() => getCeoExpenses(), () => onlineDb.getAll('ceo_expenses')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('add-ceo-expense', async (_, data) => {
     try {
       assertObjectPayload(data, 'ceo expense payload');
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
+      assertTownAccess(data.Town_Name);
       if (!isNonEmpty(data.Expense_Name)) throw new Error('Expense_Name is required');
       return await syncOnline(() => addCeoExpense(data), () => onlineDb.insert('ceo_expenses', { Expense_ID: onlineDb.generateId(), Town_Name: data.Town_Name, Expense_Name: data.Expense_Name, Amount_PKR: parseFloat(data.Amount_PKR)||0, Description: data.Description||'', Category: data.Category||'General', Date: data.Date||new Date().toISOString().split('T')[0] }));
     } catch(e) { return { error: e.message }; }
@@ -323,16 +569,18 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertObjectPayload(data, 'ceo expense payload');
       if (!isNonEmpty(data.Expense_ID)) throw new Error('Expense_ID is required');
+      if (data.Town_Name) assertTownAccess(data.Town_Name);
       return await syncOnline(() => editCeoExpense(data), () => onlineDb.updateWhere('ceo_expenses', { Expense_ID: data.Expense_ID }, data));
     } catch(e) { return { error: e.message }; }
   });
 
   // CEO Salary
-  ipcMain.handle('get-ceo-salary', async () => { try { return await dataLayer.read(() => getCeoSalary(), () => onlineDb.getAll('ceo_salary')); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-ceo-salary', async () => { try { const rows = await dataLayer.read(() => getCeoSalary(), () => onlineDb.getAll('ceo_salary')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('add-ceo-salary', async (_, data) => {
     try {
       assertObjectPayload(data, 'ceo salary payload');
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
+      assertTownAccess(data.Town_Name);
       if (!isNonEmpty(data.Month_Year)) throw new Error('Month_Year is required');
       return await syncOnline(() => addCeoSalary(data), () => onlineDb.insert('ceo_salary', { Salary_ID: onlineDb.generateId(), Town_Name: data.Town_Name, Month_Year: data.Month_Year, Amount_PKR: parseFloat(data.Amount_PKR)||0, Date: data.Date||new Date().toISOString().split('T')[0] }));
     } catch(e) { return { error: e.message }; }
@@ -350,10 +598,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertObjectPayload(data, 'employee payload');
       if (!isNonEmpty(data.Employee_Name)) throw new Error('Employee_Name is required');
+      if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
       return await syncOnline(() => addEmployee(data), () => onlineDb.insert('employees', { Employee_ID: onlineDb.generateId(), Employee_Name: data.Employee_Name, CNIC: data.CNIC||'', Phone: data.Phone||'', Role: data.Role||'', Town_Name: data.Town_Name||'', Salary: parseFloat(data.Salary)||0 }));
     } catch(e) { return { error: e.message }; }
   });
-  ipcMain.handle('get-employees', async () => { try { return await dataLayer.read(() => getEmployees(), () => onlineDb.getAll('employees')); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-employees', async () => { try { const rows = await dataLayer.read(() => getEmployees(), () => onlineDb.getAll('employees')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('delete-employee', async (_, id) => {
     try {
       assertPermanentDeleteAllowed();
@@ -366,7 +615,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('get-dashboard-stats', async () => { try { return await dataLayer.read(() => getDashboardStats(), () => onlineDb.getDashboardStats()); } catch(e) { return { error: e.message }; } });
 
   // Notifications
-  ipcMain.handle('get-notifications', async () => { try { return await dataLayer.read(() => getNotifications(), () => onlineDb.getAll('notifications')); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-notifications', async () => { try { const rows = await dataLayer.read(() => getNotifications(), () => onlineDb.getAll('notifications')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('dismiss-notification', async (_, id) => {
     try {
       if (!isNonEmpty(id)) throw new Error('Notification id is required');
@@ -379,26 +628,16 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('configure-file-sync-context', async (_, context) => {
     try {
       storage.setSyncContext(context || {});
-      storage.startPeriodicFileSync({
-        intervalMs: 5 * 60 * 1000,
-        onError: (e) => sendSyncWarning('Cloud file sync error: ' + (e.message || 'Unknown')),
-      });
-      let fileSync = null;
-      try {
-        fileSync = await storage.runFileSyncCycle();
-      } catch (e) {
-        fileSync = { error: e.message || 'Unknown' };
-        sendSyncWarning('Cloud file sync error: ' + (e.message || 'Unknown'));
-      }
+      storage.stopPeriodicFileSync();
+      let fileSync = { skipped: true, reason: 'Storage is backup-only; business data sync uses Supabase DB.' };
       const role = String(storage.getSyncContext()?.role || '').toLowerCase();
-      let databaseSync = null;
+      let databaseSync = { scheduled: false };
       if (role === 'ceo' || role === 'accountant') {
-        try {
-          databaseSync = await performFullSync(() => {});
-        } catch (e) {
-          databaseSync = { error: e.message || 'Unknown' };
-          sendSyncWarning('Cloud database download error: ' + (e.message || 'Unknown'));
-        }
+        scheduleQueuedCloudSync(1200);
+        scheduleCloudDownload(900);
+        startPeriodicCloudSync(120000);
+        startPeriodicCloudDownload(120000);
+        databaseSync = { scheduled: true, background: true };
       }
       return { success: true, context: storage.getSyncContext(), fileSync, databaseSync };
     } catch(e) { return { error: e.message }; }
@@ -412,17 +651,26 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           }
         } catch (_) {}
       };
-      sendProgress(10, 'Downloading Excel files...');
-      const result = await storage.downloadMissingFiles((filePath) => {
-        sendProgress(50, `Downloaded ${path.basename(filePath)}`);
-      });
+      const sendMappedProgress = (percent, msg) => {
+        const mapped = percent <= 30
+          ? Math.max(5, Math.round((percent / 30) * 50))
+          : 50 + Math.round(((percent - 30) / 70) * 50);
+        sendProgress(Math.min(100, mapped), msg);
+      };
+      sendProgress(5, 'Fetching latest data from database...');
+      if (await pendingSync.hasPendingSyncRows()) {
+        sendProgress(100, 'Skipped: local changes are still syncing to cloud.');
+        return { success: false, skipped: true, error: 'Local changes are still pending sync. Sync to Cloud first, then download.' };
+      }
+      const result = { skippedStorage: true };
       const role = String(storage.getSyncContext()?.role || '').toLowerCase();
       let databaseSync = null;
       if (role === 'ceo' || role === 'accountant') {
-        sendProgress(72, 'Rebuilding local files from cloud database...');
-        databaseSync = await performFullSync(sendProgress);
+        sendProgress(50, 'Cloud data fetched. Writing Excel cache...');
+        databaseSync = await performFullSync(sendMappedProgress);
       }
       sendProgress(100, 'Sync Complete!');
+      try { event.sender.send('cloud-data-refreshed', { background: false, at: new Date().toISOString() }); } catch (_) {}
       return { success: true, ...result, databaseSync };
     } catch(e) { return { error: e.message }; } 
   });
@@ -437,6 +685,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         } catch (_) {}
       };
       const result = await performFullSyncUp(sendProgress);
+      await pendingSync.markAllPendingSynced();
       return { success: true, ...result };
     } catch(e) { return { error: e.message }; }
   });
@@ -462,25 +711,27 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('get-profit-loss-report', async () => { try { return await dataLayer.read(() => getProfitLossReport(), async () => { const stats = await onlineDb.getDashboardStats(); return [{ Town_Name: 'All', Total_Income: stats.totalIncome, Total_Expenses: stats.totalExpenses, Commission: stats.totalCommission, Net_Profit_Loss: stats.netProfitLoss }]; }); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('get-town-performance', async (_, townName) => {
     try {
-      if (!isNonEmpty(townName)) throw new Error('Town name is required');
-      return await dataLayer.read(() => getTownPerformance(townName), async () => { const stats = await onlineDb.getDashboardStats(); const tp = (stats.townPerformance || []).find(t => t.name === townName); return tp || { error: 'Town not found' }; });
+      const town = scopedTown(townName, true);
+      return await dataLayer.read(() => getTownPerformance(town), () => onlineDb.getTownPerformance(town));
     } catch(e) { return { error: e.message }; }
   });
 
   // Installment Properties (for daily income entry)
-  ipcMain.handle('getInstallmentProperties', async (_, townName) => { try { if (!isNonEmpty(townName)) throw new Error('Town name is required'); return await dataLayer.read(() => getInstallmentProperties(townName), () => onlineDb.getInstallmentProperties(townName)); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('getInstallmentProperties', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getInstallmentProperties(town), () => onlineDb.getInstallmentProperties(town)); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('getPropertyInstallments', async (_, propertyId) => { try { if (!isNonEmpty(propertyId)) throw new Error('Property ID is required'); return await dataLayer.read(() => getPropertyInstallments(propertyId), () => onlineDb.getPropertyInstallments(propertyId)); } catch(e) { return { error: e.message }; } });
 
   // Daily Entries
   ipcMain.handle('getDailyEntries', async (_, params) => {
     try {
       assertObjectPayload(params, 'getDailyEntries payload');
-      return await dataLayer.read(() => getDailyEntries(params), async () => { const all = await onlineDb.getAll('daily_entries'); const t = params.townName; return t ? (all || []).filter(e => e.Town_Name === t) : (all || []); });
+      const t = scopedTown(params.townName, isAccountantScoped());
+      return await dataLayer.read(() => getDailyEntries({ ...params, townName: t }), async () => { const all = await onlineDb.getAll('daily_entries'); return t ? (all || []).filter(e => e.Town_Name === t) : (all || []); });
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('addDailyEntry', async (_, params) => {
     try {
       assertObjectPayload(params, 'addDailyEntry payload');
+      if (isAccountantScoped()) params.townName = scopedTown(params.townName || params.Town_Name, true);
       return await syncOnline(() => addDailyEntry(params), () => onlineDb.insert('daily_entries', { Entry_ID: onlineDb.generateId(), ...params }));
     } catch(e) { return { error: e.message }; }
   });
@@ -495,6 +746,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('recordSalaryPayment', async (_, data) => {
     try {
       assertObjectPayload(data, 'salary payload');
+      if (isAccountantScoped()) data.townName = scopedTown(data.townName, true);
       const { recordSalaryPayment, getSalaryRecords } = require('./db/globals');
       
       // Check for duplicate monthly salary payment
@@ -526,7 +778,8 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('getSalaryRecords', async (_, params) => {
     try {
       const { getSalaryRecords } = require('./db/globals');
-      return await dataLayer.read(() => getSalaryRecords(params?.townName), async () => { const all = await onlineDb.getAll('salary_payments'); const tn = params?.townName; return tn ? (all || []).filter(r => r.Town_Name === tn) : (all || []); });
+      const tn = scopedTown(params?.townName, isAccountantScoped());
+      return await dataLayer.read(() => getSalaryRecords(tn), async () => { const all = await onlineDb.getAll('salary_payments'); return tn ? (all || []).filter(r => r.Town_Name === tn) : (all || []); });
     } catch(e) { return { error: e.message }; }
   });
 
@@ -537,7 +790,8 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
 
   ipcMain.handle('getEmployeesV2', async (_, townName) => {
     try {
-      return await dataLayer.read(() => employeeDB.getEmployees(townName), () => townName ? onlineDb.findMany('employees_v2', { Town_Name: townName }) : onlineDb.getAll('employees_v2'));
+      const tn = scopedTown(townName, isAccountantScoped());
+      return await dataLayer.read(() => employeeDB.getEmployees(tn), () => tn ? onlineDb.findMany('employees_v2', { Town_Name: tn }) : onlineDb.getAll('employees_v2'));
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('addEmployeeV2', async (_, data) => {
@@ -545,7 +799,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const name = data.name || data.Name || data.Employee_Name || '';
       const cnic = data.cnic || data.CNIC || '';
       const phone = data.phone || data.Phone || data.Phone_Number || '';
-      const townName = data.townName || data.Town_Name || '';
+      const townName = scopedTown(data.townName || data.Town_Name || '', isAccountantScoped());
       const designation = data.designation || data.Role || data.Designation || '';
       const baseSalary = data.baseSalary || data.Salary || data.Base_Salary || 0;
 
@@ -585,6 +839,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   });
   ipcMain.handle('addAdvanceSalary', async (_, data) => {
     try {
+      if (isAccountantScoped()) data.townName = scopedTown(data.townName, true);
       return await syncOnline(() => employeeDB.addAdvanceSalary(data), () => onlineDb.insert('advance_salaries', {
         Advance_ID: onlineDb.generateId(),
         Employee_Name: data.employeeName,
@@ -598,7 +853,8 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   });
   ipcMain.handle('getAdvanceSalaries', async (_, { townName, employeeName }) => {
     try {
-      return await dataLayer.read(() => employeeDB.getAdvanceSalaries(townName, employeeName), async () => { const match = {}; if (townName) match.Town_Name = townName; if (employeeName) match.Employee_Name = employeeName; return await onlineDb.findMany('advance_salaries', match); });
+      const tn = scopedTown(townName, isAccountantScoped());
+      return await dataLayer.read(() => employeeDB.getAdvanceSalaries(tn, employeeName), async () => { const match = {}; if (tn) match.Town_Name = tn; if (employeeName) match.Employee_Name = employeeName; return await onlineDb.findMany('advance_salaries', match); });
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('updateAdvanceSalary', async (_, advanceId) => {
@@ -611,6 +867,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   // ─── Salary Increase Appeal ────────────────────────────────────────────────
   ipcMain.handle('submitSalaryIncreaseAppeal', async (_, { employeeName, employeeId, currentSalary, proposedSalary, reason, townName, requestedByUserId }) => {
     try {
+      const allowedTown = scopedTown(townName, true);
       const supabase = require('./db/supabase');
       const { data, error } = await supabase.from('appeals').insert([{
         appeal_type: 'salary_increase',
@@ -619,7 +876,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         requested_data: {
           employeeName,
           employeeId,
-          townName,
+          townName: allowedTown,
           currentSalary,
           proposedSalary,
         },
@@ -635,6 +892,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('deleteEmployeeV2', async (_, { employeeId, townName }) => {
     try {
       assertPermanentDeleteAllowed();
+      assertTownAccess(townName);
       await employeeDB.updateEmployee(employeeId, { status: 'Deleted' });
       return await syncOnline(() => ({ success: true }), () => onlineDb.updateWhere('employees_v2', { Employee_ID: String(employeeId) }, { Status: 'Deleted' }));
     } catch (e) { return { error: e.message }; }
@@ -642,6 +900,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
 
   ipcMain.handle('submitDeleteEmployeeAppeal', async (_, { employeeId, employeeName, designation, townName, requestedByUserId, otpCode }) => {
     try {
+      const allowedTown = scopedTown(townName, true);
       const supabase = require('./db/supabase');
       const { data, error } = await supabase.from('appeals').insert([{
         appeal_type: 'delete_employee',
@@ -653,7 +912,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           employeeId,
           employeeName,
           designation,
-          townName,
+          townName: allowedTown,
         },
         requested_by_user_id: requestedByUserId || null,
         requested_by_role: 'accountant',
@@ -1018,28 +1277,182 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   });
 
   // ─── CEO — Create Accountant Account ─────────────────────────────────────
-  ipcMain.handle('create-accountant', async (_, { fullName, email, password }) => {
+  ipcMain.handle('create-accountant', async (_, { fullName, email, password, townName }) => {
     try {
+      if (isAccountantScoped()) throw new Error('Only CEO can create accountant accounts');
       if (!fullName || !email || !password) throw new Error('Name, email and password are required');
+      const towns = await getTowns();
+      const assignedTown = townName || towns?.[0]?.Town_Name || '';
+      if (!assignedTown) throw new Error('Please create/select a town before creating accountant');
       const supabase = require('./db/supabase');
+      const cleanEmail = String(email || '').trim().toLowerCase();
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
+        email: cleanEmail,
         password,
-        options: { data: { full_name: fullName, role: 'accountant' } },
+        options: { data: { full_name: fullName, role: 'accountant', town_id: assignedTown, town_name: assignedTown } },
       });
-      if (authError) throw authError;
-      const { error: profileError } = await supabase.from('users').insert([{
+      if (authError) {
+        const msg = String(authError.message || '').toLowerCase();
+        if (msg.includes('already') || msg.includes('registered')) {
+          const { data: existingProfile, error: lookupError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', cleanEmail)
+            .maybeSingle();
+          if (lookupError) throw lookupError;
+          if (!existingProfile?.id) {
+            throw new Error('This email is already registered in auth but has no user profile. Use a new email or fix this user in Supabase.');
+          }
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({
+              full_name: fullName,
+              role: 'accountant',
+              town_id: assignedTown,
+              town_name: assignedTown,
+              is_active: true,
+            })
+            .eq('id', existingProfile.id);
+          if (updateError) throw updateError;
+          return { success: true, userId: existingProfile.id, townName: assignedTown, existing: true };
+        }
+        throw authError;
+      }
+      if (!authData?.user?.id) throw new Error('Accountant auth user was not created');
+      const profilePayload = {
         id: authData.user.id,
-        email,
+        email: cleanEmail,
         full_name: fullName,
         role: 'accountant',
+        town_id: assignedTown,
+        town_name: assignedTown,
         is_active: true,
-      }]);
+      };
+      const { error: profileError } = await supabase
+        .from('users')
+        .upsert([profilePayload], { onConflict: 'id' });
       if (profileError) throw profileError;
-      return { success: true, userId: authData.user.id };
+      return { success: true, userId: authData.user.id, townName: assignedTown };
     } catch (e) {
       return { error: e.message };
     }
+  });
+
+  ipcMain.handle('get-town-agents', async (_, townName) => {
+    try { const town = scopedTown(townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getTownAgents(town), () => onlineDb.findMany?.('town_agents', town ? { Town_Name: town } : {}) || []); }
+    catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('add-town-agent', async (_, data) => {
+    try {
+      assertObjectPayload(data, 'town agent payload');
+      if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
+      return await syncOnline(() => businessExtras.addTownAgent(data), () => onlineDb.insert('town_agents', data));
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('get-investors', async (_, townName) => {
+    try { const town = scopedTown(townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getInvestors(town), () => onlineDb.findMany?.('investors', town ? { Town_Name: town } : {}) || []); }
+    catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('add-investor', async (_, data) => {
+    try {
+      assertObjectPayload(data, 'investor payload');
+      if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
+      return await syncOnline(() => businessExtras.addInvestor(data), () => onlineDb.insert('investors', data));
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('record-investor-transaction', async (_, data) => {
+    try {
+      assertObjectPayload(data, 'investor transaction payload');
+      if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
+      const result = await syncOnline(
+        async () => {
+          const tx = await businessExtras.investorTransaction(data);
+          await addDailyEntry({
+            date: tx.Date,
+            type: tx.Type === 'Credit' ? 'Income' : 'Expense',
+            description: `Investor ${tx.Type}: ${tx.Investor_Name}`,
+            amount: tx.Amount,
+            townName: tx.Town_Name,
+            incomeType: 'Investor',
+            category: tx.Type === 'Credit' ? 'Investor Credit' : 'Investor Debit',
+            reference: tx.Transaction_ID,
+            createdBy: tx.Created_By || 'System',
+            reviewStatus: 'approved',
+          });
+          return tx;
+        },
+        () => onlineDb.insert('investor_transactions', data)
+      );
+      return result;
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('get-investor-transactions', async (_, params = {}) => {
+    try { const town = scopedTown(params.townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getInvestorTransactions(town, params.investorId), () => onlineDb.findMany?.('investor_transactions', town ? { Town_Name: town } : {}) || []); }
+    catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('get-receipt-archive', async (_, params = {}) => {
+    try { const town = scopedTown(params.townName, isAccountantScoped()); return await businessExtras.getReceiptArchive(town, params.receiptType); }
+    catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('get-construction-projects', async (_, townName) => {
+    try { const town = scopedTown(townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getConstructionProjects(town), () => onlineDb.findMany?.('construction_projects', town ? { Town_Name: town } : {}) || []); }
+    catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('add-construction-project', async (_, data) => {
+    try {
+      assertObjectPayload(data, 'construction project payload');
+      if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
+      return await syncOnline(() => businessExtras.addConstructionProject(data), () => onlineDb.insert('construction_projects', data));
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('record-construction-payment', async (_, data) => {
+    try {
+      assertObjectPayload(data, 'construction payment payload');
+      if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
+      const result = await syncOnline(
+        async () => {
+          const payment = await businessExtras.recordConstructionPayment(data);
+          await addDailyEntry({
+            date: payment.Payment_Date,
+            type: 'Expense',
+            description: `Construction ${payment.Category}: ${payment.Constructor_Name}`,
+            amount: payment.Amount,
+            townName: payment.Town_Name,
+            category: 'Construction',
+            subcategory: payment.Category,
+            reference: payment.Payment_ID,
+            createdBy: payment.Created_By || 'System',
+            reviewStatus: 'approved',
+          });
+          return payment;
+        },
+        () => onlineDb.insert('construction_payments', data)
+      );
+      return result;
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('get-construction-payments', async (_, townName) => {
+    try { const town = scopedTown(townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getConstructionPayments(town), () => onlineDb.findMany?.('construction_payments', town ? { Town_Name: town } : {}) || []); }
+    catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('cleanup-legacy-agent-data', async () => {
+    try {
+      const result = await businessExtras.cleanupLegacyAgentData();
+      scheduleQueuedFileUpload();
+      scheduleQueuedCloudSync();
+      return result;
+    } catch (e) { return { error: e.message }; }
   });
 
   // ─── Setup Agent Property Access Table ────────────────────────────────────
@@ -1296,6 +1709,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           agent_email: c.Agent_Email || c.agent_email || '',
           status: String(c.Status || c.status || 'pending').toLowerCase(),
         }))
+        .filter((c) => !isAccountantScoped() || String(c.Town_Name || c.town_name || '') === requireAccountantTown())
         .filter((c) => !filter?.status || c.status === String(filter.status).toLowerCase());
       return { data };
     }
@@ -1308,12 +1722,35 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const commissionPath = path.join(getGlobalsPath(), 'Commissions.xlsx');
       const rows = await readExcelFile(commissionPath, 'Data');
       const row = (rows || []).find((c) => String(c.Commission_ID || c.id) === String(commissionId));
+      if (row) assertTownAccess(row.Town_Name || row.town_name);
       if (row?._rowNumber) {
         await updateExcelRow(commissionPath, 'Data', row._rowNumber, {
           Status: 'paid',
           Paid_Date: new Date().toISOString().split('T')[0],
         });
+        await businessExtras.recordCommissionReceipt({
+          Commission_ID: row.Commission_ID || commissionId,
+          Sale_ID: row.Sale_ID || '',
+          Town_Name: row.Town_Name || '',
+          Agent_Name: row.Agent_Name || row.agent_name || '',
+          Plot_Shop_Number: row.Plot_Shop_Number || '',
+          Amount: row.Commission_Amount || row.commission_amount || 0,
+          Paid_Date: new Date().toISOString().split('T')[0],
+          Paid_By: 'Accountant',
+        });
+        await addDailyEntry({
+          date: new Date().toISOString().split('T')[0],
+          type: 'Expense',
+          description: `Commission paid: ${row.Agent_Name || row.agent_name || 'Sales Agent'}`,
+          amount: row.Commission_Amount || row.commission_amount || 0,
+          townName: row.Town_Name || '',
+          category: 'Commission',
+          reference: row.Commission_ID || commissionId,
+          createdBy: 'Accountant',
+          reviewStatus: 'approved',
+        });
         scheduleQueuedFileUpload();
+        scheduleQueuedCloudSync();
       }
       return { success: true };
     } catch (e) { return { error: e.message }; }
@@ -1326,7 +1763,9 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const wanted = [filter.agentName, filter.agentEmail]
         .map(v => String(v || '').trim().toLowerCase())
         .filter(Boolean);
-      const rows = await getAllSales();
+      const rows = filterRowsByScope(await getAllSales());
+      const installments = filterRowsByScope(await getInstallments());
+      const today = new Date().toISOString().split('T')[0];
       const data = (rows || [])
         .map((r) => ({
           ...r,
@@ -1335,6 +1774,24 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           Remaining_Amount: parseFloat(r.Remaining_Amount) || Math.max(0, (parseFloat(r.Total_Amount_PKR) || 0) - (parseFloat(r.Received_Amount || r.Advance_Amount_PKR) || 0)),
         }))
         .filter((r) => ['plot', 'shop'].includes(String(r.Type || '').trim().toLowerCase()))
+        .map((r) => {
+          const sameInst = (installments || []).filter(i => {
+            if (r.Sale_ID && i.Sale_ID) return String(i.Sale_ID) === String(r.Sale_ID);
+            return String(i.Type) === String(r.Type) &&
+              String(i.Plot_Shop_Number) === String(r.Plot_Shop_Number) &&
+              String(i.Town_Name) === String(r.Town_Name);
+          });
+          const unpaid = sameInst.filter(i => String(i.Status || '').toLowerCase() !== 'paid');
+          const overdue = unpaid.some(i => String(i.Due_Date || '') && String(i.Due_Date) < today);
+          const due = unpaid.some(i => String(i.Status || '').toLowerCase() === 'due');
+          const remaining = parseFloat(r.Remaining_Amount) || 0;
+          let category = 'Fully Paid';
+          if (remaining > 0 && sameInst.length === 0) category = 'Advance-only Remaining';
+          else if (remaining > 0 && overdue) category = 'Overdue';
+          else if (remaining > 0 && due) category = 'Installment Due';
+          else if (remaining > 0) category = 'Installment Upcoming';
+          return { ...r, Collection_Category: category, Unpaid_Installments: unpaid.length };
+        })
         .filter((r) => (parseFloat(r.Remaining_Amount) || 0) > 0)
         .filter((r) => {
           if (!wanted.length) return true;
@@ -1350,8 +1807,18 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
 
   ipcMain.handle('record-pending-collection', async (_, { saleId, amount, paymentMethod, notes, type, plotShopNumber, townName, customerName, agentName, totalAmount, currentReceived }) => {
     try {
+      let allowedTown = townName;
+      if (!allowedTown) {
+        const saleRows = filterRowsByScope(await getAllSales());
+        const sale = (saleRows || []).find((r) =>
+          String(r.Sale_ID || '') === String(saleId || '') ||
+          `${r.Type}|${r.Plot_Shop_Number}|${r.Town_Name}` === String(saleId || '')
+        );
+        allowedTown = sale?.Town_Name || '';
+      }
+      allowedTown = scopedTown(allowedTown, true);
       const result = await syncOnline(
-        () => recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName, amount, paymentMethod, notes }),
+        () => recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName: allowedTown, amount, paymentMethod, notes }),
         () => onlineDb.recordCollectionPayment(saleId, amount, paymentMethod, notes)
       );
       return { success: true, ...result };
@@ -1365,6 +1832,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const rows = await readExcelFile(historyPath, 'Data');
       const data = (rows || [])
         .filter(r => String(r.Sale_ID || '') === String(saleId || ''))
+        .filter(r => !isAccountantScoped() || String(r.Town_Name || r.town_name || '') === requireAccountantTown())
         .map(r => ({
           id: r.Payment_ID,
           payment_date: r.Payment_Date,
@@ -1379,7 +1847,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
 
   ipcMain.handle('deliver-file-after-payment', async (_, saleId) => {
     try {
-      const rows = await getAllSales();
+      const rows = filterRowsByScope(await getAllSales());
       const sale = (rows || []).find((r) =>
         String(r.Sale_ID || '') === String(saleId) ||
         `${r.Type}|${r.Plot_Shop_Number}|${r.Town_Name}` === String(saleId)

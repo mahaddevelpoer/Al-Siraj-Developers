@@ -368,7 +368,7 @@ function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess
 }
 
 // ─── Agent Card ─────────────────────────────────────────────────────────────
-function AgentCard({ emp, isSelected, onSelect, onSalaryIncrease, onGiveSalary, onDelete }) {
+function EmployeeCard({ emp, isSelected, onSelect, onSalaryIncrease, onGiveSalary, onDelete }) {
   const statusColor = emp.status === 'Active' ? '#10b981' : '#ef4444';
 
   return (
@@ -390,7 +390,7 @@ function AgentCard({ emp, isSelected, onSelect, onSalaryIncrease, onGiveSalary, 
         height: '100%',
         boxSizing: 'border-box',
       }}
-      className="agent-card"
+      className="employee-card"
     >
       <div>
         {isSelected && (
@@ -780,7 +780,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
 }
 
 // ─── Add Agent Modal ─────────────────────────────────────────────────────────
-function AddAgentModal({ townName, showToast, onClose, onAdded }) {
+function AddEmployeeModal({ townName, showToast, onClose, onAdded }) {
   const [name, setName] = useState('');
   const [designation, setDesignation] = useState('');
   const [salary, setSalary] = useState('');
@@ -1080,7 +1080,7 @@ export default function EmployeeSalary({ townName, showToast }) {
   const [showPayModal, setShowPayModal] = useState(false);
   const [showSalaryIncreaseModal, setShowSalaryIncreaseModal] = useState(false);
   const [salaryIncreaseTarget, setSalaryIncreaseTarget] = useState(null);
-  const [showAddAgent, setShowAddAgent] = useState(false);
+  const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [loadingEmps, setLoadingEmps] = useState(true);
 
   // Sub-tabs state
@@ -1156,11 +1156,11 @@ export default function EmployeeSalary({ townName, showToast }) {
   return (
     <div style={{ padding: 20 }}>
       {/* Modals */}
-      {showAddAgent && (
-        <AddAgentModal
+      {showAddEmployee && (
+        <AddEmployeeModal
           townName={townName}
           showToast={showToast}
-          onClose={() => setShowAddAgent(false)}
+          onClose={() => setShowAddEmployee(false)}
           onAdded={loadEmployees}
         />
       )}
@@ -1206,7 +1206,7 @@ export default function EmployeeSalary({ townName, showToast }) {
           </div>
         </div>
         <button
-          onClick={() => setShowAddAgent(true)}
+          onClick={() => setShowAddEmployee(true)}
           className="btn btn-primary btn-sm"
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px' }}
         >
@@ -1284,7 +1284,7 @@ export default function EmployeeSalary({ townName, showToast }) {
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
                 Add your first employee to start tracking salaries
               </div>
-              <button onClick={() => setShowAddAgent(true)} className="btn btn-primary"><IconPlus size={14} /> Add First Employee</button>
+              <button onClick={() => setShowAddEmployee(true)} className="btn btn-primary"><IconPlus size={14} /> Add First Employee</button>
             </div>
           ) : (
             <div style={{
@@ -1293,7 +1293,7 @@ export default function EmployeeSalary({ townName, showToast }) {
               gap: 20,
             }}>
               {employees.map(emp => (
-                <AgentCard
+                <EmployeeCard
                   key={emp.id}
                   emp={emp}
                   isSelected={selectedEmployee?.id === emp.id}

@@ -24,14 +24,12 @@ function useLogo() {
 const ROLE_STYLES = {
   ceo: { gradient: 'linear-gradient(135deg, #1e293b, #334155)', icon: 'ceo', label: 'CEO', desc: 'Complete control over system & all modules', badge: 'Full Access', panelGradient: 'linear-gradient(135deg, #0a1628, #1e293b)' },
   accountant: { gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)', icon: 'accountant', label: 'Accountant', desc: 'Manage finance, expenses, reports & accounts', badge: 'Financial Access', panelGradient: 'linear-gradient(135deg, #1e40af, #2563eb)' },
-  agent: { gradient: 'linear-gradient(135deg, #0d9488, #14b8a6)', icon: 'agent', label: 'Agent', desc: 'Handle properties, sales, clients & commissions', badge: 'Sales Access', panelGradient: 'linear-gradient(135deg, #115e59, #0d9488)' },
 };
-const ROLE_ICON_COMPONENTS = { ceo: IconCrown, accountant: IconBarChart, agent: IconHandshake };
+const ROLE_ICON_COMPONENTS = { ceo: IconCrown, accountant: IconBarChart };
 
 const ROLE_PORTAL = {
   ceo: { title: 'CEO Portal', subtitle: 'Secure access to the AL SIRAJ DEVELOPERS management system.' },
   accountant: { title: 'Accountant Portal', subtitle: 'Manage financial operations for AL SIRAJ DEVELOPERS.' },
-  agent: { title: 'Agent Portal', subtitle: 'Handle sales and client relationships with ease.' },
 };
 
 export default function AuthScreen({ onLogin }) {
@@ -59,14 +57,9 @@ export default function AuthScreen({ onLogin }) {
   const [regPhone, setRegPhone] = useState('');
   const [regTown, setRegTown] = useState('');
   const [regStep, setRegStep] = useState(1);
-  const [regOtp, setRegOtp] = useState('');
   const [regUserId, setRegUserId] = useState(null);
-  const [regOtpId, setRegOtpId] = useState(null);
   const [wizStep, setWizStep] = useState(1);
-  const [otpValues, setOtpValues] = useState(['','','','','','']);
-  const [otpTimer, setOtpTimer] = useState(600);
   const [townsList, setTownsList] = useState([]);
-  const otpRefs = useRef([]);
 
   useEffect(() => {
     if (window.api?.getTowns) {
@@ -119,7 +112,7 @@ export default function AuthScreen({ onLogin }) {
 
       let { data: profile } = await supabase
         .from('users')
-        .select('role, is_active, agent_town, agent_towns')
+        .select('role, is_active, agent_town, agent_towns, town_name, town_id')
         .eq('id', result.user.id)
         .single();
 
@@ -166,7 +159,20 @@ export default function AuthScreen({ onLogin }) {
         }
         throw new Error('Account not yet activated. Contact CEO for approval.');
       }
-      onLogin(selectedRole);
+      if (selectedRole === 'accountant' && !(profile.town_name || profile.town_id)) {
+        await supabase.auth.signOut();
+        throw new Error('No town assigned to this accountant. CEO must assign a town first.');
+      }
+      if (window.api?.configureFileSyncContext) {
+        await window.api.configureFileSyncContext({
+          role: selectedRole,
+          userId: result.user.id,
+          accountantTown: profile.town_name || profile.town_id || '',
+        }).catch(() => {});
+      }
+      onLogin(selectedRole, {
+        townName: profile.town_name || profile.town_id || '',
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -249,10 +255,8 @@ export default function AuthScreen({ onLogin }) {
             }], { onConflict: 'requested_by_user_id,entity_id,appeal_type' })
             .select('id')
             .single();
-          if (fallbackError) throw new Error('OTP setup failed: ' + fallbackError.message);
-          setRegOtpId(fallbackAppeal?.id);
+          if (fallbackError) throw new Error('Approval request setup failed: ' + fallbackError.message);
         } else {
-          setRegOtpId(otpRecord?.id);
           if (otpRecord?.id) {
             await supabase.from('appeals').update({
               requested_data: {
@@ -272,30 +276,6 @@ export default function AuthScreen({ onLogin }) {
       } else {
         onLogin(selectedRole);
       }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOtpVerify = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      const { data, error } = await supabase
-        .from('appeals')
-        .select('*')
-        .eq('id', regOtpId)
-        .eq('otp_code', regOtp)
-        .gt('otp_expires_at', new Date().toISOString())
-        .single();
-      if (error || !data) throw new Error('Invalid or expired OTP');
-      await supabase.from('users').update({ is_active: true }).eq('id', regUserId);
-      await supabase.from('appeals').update({ otp_code: null, otp_expires_at: null }).eq('id', regOtpId);
-
-      onLogin('agent');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -341,54 +321,6 @@ export default function AuthScreen({ onLogin }) {
       e.preventDefault();
       nextWizStep();
     }
-  };
-
-  const handleOtpChange = (index, value) => {
-    if (value.length > 1) return;
-    const newOtp = [...otpValues];
-    newOtp[index] = value;
-    setOtpValues(newOtp);
-    setRegOtp(newOtp.join(''));
-    if (value && index < 5) {
-      const next = otpRefs.current[index + 1];
-      if (next) next.focus();
-    }
-  };
-
-  const handleOtpKeyDown = (index, e) => {
-    if (e.key === 'Backspace' && !otpValues[index] && index > 0) {
-      const prev = otpRefs.current[index - 1];
-      if (prev) { prev.focus(); prev.select(); }
-    }
-    if (e.key === 'Enter') {
-      const form = formRef.current?.querySelector('form');
-      if (form) form.requestSubmit();
-    }
-  };
-
-  const handlePasteOtp = (e) => {
-    e.preventDefault();
-    const paste = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    const newOtp = paste.split('');
-    while (newOtp.length < 6) newOtp.push('');
-    setOtpValues(newOtp);
-    setRegOtp(paste);
-    const lastIdx = Math.min(paste.length, 5);
-    const focusEl = otpRefs.current[lastIdx > 0 && lastIdx < 6 ? lastIdx : 0];
-    if (focusEl) focusEl.focus();
-  };
-
-  useEffect(() => {
-    if (regStep === 2 && otpTimer > 0) {
-      const interval = setInterval(() => setOtpTimer((t) => t > 0 ? t - 1 : 0), 1000);
-      return () => clearInterval(interval);
-    }
-  }, [regStep, otpTimer]);
-
-  const formatTime = (sec) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   // ─── ROLE SELECTION SCREEN ──────────────────────────────────────────────
@@ -646,35 +578,6 @@ export default function AuthScreen({ onLogin }) {
                     <div><strong>Status:</strong> Waiting for CEO approval</div>
                     <div className="auth-pending-note">This screen will continue automatically as soon as approval is received.</div>
                   </div>
-                  {false && (
-                  <div className="auth-otp-boxes" onPaste={handlePasteOtp}>
-                    {otpValues.map((val, idx) => (
-                      <input
-                        key={idx}
-                        ref={(el) => { otpRefs.current[idx] = el; }}
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={1}
-                        value={val}
-                        onChange={(e) => handleOtpChange(idx, e.target.value)}
-                        onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                        onFocus={(e) => e.target.select()}
-                        className="auth-otp-box"
-                        autoFocus={idx === 0}
-                      />
-                    ))}
-                  </div>
-                  )}
-                  {false && <div className="auth-otp-timer">
-                    {otpTimer > 0 ? (
-                      <span>Code expires in <strong>{formatTime(otpTimer)}</strong></span>
-                    ) : (
-                      <span style={{ color: '#dc2626' }}>Code expired — please register again</span>
-                    )}
-                  </div>}
-                  {false && <button type="submit" className="auth-submit-btn" disabled={loading || regOtp.length !== 6}>
-                    {loading ? <span className="auth-spinner" /> : 'Verify & Complete'}
-                  </button>}
                   <button type="button" className="auth-back-form-btn" onClick={() => { setRegStep(1); setError(''); setWizStep(1); }}>Back to registration</button>
                 </div>
               </div>
@@ -685,3 +588,4 @@ export default function AuthScreen({ onLogin }) {
     </div>
   );
 }
+

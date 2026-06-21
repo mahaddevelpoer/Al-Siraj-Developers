@@ -100,6 +100,11 @@ export default function PendingCollections({ roleView }) {
   const remaining = collections.reduce((s, c) => s + (parseFloat(c.Remaining_Amount) || 0), 0);
   const total = collections.reduce((s, c) => s + (parseFloat(c.Total_Amount_PKR) || 0), 0);
   const received = collections.reduce((s, c) => s + (parseFloat(c.Received_Amount || c.Advance_Amount_PKR) || 0), 0);
+  const categoryTotals = collections.reduce((acc, c) => {
+    const key = c.Collection_Category || 'Advance-only Remaining';
+    acc[key] = (acc[key] || 0) + (parseFloat(c.Remaining_Amount) || 0);
+    return acc;
+  }, {});
 
   return (
     <div>
@@ -130,6 +135,17 @@ export default function PendingCollections({ roleView }) {
           <div className="kpi-value">PKR {total.toLocaleString()}</div>
           <div className="kpi-sub">All pending properties</div>
         </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 20 }}>
+        {['Advance-only Remaining', 'Installment Due', 'Overdue', 'Installment Upcoming'].map(label => (
+          <div key={label} className="kpi-item" style={{ padding: 12 }}>
+            <div className="kpi-label">{label}</div>
+            <div className="kpi-value" style={{ fontSize: 18, color: label === 'Overdue' ? '#dc2626' : '#0f172a' }}>
+              PKR {(categoryTotals[label] || 0).toLocaleString()}
+            </div>
+          </div>
+        ))}
       </div>
 
       {loading ? (
@@ -170,6 +186,7 @@ export default function PendingCollections({ roleView }) {
                       <td style={{ fontWeight: 600 }}>
                         {c.Type} #{c.Plot_Shop_Number}
                         <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{c.Town_Name}</div>
+                        <div style={{ fontSize: 10, color: c.Collection_Category === 'Overdue' ? '#dc2626' : 'var(--text-muted)', fontWeight: 700 }}>{c.Collection_Category}</div>
                       </td>
                       <td>
                         {c.Customer_Name}

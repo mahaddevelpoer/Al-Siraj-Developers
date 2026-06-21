@@ -12,8 +12,8 @@ export default function Settings({ onClose }) {
         setSyncProgress(percent);
         setSyncMsg(msg);
         if (percent >= 100) {
-          toast.success('Sync complete! Refreshing...');
-          setTimeout(() => window.location.reload(), 1500);
+          toast.success('Sync complete! Data updated without reload.');
+          setIsSyncing(false);
         }
       });
     }

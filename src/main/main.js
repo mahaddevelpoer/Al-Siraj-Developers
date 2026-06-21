@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog, shell, session, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell, session, Notification, Tray } = require('electron');
 
 // Capture hard crashes/async failures so we can diagnose instant window close.
 process.on('uncaughtException', (err) => {
@@ -35,6 +35,8 @@ const { addDailyEntry } = require('./db/dailyEntries');
 const supabase = require('./db/supabase');
 const storageSync = require('./db/storage');
 const { showDesktopNotification } = require('./notificationService');
+const buildMeta = require('./buildMeta');
+const { setupAutoUpdater } = require('./autoUpdate');
 
 // Allow OpenStreetMap tiles and Nominatim search through CSP
 app.whenReady().then(() => {
@@ -58,6 +60,26 @@ let activeWindow;
 let launcherWindow;
 let tray = null;
 let forceQuit = false;
+let backgroundBackupInFlight = false;
+let lastDailyStorageBackupDate = '';
+
+function isTestBuildExpired() {
+  if (!buildMeta || buildMeta.channel !== 'test' || !buildMeta.expiresAt) return false;
+  const expiryTime = new Date(buildMeta.expiresAt).getTime();
+  return Number.isFinite(expiryTime) && Date.now() > expiryTime;
+}
+
+async function showExpiredAndQuit() {
+  await dialog.showMessageBox({
+    type: 'error',
+    title: buildMeta.expiredTitle || 'Test Build Expired',
+    message: buildMeta.expiredMessage || 'It is a test build and now it is expired. Please contact administeration to update this into final build.',
+    buttons: ['OK'],
+    defaultId: 0,
+  }).catch(() => {});
+  forceQuit = true;
+  app.quit();
+}
 
 function isCurrentCeoContext() {
   try {
@@ -65,6 +87,54 @@ function isCurrentCeoContext() {
   } catch (_) {
     return false;
   }
+}
+
+function getAppIconPath() {
+  return path.join(__dirname, '../../public/favicon.ico');
+}
+
+async function runBackgroundStorageBackup(reason = 'background') {
+  if (backgroundBackupInFlight) return;
+  backgroundBackupInFlight = true;
+  try {
+    storageSync.queueAllLocalFiles();
+    await storageSync.ensureBucket();
+    const result = await storageSync.flushUploadQueue();
+    if (tray && result && (result.uploaded || result.skipped || result.total)) {
+      tray.displayBalloon({
+        title: 'Backup Complete',
+        content: `Excel backup done (${result.uploaded || 0} uploaded, ${result.skipped || 0} skipped).`,
+        iconType: 'custom',
+        icon: getAppIconPath(),
+        largeIcon: true,
+      });
+    }
+  } catch (e) {
+    console.error('[backup] background storage backup failed', reason, e);
+    if (tray) {
+      tray.displayBalloon({
+        title: 'Backup Failed',
+        content: e.message || 'Cloud storage backup failed.',
+        iconType: 'custom',
+        icon: getAppIconPath(),
+        largeIcon: true,
+      });
+    }
+  } finally {
+    backgroundBackupInFlight = false;
+  }
+}
+
+function startDailyStorageBackupScheduler() {
+  setInterval(() => {
+    const now = new Date();
+    const date = now.toISOString().split('T')[0];
+    if (lastDailyStorageBackupDate === date) return;
+    if (now.getHours() >= 18) {
+      lastDailyStorageBackupDate = date;
+      runBackgroundStorageBackup('daily-evening');
+    }
+  }, 15 * 60 * 1000);
 }
 
 // Read startup panel from command line args: --panel ceo OR --panel employee
@@ -97,7 +167,7 @@ function findNonSystemDrive() {
 }
 
 function createBaseWindow(options = {}) {
-  const iconPath = path.join(__dirname, '../../public/favicon.ico');
+  const iconPath = getAppIconPath();
   const win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 1200, minHeight: 800,
     title: options.title || 'AL SIRAJ DEVELOPERS - Real Estate ERP',
@@ -150,9 +220,12 @@ function createBaseWindow(options = {}) {
       win.hide();
       if (tray) tray.displayBalloon({
         title: 'Running in Background',
-        content: 'Zameen Khata is running in the background to receive real-time notifications.',
-        iconType: 'info'
+        content: 'AL SIRAJ is backing up Excel files and receiving real-time notifications.',
+        iconType: 'custom',
+        icon: getAppIconPath(),
+        largeIcon: true,
       });
+      runBackgroundStorageBackup('window-close');
     }
   });
 
@@ -278,6 +351,10 @@ function openInitialWindow() {
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  if (isTestBuildExpired()) {
+    await showExpiredAndQuit();
+    return;
+  }
   createTray();
 
   app.setLoginItemSettings({
@@ -323,7 +400,7 @@ app.whenReady().then(async () => {
   await initializeDatabase(dbPath);
   reportSplash(10, 'Loading Database...');
 
-  // Business data is Excel-first. Do not hydrate Excel from Supabase DB tables.
+  // Business data is DB-first when online; Excel is the automatic local cache/offline fallback.
 
   // Live mirror (Desktop) + immutable archive (non-system drive)
   try {
@@ -335,21 +412,11 @@ app.whenReady().then(async () => {
 
   try {
     const storage = require('./db/storage');
-    let exactUploadTimer = null;
     setAfterWriteHook(({ relPath }) => {
       if (!relPath) return;
+      // Storage is backup/export only. Queue changed files, but do not upload every write.
+      // Manual backup / daily background backup / sync-to-cloud can flush this queue.
       storage.queueFile(relPath);
-      if (exactUploadTimer) clearTimeout(exactUploadTimer);
-      exactUploadTimer = setTimeout(() => {
-        exactUploadTimer = null;
-        storage.flushUploadQueue().catch((e) => {
-          try {
-            if (activeWindow && !activeWindow.isDestroyed()) {
-              activeWindow.webContents.send('sync-warning', 'Cloud file upload failed: ' + (e.message || 'Unknown'));
-            }
-          } catch (_) {}
-        });
-      }, 800);
     });
   } catch (e) {
     console.warn('[startup] Could not attach storage write hook:', e.message);
@@ -392,6 +459,7 @@ app.whenReady().then(async () => {
   });
   reportSplash(70, 'Configuring Services...');
   startBackupScheduler(dbPath);
+  startDailyStorageBackupScheduler();
 
   // ─── Startup File Sync (Storage ↔ Local) ──────────────────────
   try {
@@ -399,7 +467,7 @@ app.whenReady().then(async () => {
 
     (async () => {
       try {
-        reportSplash(75, 'Preparing file sync...');
+        reportSplash(75, 'Preparing backup storage...');
         await storage.ensureBucket();
       } catch (e) {
         console.warn('[startup] File sync error (non-fatal):', e.message);
@@ -420,7 +488,7 @@ app.whenReady().then(async () => {
       const title = first.Type === 'Overdue' ? 'Overdue Installment' : 'Due Installment';
       const body = first.Message || `Installment reminder (${first.Town_Name || ''})`.trim();
 
-      if (isCurrentCeoContext()) new Notification({ title, body }).show();
+      if (isCurrentCeoContext()) new Notification({ title, body, icon: getAppIconPath() }).show();
     } catch (_) {
       // silent: reminder scheduler should never crash the app
     }
@@ -662,9 +730,11 @@ app.whenReady().then(async () => {
     try {
       console.log('[startup] opening initial window');
       openInitialWindow();
+      if (app.isPackaged) setupAutoUpdater(() => activeWindow || launcherWindow);
     } catch (err) {
       console.error('[startup] openInitialWindow failed:', err);
       openInitialWindow();
+      if (app.isPackaged) setupAutoUpdater(() => activeWindow || launcherWindow);
     }
   } catch (e) {
     console.error('[startup] failed after splash:', e);
@@ -677,6 +747,7 @@ app.whenReady().then(async () => {
     try {
       console.log('[startup] fallback openInitialWindow');
       openInitialWindow();
+      if (app.isPackaged) setupAutoUpdater(() => activeWindow || launcherWindow);
     } catch (err) {
       console.error('[startup] fallback openInitialWindow failed:', err);
     }

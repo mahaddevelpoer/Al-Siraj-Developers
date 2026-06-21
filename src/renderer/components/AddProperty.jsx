@@ -21,7 +21,7 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
   const [type, setType] = useState(typeProp || 'Plot');
   const [towns, setTowns] = useState([]);
   const [selectedTown, setSelectedTown] = useState(townName || '');
-  const [form, setForm] = useState({ number: '', ownerName: '' });
+  const [form, setForm] = useState({ number: '', ownerName: '', lengthFt: '', widthFt: '' });
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -77,27 +77,41 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
   const marlaValue = marlaMode === 'preset' ? parseFloat(marlaPreset) : parseFloat(marlaCustom);
   const plotMarlaValue = plotMarlaMode === 'preset' ? parseFloat(plotMarlaPreset) : parseFloat(plotMarlaCustom);
 
+  const dimensionArea = (() => {
+    const length = parseFloat(form.lengthFt) || 0;
+    const width = parseFloat(form.widthFt) || 0;
+    return length > 0 && width > 0 ? length * width : 0;
+  })();
+  const dimensionMarla = dimensionArea > 0 ? +(dimensionArea / 272.25).toFixed(3) : 0;
+
+  const priceKey = type === 'Plot'
+    ? (propertyCategory === 'Commercial' ? 'Commercial_Plot_Price' : 'Residential_Plot_Price')
+    : (propertyCategory === 'Commercial' ? 'Commercial_Shop_Price' : 'Residential_Shop_Price');
+
   const perMarlaPrice = (() => {
     if (!townPrices || !selectedRoad) return 0;
-    return parseFloat(townPrices[selectedRoad]) || 0;
+    return parseFloat(townPrices[priceKey]) || parseFloat(townPrices[selectedRoad]) || 0;
   })();
 
-  const totalShopPrice = (marlaValue > 0 && perMarlaPrice > 0) ? marlaValue * perMarlaPrice : 0;
+  const effectiveShopMarla = dimensionMarla || marlaValue;
+  const effectivePlotMarla = dimensionMarla || plotMarlaValue;
+  const totalShopPrice = (effectiveShopMarla > 0 && perMarlaPrice > 0) ? effectiveShopMarla * perMarlaPrice : 0;
   const totalPlotPrice = (() => {
     if (!townPrices) return 0;
-    const pm = parseFloat(townPrices.Plot_Price) || 0;
-    return (plotMarlaValue > 0 && pm > 0) ? plotMarlaValue * pm : 0;
+    const pm = parseFloat(townPrices[priceKey]) || parseFloat(townPrices.Plot_Price) || 0;
+    return (effectivePlotMarla > 0 && pm > 0) ? effectivePlotMarla * pm : 0;
   })();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedTown) { showToast('Town select karein', 'error'); return; }
     if (!form.number.trim()) { showToast(`${type} number required hai`, 'error'); return; }
+    if (!dimensionArea) { showToast('Length aur width required hain', 'error'); return; }
 
     if (type === 'Shop') {
       if (!selectedRoad) { showToast('Road type select karein', 'error'); return; }
       const mv = marlaMode === 'preset' ? parseFloat(marlaPreset) : parseFloat(marlaCustom);
-      if (!mv || mv <= 0) { showToast('Size (marla) enter karein', 'error'); return; }
+      if ((!mv || mv <= 0) && !dimensionMarla) { showToast('Size (marla) enter karein', 'error'); return; }
     }
 
     setLoading(true);
@@ -108,16 +122,19 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
         data = {
           Plot_Number: form.number,
           Town_Name: selectedTown,
-          Plot_Size: pm ? `${pm} Marla` : '',
-          Plot_Marla: parseFloat(pm) || 0,
-          Per_Marla_Price: townPrices?.Plot_Price ? parseFloat(townPrices.Plot_Price) : 0,
+          Plot_Size: effectivePlotMarla ? `${effectivePlotMarla} Marla` : (pm ? `${pm} Marla` : ''),
+          Plot_Marla: effectivePlotMarla || parseFloat(pm) || 0,
+          Length_Ft: parseFloat(form.lengthFt) || '',
+          Width_Ft: parseFloat(form.widthFt) || '',
+          Area_Sqft: dimensionArea || '',
+          Per_Marla_Price: parseFloat(townPrices?.[priceKey]) || parseFloat(townPrices?.Plot_Price) || 0,
           Total_Price: totalPlotPrice || 0,
           Owner_Name: form.ownerName,
           Property_Category: propertyCategory,
         };
         result = await window.api.addPlot(data);
       } else {
-        const mv = marlaMode === 'preset' ? marlaPreset : marlaCustom;
+        const mv = effectiveShopMarla || (marlaMode === 'preset' ? marlaPreset : marlaCustom);
         const roadLabel = selectedRoad === 'Custom_Price'
           ? (customRoadName || 'Custom Road')
           : ROAD_OPTIONS.find(r => r.key === selectedRoad)?.label || selectedRoad;
@@ -126,6 +143,9 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
           Town_Name: selectedTown,
           Shop_Size: `${mv} Marla`,
           Shop_Marla: parseFloat(mv) || 0,
+          Length_Ft: parseFloat(form.lengthFt) || '',
+          Width_Ft: parseFloat(form.widthFt) || '',
+          Area_Sqft: dimensionArea || '',
           Road_Type: roadLabel,
           Road_Key: selectedRoad,
           Per_Marla_Price: perMarlaPrice,
@@ -139,7 +159,7 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
       if (result?.error) showToast(result.error, 'error');
       else {
         showToast(`${type} "${form.number}" ${selectedTown} mein add ho gaya!`);
-        setForm({ number: '', ownerName: '' });
+        setForm({ number: '', ownerName: '', lengthFt: '', widthFt: '' });
         setSelectedRoad(''); setMarlaMode('preset'); setMarlaPreset(''); setMarlaCustom('');
         setPlotMarlaMode('preset'); setPlotMarlaPreset(''); setPlotMarlaCustom('');
         loadProperties();
@@ -195,7 +215,35 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
                 onChange={e => setForm({ ...form, ownerName: e.target.value })}
               />
             </div>
+            <div className="form-group">
+              <label>Length (ft) *</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.lengthFt}
+                onChange={e => setForm({ ...form, lengthFt: e.target.value })}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Width (ft) *</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.widthFt}
+                onChange={e => setForm({ ...form, widthFt: e.target.value })}
+                required
+              />
+            </div>
           </div>
+
+          {dimensionArea > 0 && (
+            <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--border-color)', borderRadius: 10, background: 'var(--bg-secondary)', fontSize: 13, fontWeight: 700 }}>
+              Measurement: {form.lengthFt}ft x {form.widthFt}ft = {dimensionArea.toLocaleString()} sqft ({dimensionMarla} marla)
+            </div>
+          )}
 
           {/* ── Property Category: Residential / Commercial ── */}
           <div style={{ marginTop: 20, marginBottom: 10 }}>

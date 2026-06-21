@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import AddTown from './components/AddTown';
@@ -17,10 +17,7 @@ import CEOProjectsHub from './components/CEOProjectsHub';
 import TownDashboard from './components/TownDashboard';
 import AuthScreen from './components/AuthScreen';
 import AppealDashboard from './systems/AppealSystem/AppealDashboard';
-import { AgentManagement } from './systems/AgentManagementSystem';
-import { AgentPropertiesView } from './systems/PropertyViewSystem';
 import PendingCollections from './components/PendingCollections';
-import AgentRegister from './pages/AuthPages/AgentRegister';
 import { LanguageProvider } from './LanguageContext';
 import { useAuth } from './contexts/AuthContext';
 import { supabase } from './lib/supabase';
@@ -61,14 +58,36 @@ class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error, info) { console.error('ErrorBoundary caught:', error, info); }
+  recover(resetState = false) {
+    if (resetState) {
+      try {
+        localStorage.removeItem('zameen_panel');
+        localStorage.removeItem('zameen_page');
+        localStorage.removeItem('zameen_selected_town');
+      } catch {}
+    }
+    this.setState({ error: null });
+    if (resetState) window.location.reload();
+  }
   render() {
     if (this.state.error) {
       return (
-        <div style={{ padding: 40, fontFamily: 'monospace' }}>
-          <h2 style={{ color: '#ef4444' }}>Render Error</h2>
-          <pre style={{ background: '#fef2f2', padding: 20, borderRadius: 8, border: '1px solid #fca5a5', whiteSpace: 'pre-wrap', fontSize: 13 }}>
+        <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#f8fbff', padding: 24 }}>
+          <div style={{ width: 'min(560px, 100%)', background: '#fff', border: '1px solid #dbeafe', boxShadow: '0 24px 70px rgba(15,23,42,.12)', padding: 26, borderRadius: 18, fontFamily: 'Inter, Segoe UI, Arial, sans-serif' }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: '#1455d9', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 900, marginBottom: 14 }}>AS</div>
+            <h2 style={{ color: '#0f172a', margin: '0 0 8px', fontSize: 20 }}>Screen Recovered</h2>
+            <p style={{ color: '#475569', fontSize: 13, lineHeight: 1.6, margin: '0 0 16px' }}>Is screen mein error aaya tha. App ko reload ya saved screen reset karke continue kar sakte hain.</p>
+            <details style={{ marginBottom: 16 }}>
+              <summary style={{ cursor: 'pointer', color: '#2563eb', fontWeight: 700, fontSize: 13 }}>Technical error</summary>
+              <pre style={{ background: '#fef2f2', padding: 14, borderRadius: 10, border: '1px solid #fecaca', whiteSpace: 'pre-wrap', fontSize: 12, maxHeight: 220, overflow: 'auto' }}>
             {this.state.error.stack || this.state.error.message || String(this.state.error)}
-          </pre>
+              </pre>
+            </details>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={() => window.location.reload()}>Reload App</button>
+              <button className="btn btn-secondary" onClick={() => this.recover(true)}>Reset Saved Screen</button>
+            </div>
+          </div>
         </div>
       );
     }
@@ -90,10 +109,43 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
+function StartupSplash() {
+  return (
+    <div className="startup-splash">
+      <div className="startup-splash-card">
+        <div className="startup-mark">AS</div>
+        <div>
+          <div className="startup-title">AL SIRAJ DEVELOPERS</div>
+          <div className="startup-subtitle">Preparing secure workspace...</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CloudRefreshStatus({ state }) {
+  if (!state?.visible) return null;
+  const percent = Math.max(0, Math.min(100, Number(state.percent) || 0));
+  return (
+    <div className="cloud-refresh-status" aria-live="polite">
+      <div className="cloud-refresh-row">
+        <span className="cloud-refresh-dot" />
+        <span>{state.msg || 'Syncing database...'}</span>
+        <strong>{percent}%</strong>
+      </div>
+      <div className="cloud-refresh-track">
+        <div className="cloud-refresh-fill" style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <LanguageProvider>
-      <AppInner />
+      <ErrorBoundary>
+        <AppInner />
+      </ErrorBoundary>
     </LanguageProvider>
   );
 }
@@ -108,10 +160,39 @@ function AppInner() {
   const [selectedTown, setSelectedTown] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('zameen_theme') || 'light');
   const [dataRefreshKey, setDataRefreshKey] = useState(0);
+  const [cloudRefresh, setCloudRefresh] = useState({ visible: false, percent: 0, msg: '' });
+  const sessionHydratedRef = useRef(false);
+
+  const assignedAccountantTown = userRole === 'accountant'
+    ? String(userProfile?.town_name || userProfile?.town_id || '').trim()
+    : '';
+
+  const logoutCurrentUser = useCallback(() => {
+    localStorage.removeItem('zameen_panel');
+    localStorage.removeItem('zameen_page');
+    localStorage.removeItem('zameen_selected_town');
+    setLoggedIn(false);
+    setPanel(null);
+    setSelectedTown(null);
+    setPage('dashboard');
+    signOut();
+  }, [signOut]);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
   }, []);
+
+  useEffect(() => {
+    if (ready) return undefined;
+    const timer = setTimeout(() => {
+      setLoggedIn(false);
+      setPanel(null);
+      setSelectedTown(null);
+      setReady(true);
+      showToast('Startup recovered. Please login again if needed.', 'warning');
+    }, 7000);
+    return () => clearTimeout(timer);
+  }, [ready, showToast]);
 
   useEffect(() => {
     document.body.classList.remove('light-mode', 'dark-mode');
@@ -126,34 +207,48 @@ function AppInner() {
   // Restore session from Supabase localStorage on app start
   useEffect(() => {
     if (authLoading) return;
+    if (sessionHydratedRef.current) return;
     if (user && userRole) { // Wait for both user and userRole to be resolved
+      sessionHydratedRef.current = true;
       let finalPanel = 'employee';
       let finalPage = 'sellFlow';
+      let finalTown = null;
       
       if (userRole === 'agent') {
-        finalPanel = 'employee';
-        finalPage = localStorage.getItem('zameen_page') || 'sellFlow';
+        signOut();
+        setLoggedIn(false);
+        setReady(true);
+        return;
       } else if (userRole === 'ceo') {
         finalPanel = 'ceo';
         finalPage = localStorage.getItem('zameen_page') || 'dashboard';
       } else if (userRole === 'accountant') {
-        finalPanel = localStorage.getItem('zameen_panel') || 'choose';
-        finalPage = localStorage.getItem('zameen_page') || 'dashboard';
+        const assignedTown = assignedAccountantTown;
+        if (assignedTown) {
+          finalPanel = 'ceo';
+          finalPage = 'townDashboard';
+          finalTown = { Town_Name: assignedTown };
+        } else {
+          finalPanel = 'choose';
+          finalPage = 'dashboard';
+        }
       }
 
-      if (finalPage === 'townDashboard') {
+      if (finalPage === 'townDashboard' && userRole !== 'accountant') {
         finalPage = 'dashboard';
         localStorage.setItem('zameen_page', 'dashboard');
       }
 
       setPanel(finalPanel);
       setPage(finalPage);
+      if (finalTown) setSelectedTown(finalTown);
       setLoggedIn(true);
       setReady(true);
     } else if (!user) {
+      sessionHydratedRef.current = true;
       setReady(true);
     }
-  }, [authLoading, user, userRole]);
+  }, [authLoading, user, userRole, assignedAccountantTown]);
 
   // Persist panel/page choice
   useEffect(() => {
@@ -176,6 +271,25 @@ function AppInner() {
     }
   }, [panel, page, selectedTown?.Town_Name]);
 
+  useEffect(() => {
+    if (panel === 'employee' && page !== 'sellFlow') {
+      localStorage.setItem('zameen_page', 'sellFlow');
+      setPage('sellFlow');
+    }
+  }, [panel, page]);
+
+  useEffect(() => {
+    if (!loggedIn) return;
+    if (userRole !== 'accountant') return;
+    if (!assignedAccountantTown) return;
+    if (selectedTown?.Town_Name !== assignedAccountantTown) {
+      setSelectedTown({ Town_Name: assignedAccountantTown });
+    }
+    if (panel !== 'ceo' && panel !== 'employee') setPanel('ceo');
+    if (panel === 'employee' && page !== 'sellFlow') setPage('sellFlow');
+    if (panel === 'ceo' && page !== 'townDashboard') setPage('townDashboard');
+  }, [loggedIn, userRole, assignedAccountantTown, selectedTown?.Town_Name, panel, page]);
+
 
   useEffect(() => {
     if (window.api?.onSyncWarning) {
@@ -184,11 +298,45 @@ function AppInner() {
   }, [showToast]);
 
   useEffect(() => {
+    if (!window.api?.onCloudRefreshProgress) return undefined;
+    let hideTimer = null;
+    window.api.onCloudRefreshProgress((data = {}) => {
+      if (hideTimer) clearTimeout(hideTimer);
+      setCloudRefresh({
+        visible: true,
+        percent: data.percent || 0,
+        msg: data.msg || 'Refreshing cloud data...',
+      });
+      if ((data.percent || 0) >= 100) {
+        hideTimer = setTimeout(() => {
+          setCloudRefresh((current) => ({ ...current, visible: false }));
+        }, 1800);
+      }
+    });
+    return () => {
+      if (hideTimer) clearTimeout(hideTimer);
+      window.api?.removeCloudRefreshProgress?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!window.api?.onCloudDataRefreshed) return undefined;
+    window.api.onCloudDataRefreshed((data) => {
+      setDataRefreshKey((k) => k + 1);
+      try {
+        window.dispatchEvent(new CustomEvent('al-siraj-data-refreshed', { detail: data || {} }));
+      } catch {}
+    });
+    return () => window.api?.removeCloudDataRefreshed?.();
+  }, []);
+
+  useEffect(() => {
     if (!user?.id || !userRole || !window.api?.configureFileSyncContext) return;
     let cancelled = false;
     window.api.configureFileSyncContext({
       role: userRole,
       userId: user.id,
+      accountantTown: userProfile?.town_name || userProfile?.town_id || '',
       agentTown: userProfile?.agent_town || '',
       agentTowns: userProfile?.agent_towns
         ? String(userProfile.agent_towns).split(',').map(t => t.trim()).filter(Boolean)
@@ -199,7 +347,7 @@ function AppInner() {
       }
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [user?.id, userRole, userProfile?.agent_town, userProfile?.agent_towns]);
+  }, [user?.id, userRole, userProfile?.agent_town, userProfile?.agent_towns, userProfile?.town_name, userProfile?.town_id]);
 
   // ─── Real-time desktop notifications ───────────────────────────
   useEffect(() => {
@@ -286,7 +434,7 @@ function AppInner() {
 
   // Keep startup visually clean while auth is checked.
   if (!ready) {
-    return null;
+    return <StartupSplash />;
   }
 
   // ─── Not logged in → Show Auth Screen ──────────────────────────────────
@@ -295,19 +443,28 @@ function AppInner() {
       <>
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
         <AuthScreen
-          onLogin={(role, message) => {
+          onLogin={(role, optionsOrMessage) => {
+            const loginOptions = typeof optionsOrMessage === 'object' && optionsOrMessage !== null ? optionsOrMessage : {};
             if (role === 'accountant') {
-              setPanel('choose');
-              setPage('dashboard');
+              const assignedTown = loginOptions.townName || assignedAccountantTown;
+              if (assignedTown) {
+                setPanel('ceo');
+                setSelectedTown({ Town_Name: assignedTown });
+                setPage('townDashboard');
+              } else {
+                setPanel('choose');
+                setPage('dashboard');
+              }
             } else {
               setPanel(role === 'ceo' ? 'ceo' : 'employee');
               setPage(role === 'ceo' ? 'dashboard' : 'sellFlow');
             }
             setLoggedIn(true);
-            if (message) showToast(message);
+            if (typeof optionsOrMessage === 'string') showToast(optionsOrMessage);
           }}
         />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <CloudRefreshStatus state={cloudRefresh} />
       </>
     );
   }
@@ -339,11 +496,11 @@ function AppInner() {
             >
               <span className="svg-emoji svg-emoji-agent" aria-hidden="true" />
               <span className="workspace-card-title">Employee Workspace</span>
-              <span className="workspace-card-desc">Sales, properties, collections and installments</span>
+              <span className="workspace-card-desc">Property selling only. Reports stay inside town dashboard.</span>
             </button>
           </div>
           <div className="workspace-select-footer">
-            <button className="btn btn-ghost btn-sm" onClick={() => { localStorage.removeItem('zameen_panel'); localStorage.removeItem('zameen_page'); setLoggedIn(false); setPanel(null); signOut(); }}>
+            <button className="btn btn-ghost btn-sm" onClick={logoutCurrentUser}>
               Logout
             </button>
           </div>
@@ -352,84 +509,64 @@ function AppInner() {
     );
   }
 
-  if (userRole === 'agent' && panel === 'employee' && page === 'agentProperties') {
-    return (
-      <div className="app-layout">
-        <ThemeToggle theme={theme} onToggle={toggleTheme} />
-        <Sidebar
-          panel={panel}
-          page={page}
-          setPage={setPage}
-          userRole={userRole}
-          onSwitchWorkspace={panel === 'ceo' ? undefined : undefined}
-          onLogout={() => {
-            localStorage.removeItem('zameen_panel');
-            localStorage.removeItem('zameen_page');
-            setLoggedIn(false);
-            setPanel(null);
-            setPage('dashboard');
-            signOut();
-          }}
-        />
-        <div className="main-content">
-          <div className="main-header">
-            <div>
-              <div className="header-eyebrow">AL SIRAJ DEVELOPERS</div>
-              <h2>My Properties</h2>
-            </div>
-            <div className="main-header-actions">
-              <span className="header-chip">Agent View</span>
-              <span className="panel-badge employee">Employee Workspace</span>
-            </div>
-          </div>
-          <div className="main-body" key={`agent-properties-${dataRefreshKey}`}>
-            <AgentPropertiesView />
-          </div>
-          <PoweredByFooter compact />
-        </div>
-        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      </div>
-    );
-  }
-
   // ─── CEO full-screen hub (no sidebar) ───────────────────────────────────
-  if (panel === 'ceo' && (page === 'dashboard' || page === 'appeals' || page === 'agents')) {
+  if (panel === 'ceo' && (page === 'dashboard' || page === 'appeals')) {
     return (
       <ErrorBoundary>
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
         <CEOProjectsHub
-          key={`ceo-hub-${page}-${dataRefreshKey}`}
           activePage={page}
+          refreshKey={dataRefreshKey}
           onTownSelect={(town) => { setSelectedTown(town); setPage('townDashboard'); }}
-          onLogout={() => { localStorage.removeItem('zameen_panel'); localStorage.removeItem('zameen_page'); setLoggedIn(false); setPage('dashboard'); signOut(); }}
+          onLogout={logoutCurrentUser}
           showToast={showToast}
           onNavigate={setPage}
           userRole={userRole}
         />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <CloudRefreshStatus state={cloudRefresh} />
       </ErrorBoundary>
     );
   }
 
   // ─── TownDashboard (full-screen) ────────────────────────────────────────
-  if (panel === 'ceo' && page === 'townDashboard') {
+  if ((panel === 'ceo' || userRole === 'accountant') && page === 'townDashboard') {
     return (
       <ErrorBoundary>
-        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+        {userRole !== 'accountant' && <ThemeToggle theme={theme} onToggle={toggleTheme} />}
         <TownDashboard
-          key={`town-dashboard-${selectedTown?.Town_Name || 'none'}-${dataRefreshKey}`}
           selectedTown={selectedTown}
-          onBack={() => setPage('dashboard')}
+          refreshKey={dataRefreshKey}
+          onBack={() => {
+            if (userRole === 'accountant') return;
+            setPage('dashboard');
+          }}
           showToast={showToast}
+          isAccountant={userRole === 'accountant'}
+          onSwitchToSelling={() => {
+            if (userRole === 'accountant' && assignedAccountantTown) {
+              setSelectedTown({ Town_Name: assignedAccountantTown });
+            }
+            setPanel('employee');
+            setPage('sellFlow');
+          }}
+          onLogout={logoutCurrentUser}
         />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <CloudRefreshStatus state={cloudRefresh} />
       </ErrorBoundary>
     );
   }
 
   // ─── Sidebar Layout Pages ───────────────────────────────────────────────
   const renderPage = () => {
-    const props = { showToast, panel, onNavigate: setPage };
+    const props = {
+      showToast,
+      panel,
+      onNavigate: setPage,
+      refreshKey: dataRefreshKey,
+      lockedTownName: userRole === 'accountant' ? assignedAccountantTown : '',
+    };
     switch (page) {
       case 'dashboard': return <Dashboard {...props} />;
       case 'addTown': return <AddTown {...props} />;
@@ -444,7 +581,6 @@ function AppInner() {
       case 'resellHistory': return <ResellHistory {...props} />;
       case 'commission': return <CommissionTracker {...props} />;
       case 'townPrices': return <TownPrices {...props} />;
-      case 'agentProperties': return <AgentPropertiesView />;
       case 'pendingCollections': return <PendingCollections />;
       default: return <Dashboard {...props} />;
     }
@@ -460,17 +596,15 @@ function AppInner() {
         userRole={userRole}
         onSwitchWorkspace={() => {
           const newPanel = panel === 'ceo' ? 'employee' : 'ceo';
+          if (userRole === 'accountant' && assignedAccountantTown) {
+            setSelectedTown({ Town_Name: assignedAccountantTown });
+          }
           setPanel(newPanel);
-          setPage(newPanel === 'ceo' ? 'dashboard' : 'sellFlow');
+          setPage(newPanel === 'ceo'
+            ? (userRole === 'accountant' ? 'townDashboard' : 'dashboard')
+            : 'sellFlow');
         }}
-        onLogout={() => {
-          localStorage.removeItem('zameen_panel');
-          localStorage.removeItem('zameen_page');
-          setLoggedIn(false);
-          setPanel(null);
-          setPage('dashboard');
-          signOut();
-        }}
+        onLogout={logoutCurrentUser}
       />
       <div className="main-content">
         <div className="main-header">
@@ -487,10 +621,11 @@ function AppInner() {
             </span>
           </div>
         </div>
-        <div className="main-body" key={`${panel}-${page}-${dataRefreshKey}`}>{renderPage()}</div>
+        <div className="main-body">{renderPage()}</div>
         <PoweredByFooter compact />
       </div>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      <CloudRefreshStatus state={cloudRefresh} />
     </div>
   );
 }

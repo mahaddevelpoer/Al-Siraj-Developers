@@ -3,6 +3,7 @@ const fs = require('fs');
 const ExcelJS = require('exceljs');
 const { getGlobalsPath, readExcelFile, appendToExcel, deleteExcelRow, generateId, withFileWriteLock, writeWorkbookAtomic, getHeaderKeys, ensureSheetColumns } = require('./core');
 const { updateTownFinancials } = require('./properties');
+const { recordMoneyEvent } = require('./moneyLedger');
 
 const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status'];
 
@@ -87,6 +88,26 @@ async function addDailyEntry(data) {
   };
   
   await appendToExcel(filePath, 'Data', newEntry);
+  const review = String(newEntry.Review_Status || 'approved').toLowerCase();
+  const normalizedCategory = String(newEntry.Category || '').toLowerCase();
+  const moduleBacked = normalizedCategory.includes('investor') ||
+    normalizedCategory.includes('construction') ||
+    normalizedCategory.includes('commission');
+  if (!moduleBacked && review !== 'pending' && review !== 'rejected' && newEntry.Amount > 0) {
+    await recordMoneyEvent({
+      sourceType: 'daily_entry',
+      sourceId: newEntry.Entry_ID,
+      direction: String(newEntry.Type || '').toLowerCase() === 'expense' ? 'expense' : 'income',
+      amount: newEntry.Amount,
+      townName: newEntry.Town_Name,
+      date: newEntry.Date,
+      partyName: newEntry.Created_By || '',
+      description: newEntry.Description || newEntry.Category || 'Daily entry',
+      receiptNumber: '',
+      createdBy: newEntry.Created_By || 'System',
+      status: 'approved',
+    });
+  }
 
   // Also update town financials: record income in All_Sales, expense in All_Expenses
   if (townName && amount && parseFloat(amount) > 0) {
