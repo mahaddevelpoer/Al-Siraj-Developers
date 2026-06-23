@@ -21,6 +21,7 @@ const UPSERT_CONFLICT = {
   salary_records: 'receipt_number',
   salary_payments: 'receipt_number',
   daily_entries: 'entry_id',
+  commissions: 'id',
   town_agents: 'agent_id',
   investors: 'investor_id',
   investor_transactions: 'transaction_id',
@@ -82,6 +83,12 @@ const TABLE_KEY_MAP = {
     Notes: 'note',
     Recorded_By: 'paid_by',
   },
+  commissions: {
+    Commission_ID: 'id',
+    Commission_Amount: 'commission_amount',
+    Paid_Date: 'paid_at',
+    Created_At: 'created_at',
+  },
 };
 
 const TABLE_SKIP_KEYS = {};
@@ -105,13 +112,14 @@ const TABLE_COLUMNS = {
   employees_v2: ['Employee_ID', 'Employee_Name', 'CNIC', 'Phone', 'Town_Name', 'Role', 'Salary', 'Status'],
   advance_salaries: ['Advance_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Date', 'Month', 'Status', 'Notes'],
   salary_payments: ['Payment_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Month', 'Payment_Date', 'Payment_Method', 'Notes', 'Recorded_By'],
-  daily_entries: ['Entry_ID', 'Town_Name', 'Date', 'Type', 'Category', 'Amount', 'Description', 'Reference', 'Created_By'],
+  daily_entries: ['Entry_ID', 'Town_Name', 'Date', 'Type', 'Category', 'Amount', 'Description', 'Reference', 'Created_By', 'Review_Status'],
   properties: ['Property_Type', 'Property_Number', 'Town_Name', 'Property_Size', 'Marla', 'Length_Ft', 'Width_Ft', 'Area_Sqft', 'Per_Marla_Price', 'Road_Type', 'Road_Key', 'Total_Price', 'Owner_Name', 'Property_Category', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Expense_Total', 'Profit_Loss', 'Installment_Status', 'Resell_Status', 'Resell_Amount', 'Receipt_Number', 'File_Status', 'File_Delivery_Image', 'Status'],
   town_agents: ['Agent_ID','Town_Name','Agent_Name','Phone_Number','CNIC','Address','Notes','Status','Created_At'],
   investors: ['Investor_ID','Town_Name','Investor_Name','Phone_Number','CNIC','Address','Notes','Balance','Status','Created_At','Approval_Status'],
   investor_transactions: ['Transaction_ID','Investor_ID','Town_Name','Investor_Name','Type','Amount','Date','Notes','Balance_After','Receipt_Number','Created_By'],
   construction_projects: ['Project_ID','Town_Name','Category','Constructor_Name','Phone_Number','Company_Name','Material_Name','Material_Quantity','Material_Rate','Deal_Amount','Paid_Amount','Remaining_Amount','Status','Start_Date','Notes','Deal_Receipt_Number'],
   construction_payments: ['Payment_ID','Project_ID','Town_Name','Category','Constructor_Name','Amount','Payment_Date','Material_Name','Material_Quantity','Material_Rate','Remaining_After','Receipt_Number','Notes','Created_By'],
+  commissions: ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Commission_Amount','Status','Paid_Date','Created_At'],
   commission_receipts: ['Receipt_ID','Commission_ID','Sale_ID','Town_Name','Agent_Name','Plot_Shop_Number','Amount','Paid_Date','Receipt_Number','Paid_By'],
   receipt_archive: ['Receipt_ID','Receipt_Number','Receipt_Type','Town_Name','Entity_ID','Entity_Name','Amount','Receipt_Date','Payload_JSON','Created_At'],
   money_ledger: ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'],
@@ -454,15 +462,16 @@ function mapSalaryRecordFromCloud(sp) {
 function mapDailyEntryToCloud(row) {
   const r = stripInternal(row);
   return {
-    Entry_ID: String(r.Entry_ID || ''),
-    Town_Name: String(r.Town_Name || ''),
-    Date: String(r.Date || ''),
-    Type: String(r.Type || 'Income'),
-    Category: String(r.Category || r.Income_Type || ''),
-    Amount: parseFloat(r.Amount) || 0,
-    Description: String(r.Description || ''),
-    Reference: String(r.Property_ID || r.Installment_ID || r.Reference || ''),
-    Created_By: String(r.Created_By || ''),
+    Entry_ID: String(r.Entry_ID || r.entryId || ''),
+    Town_Name: String(r.Town_Name || r.townName || ''),
+    Date: String(r.Date || r.date || ''),
+    Type: String(r.Type || r.type || 'Income'),
+    Category: String(r.Category || r.category || r.Income_Type || r.incomeType || ''),
+    Amount: parseFloat(r.Amount ?? r.amount) || 0,
+    Description: String(r.Description || r.description || ''),
+    Reference: String(r.Property_ID || r.propertyId || r.Installment_ID || r.installmentId || r.Reference || r.reference || ''),
+    Created_By: String(r.Created_By || r.createdBy || ''),
+    Review_Status: String(r.Review_Status || r.reviewStatus || ''),
   };
 }
 

@@ -69,7 +69,7 @@ BEGIN
     'ceo_salary','notifications','daily_entries','employees','employees_v2',
     'advance_salaries','salary_records','salary_payments','town_agents',
     'investors','investor_transactions','construction_projects',
-    'construction_payments','commission_receipts','receipt_archive',
+    'construction_payments','commissions','commission_receipts','receipt_archive',
     'money_ledger','town_financial_summary'
   ]
   LOOP
@@ -104,7 +104,7 @@ BEGIN
     'ceo_salary','notifications','daily_entries','employees','employees_v2',
     'advance_salaries','salary_records','salary_payments','town_agents',
     'investors','investor_transactions','construction_projects',
-    'construction_payments','commission_receipts','receipt_archive',
+    'construction_payments','commissions','commission_receipts','receipt_archive',
     'money_ledger','town_financial_summary'
   ]
   LOOP

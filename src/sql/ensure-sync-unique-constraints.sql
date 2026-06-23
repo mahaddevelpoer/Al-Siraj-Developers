@@ -12,6 +12,7 @@ DECLARE
     ARRAY['town_agents', 'agent_id'],
     ARRAY['construction_projects', 'project_id'],
     ARRAY['construction_payments', 'payment_id'],
+    ARRAY['commissions', 'id'],
     ARRAY['commission_receipts', 'receipt_id'],
     ARRAY['receipt_archive', 'receipt_id'],
     ARRAY['money_ledger', 'ledger_id'],
@@ -43,6 +44,26 @@ BEGIN
       END IF;
     END IF;
   END LOOP;
+END $$;
+
+DO $$
+BEGIN
+  IF to_regclass('public.commissions') IS NOT NULL THEN
+    ALTER TABLE public.commissions ADD COLUMN IF NOT EXISTS agent_name text;
+    ALTER TABLE public.commissions ADD COLUMN IF NOT EXISTS paid_at timestamptz;
+    ALTER TABLE public.commissions ADD COLUMN IF NOT EXISTS client_write_id text;
+    ALTER TABLE public.commissions ADD COLUMN IF NOT EXISTS sync_status text DEFAULT 'synced';
+    ALTER TABLE public.commissions ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+    ALTER TABLE public.commissions ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+    CREATE INDEX IF NOT EXISTS commissions_sale_id_idx ON public.commissions (sale_id);
+    CREATE INDEX IF NOT EXISTS commissions_town_name_idx ON public.commissions (town_name);
+    CREATE INDEX IF NOT EXISTS commissions_status_idx ON public.commissions (status);
+  END IF;
+
+  IF to_regclass('public.daily_entries') IS NOT NULL THEN
+    ALTER TABLE public.daily_entries ADD COLUMN IF NOT EXISTS review_status text DEFAULT 'approved';
+    CREATE INDEX IF NOT EXISTS daily_entries_review_status_idx ON public.daily_entries (review_status);
+  END IF;
 END $$;
 
 NOTIFY pgrst, 'reload schema';

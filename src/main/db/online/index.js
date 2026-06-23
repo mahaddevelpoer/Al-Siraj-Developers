@@ -35,6 +35,7 @@ const UPSERT_CONFLICT = {
   salary_records: 'receipt_number',
   salary_payments: 'receipt_number',
   daily_entries: 'entry_id',
+  commissions: 'id',
   town_agents: 'agent_id',
   investors: 'investor_id',
   investor_transactions: 'transaction_id',
@@ -67,6 +68,20 @@ function isMissingConflictConstraint(error) {
   return String(error?.message || '').toLowerCase().includes('no unique or exclusion constraint matching the on conflict specification');
 }
 
+function extractMissingColumn(error) {
+  const text = String(error?.message || error || '');
+  const patterns = [
+    /Could not find the '([^']+)' column/,
+    /column "([^"]+)" does not exist/,
+    /column ([a-zA-Z0-9_]+) does not exist/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return String(match[1] || '').toLowerCase();
+  }
+  return '';
+}
+
 // ─── GENERIC ───────────────────────────────────────────────────
 
 async function getAll(table) {
@@ -80,7 +95,7 @@ async function getAll(table) {
 
 async function insert(table, row) {
   const now = new Date().toISOString();
-  const cloudRow = toCloudRow(table, {
+  let cloudRow = toCloudRow(table, {
     client_write_id: row?.client_write_id || row?.Client_Write_ID || row?.clientWriteId || `${table}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     created_at: row?.created_at || row?.Created_At || now,
     updated_at: now,
@@ -88,12 +103,23 @@ async function insert(table, row) {
     ...row,
   });
   const conflict = UPSERT_CONFLICT[table];
-  let query = conflict
-    ? supabase.from(table).upsert([cloudRow], { onConflict: conflict }).select()
-    : supabase.from(table).insert([cloudRow]).select();
-  let { data, error } = await query;
-  if (error && conflict && isMissingConflictConstraint(error)) {
-    ({ data, error } = await supabase.from(table).insert([cloudRow]).select());
+  let data;
+  let error;
+  const skippedColumns = new Set();
+  for (let attempt = 0; attempt < 25; attempt++) {
+    let query = conflict
+      ? supabase.from(table).upsert([cloudRow], { onConflict: conflict }).select()
+      : supabase.from(table).insert([cloudRow]).select();
+    ({ data, error } = await query);
+    if (!error) break;
+    if (conflict && isMissingConflictConstraint(error)) {
+      ({ data, error } = await supabase.from(table).insert([cloudRow]).select());
+      if (!error) break;
+    }
+    const missingColumn = extractMissingColumn(error);
+    if (!missingColumn || skippedColumns.has(missingColumn)) break;
+    skippedColumns.add(missingColumn);
+    delete cloudRow[missingColumn];
   }
   if (error) throw error;
   return normalizeCloudRow(table, data?.[0]) || row;
@@ -253,6 +279,52 @@ async function getAllInstallments() {
   return await getAll('installments');
 }
 
+async function recordMoneyEvent(data) {
+  const amount = parseFloat(data?.amount ?? data?.Amount) || 0;
+  if (amount <= 0) return { skipped: true, reason: 'amount_zero' };
+  const sourceType = data.sourceType || data.Source_Type || 'manual';
+  const sourceId = data.sourceId || data.Source_ID || uuid();
+  const direction = String(data.direction || data.Direction || '').toLowerCase() === 'expense' ? 'expense' : 'income';
+  return await insert('money_ledger', {
+    Ledger_ID: data.ledgerId || data.Ledger_ID || `${sourceType}-${sourceId}-${direction}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120),
+    Town_Name: data.townName || data.Town_Name || '',
+    Date: data.date || data.Date || new Date().toISOString().split('T')[0],
+    Source_Type: sourceType,
+    Source_ID: sourceId,
+    Direction: direction,
+    Amount: amount,
+    Party_Name: data.partyName || data.Party_Name || '',
+    Description: data.description || data.Description || '',
+    Receipt_Number: data.receiptNumber || data.Receipt_Number || '',
+    Status: data.status || data.Status || 'approved',
+    Created_By: data.createdBy || data.Created_By || 'System',
+    Created_At: data.createdAt || data.Created_At || new Date().toISOString(),
+  });
+}
+
+async function addDailyEntry(data) {
+  const row = await insert('daily_entries', data);
+  const review = String(data.Review_Status || data.reviewStatus || data.status || 'approved').toLowerCase();
+  const category = String(data.Category || data.category || data.Income_Type || data.incomeType || '').toLowerCase();
+  const moduleBacked = category.includes('investor') || category.includes('construction') || category.includes('commission');
+  const amount = parseFloat(data.Amount ?? data.amount) || 0;
+  if (!moduleBacked && review !== 'pending' && review !== 'rejected' && amount > 0) {
+    await recordMoneyEvent({
+      sourceType: 'daily_entry',
+      sourceId: data.Entry_ID || data.entryId || row.Entry_ID || row.entry_id,
+      direction: String(data.Type || data.type || '').toLowerCase() === 'expense' ? 'expense' : 'income',
+      amount,
+      townName: data.Town_Name || data.townName,
+      date: data.Date || data.date,
+      partyName: data.Created_By || data.createdBy || '',
+      description: data.Description || data.description || data.Category || data.category || 'Daily entry',
+      createdBy: data.Created_By || data.createdBy || 'System',
+      status: 'approved',
+    });
+  }
+  return row;
+}
+
 async function getInstallmentsByProperty(type, number, townName) {
   return await findMany('installments', {
     Type: type, Plot_Shop_Number: String(number), Town_Name: townName,
@@ -267,12 +339,26 @@ async function markInstallmentPaid(data) {
   if (!inst) throw new Error('Installment not found');
 
   const paidAmount = parseFloat(inst.Monthly_Amount) || 0;
+  const paidDate = Paid_Date || new Date().toISOString().split('T')[0];
 
   // Mark installment as paid
   await updateWhere('installments',
     { Tracker_ID },
-    { Status: 'paid', Paid_Date: Paid_Date || new Date().toISOString().split('T')[0], Received_Amount: paidAmount, Remaining_Amount: 0 }
+    { Status: 'paid', Paid_Date: paidDate, Received_Amount: paidAmount, Remaining_Amount: 0 }
   );
+
+  await recordMoneyEvent({
+    sourceType: 'installment_payment',
+    sourceId: Tracker_ID,
+    direction: 'income',
+    amount: paidAmount,
+    townName: inst.Town_Name,
+    date: paidDate,
+    partyName: inst.Customer_Name || '',
+    description: `${inst.Type || 'Property'} ${inst.Plot_Shop_Number || ''} installment ${inst.Month_Number || ''}`,
+    createdBy: data.Created_By || 'Accountant',
+    status: 'approved',
+  });
 
   // Find the sale and update received_amount
   const sale = await findOne('all_sales', {
@@ -333,22 +419,14 @@ async function createCommissionRecord(sale) {
 
   if (commissionAmount <= 0 || !agentName) return;
 
-  // Find agent by name
-  const { data: agents, error: agentErr } = await supabase
-    .from('users')
-    .select('id')
-    .eq('full_name', agentName)
-    .eq('role', 'agent')
-    .limit(1);
-
-  if (agentErr || !agents || agents.length === 0) return;
-
-  const agentId = agents[0].id;
+  const saleId = sale.id || sale.Sale_ID || `${sale.Town_Name || ''}-${sale.Type || ''}-${sale.Plot_Shop_Number || ''}`;
+  const stableId = `COM-${String(saleId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)}`;
 
   await insert('commissions', {
-    id: uuid(),
-    agent_id: agentId,
-    sale_id: sale.id || sale.Sale_ID || null,
+    id: stableId,
+    agent_id: null,
+    agent_name: agentName,
+    sale_id: saleId,
     town_name: sale.Town_Name,
     property_number: String(sale.Plot_Shop_Number || ''),
     total_price: totalPrice,
@@ -917,17 +995,18 @@ async function getCommissions(filter) {
   if (error) throw error;
   const enriched = (data || []).map((c) => ({
     ...c,
-    agent_name: c.users?.full_name || c.users?.email || c.agent_id,
+    agent_name: c.agent_name || c.users?.full_name || c.users?.email || c.agent_id,
     agent_email: c.users?.email || '',
   }));
   return enriched;
 }
 
 async function markCommissionPaid(commissionId) {
+  const stableId = `COM-${String(commissionId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)}`;
   const { data, error } = await supabase
     .from('commissions')
     .update({ status: 'paid', paid_at: new Date().toISOString() })
-    .eq('id', commissionId)
+    .or(`id.eq.${commissionId},id.eq.${stableId},sale_id.eq.${commissionId}`)
     .eq('status', 'pending')
     .select();
   if (error) throw error;
@@ -936,6 +1015,7 @@ async function markCommissionPaid(commissionId) {
 
 module.exports = {
   getAll, insert, updateWhere, deleteWhere, findOne, findMany, generateId,
+  addDailyEntry, recordMoneyEvent,
   // Properties
   getProperty, getAllProperties, getSoldProperties, getPropertiesByTown, updateProperty,
   // Sales

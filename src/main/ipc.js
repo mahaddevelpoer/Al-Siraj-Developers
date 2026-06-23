@@ -145,7 +145,7 @@ async function syncOnline(localFn, supabaseFn, options = {}) {
     }
 
     try {
-      await withTimeout(supabaseFn(), 4000, 'Cloud quick sync');
+      await withTimeout(supabaseFn(localResult), 4000, 'Cloud quick sync');
       await pendingSync.markPendingSynced(clientWriteId);
     } catch (e) {
       syncWarning = 'Cloud quick sync failed: ' + (e.message || 'Unknown');
@@ -732,7 +732,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertObjectPayload(params, 'addDailyEntry payload');
       if (isAccountantScoped()) params.townName = scopedTown(params.townName || params.Town_Name, true);
-      return await syncOnline(() => addDailyEntry(params), () => onlineDb.insert('daily_entries', { Entry_ID: onlineDb.generateId(), ...params }));
+      return await syncOnline(
+        () => addDailyEntry(params),
+        (localRow) => onlineDb.addDailyEntry(localRow),
+        { tableName: 'daily_entries', operation: 'upsert', payload: params }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('deleteDailyEntry', async (_, params) => {
@@ -1723,36 +1727,73 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const rows = await readExcelFile(commissionPath, 'Data');
       const row = (rows || []).find((c) => String(c.Commission_ID || c.id) === String(commissionId));
       if (row) assertTownAccess(row.Town_Name || row.town_name);
-      if (row?._rowNumber) {
-        await updateExcelRow(commissionPath, 'Data', row._rowNumber, {
-          Status: 'paid',
-          Paid_Date: new Date().toISOString().split('T')[0],
-        });
-        await businessExtras.recordCommissionReceipt({
-          Commission_ID: row.Commission_ID || commissionId,
-          Sale_ID: row.Sale_ID || '',
-          Town_Name: row.Town_Name || '',
-          Agent_Name: row.Agent_Name || row.agent_name || '',
-          Plot_Shop_Number: row.Plot_Shop_Number || '',
-          Amount: row.Commission_Amount || row.commission_amount || 0,
-          Paid_Date: new Date().toISOString().split('T')[0],
-          Paid_By: 'Accountant',
-        });
-        await addDailyEntry({
-          date: new Date().toISOString().split('T')[0],
-          type: 'Expense',
-          description: `Commission paid: ${row.Agent_Name || row.agent_name || 'Sales Agent'}`,
-          amount: row.Commission_Amount || row.commission_amount || 0,
-          townName: row.Town_Name || '',
-          category: 'Commission',
-          reference: row.Commission_ID || commissionId,
-          createdBy: 'Accountant',
-          reviewStatus: 'approved',
-        });
-        scheduleQueuedFileUpload();
-        scheduleQueuedCloudSync();
-      }
-      return { success: true };
+      if (!row?._rowNumber) throw new Error('Commission record not found locally');
+      const paidDate = new Date().toISOString().split('T')[0];
+      const localPayload = {
+        Commission_ID: row.Commission_ID || commissionId,
+        Sale_ID: row.Sale_ID || '',
+        Town_Name: row.Town_Name || '',
+        Agent_Name: row.Agent_Name || row.agent_name || '',
+        Plot_Shop_Number: row.Plot_Shop_Number || '',
+        Amount: row.Commission_Amount || row.commission_amount || 0,
+        Paid_Date: paidDate,
+        Paid_By: 'Accountant',
+      };
+      return await syncOnline(
+        async () => {
+          await updateExcelRow(commissionPath, 'Data', row._rowNumber, {
+            Status: 'paid',
+            Paid_Date: paidDate,
+          });
+          const receipt = await businessExtras.recordCommissionReceipt(localPayload);
+          await addDailyEntry({
+            date: paidDate,
+            type: 'Expense',
+            description: `Commission paid: ${localPayload.Agent_Name || 'Sales Agent'}`,
+            amount: localPayload.Amount,
+            townName: localPayload.Town_Name,
+            category: 'Commission',
+            reference: localPayload.Commission_ID,
+            createdBy: 'Accountant',
+            reviewStatus: 'approved',
+          });
+          return { success: true, receipt, commission: localPayload };
+        },
+        async (localResult) => {
+          await onlineDb.markCommissionPaid(commissionId);
+          const receipt = localResult?.receipt || {};
+          await onlineDb.insert('commission_receipts', {
+            ...receipt,
+            ...localPayload,
+          });
+          await onlineDb.addDailyEntry({
+            Entry_ID: `COM-${String(localPayload.Commission_ID || commissionId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 32)}`,
+            Town_Name: localPayload.Town_Name,
+            Date: paidDate,
+            Type: 'Expense',
+            Category: 'Commission',
+            Amount: localPayload.Amount,
+            Description: `Commission paid: ${localPayload.Agent_Name || 'Sales Agent'}`,
+            Reference: localPayload.Commission_ID,
+            Created_By: 'Accountant',
+            Review_Status: 'approved',
+          });
+          await onlineDb.recordMoneyEvent({
+            sourceType: 'commission_payment',
+            sourceId: receipt.Receipt_ID || localPayload.Commission_ID || commissionId,
+            direction: 'expense',
+            amount: localPayload.Amount,
+            townName: localPayload.Town_Name,
+            date: paidDate,
+            partyName: localPayload.Agent_Name,
+            description: 'Agent commission paid',
+            receiptNumber: receipt.Receipt_Number || '',
+            createdBy: 'Accountant',
+            status: 'approved',
+          });
+        },
+        { tableName: 'commissions', operation: 'update', payload: localPayload }
+      );
     } catch (e) { return { error: e.message }; }
   });
 
