@@ -46,6 +46,9 @@ dependencies:
   supabase_flutter: ^2.10.3
   cached_network_image: ^3.4.1
   timezone: ^0.10.1
+  responsive_framework: ^1.5.1
+  pdf: ^3.11.3
+  printing: ^5.14.2
 
 dev_dependencies:
   flutter_test:

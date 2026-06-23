@@ -13,8 +13,11 @@ import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:responsive_framework/responsive_framework.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 const supabaseUrl = 'https://wdislbdftnwmaexqtfmn.supabase.co';
 const _fullAnonKey =
@@ -55,6 +58,55 @@ const kSecondary = Color(0xFF00C9A7);
 const kText = Color(0xFF1A1D2E);
 const kMuted = Color(0xFF8A94A6);
 const kBorder = Color(0x12000000);
+
+class TownPulse {
+  const TownPulse({
+    required this.name,
+    this.accountantName = '',
+    this.totalReceived = 0,
+    this.totalExpenses = 0,
+    this.cashBalance = 0,
+    this.pendingAppeals = 0,
+    this.pendingCollection = 0,
+    this.todayIncome = 0,
+    this.todayExpense = 0,
+    this.salesCount = 0,
+  });
+
+  final String name;
+  final String accountantName;
+  final num totalReceived;
+  final num totalExpenses;
+  final num cashBalance;
+  final num pendingAppeals;
+  final num pendingCollection;
+  final num todayIncome;
+  final num todayExpense;
+  final int salesCount;
+}
+
+class LedgerReceipt {
+  const LedgerReceipt({
+    required this.townName,
+    required this.date,
+    required this.incomeRows,
+    required this.expenseRows,
+  });
+
+  final String townName;
+  final DateTime date;
+  final List<Map<String, dynamic>> incomeRows;
+  final List<Map<String, dynamic>> expenseRows;
+
+  num get income =>
+      incomeRows.fold<num>(0, (sum, row) => sum + asNum(rowVal(row, 'Amount')));
+  num get expense => expenseRows.fold<num>(
+    0,
+    (sum, row) => sum + asNum(rowVal(row, 'Amount')),
+  );
+  num get net => income - expense;
+  int get count => incomeRows.length + expenseRows.length;
+}
 
 class CeoMobileApp extends StatelessWidget {
   const CeoMobileApp({super.key});
@@ -153,7 +205,14 @@ class CeoMobileApp extends StatelessWidget {
             .toDouble();
         return MediaQuery(
           data: media.copyWith(textScaler: TextScaler.linear(scale)),
-          child: child ?? const SizedBox.shrink(),
+          child: ResponsiveBreakpoints.builder(
+            child: child ?? const SizedBox.shrink(),
+            breakpoints: const [
+              Breakpoint(start: 0, end: 599, name: MOBILE),
+              Breakpoint(start: 600, end: 899, name: TABLET),
+              Breakpoint(start: 900, end: double.infinity, name: DESKTOP),
+            ],
+          ),
         );
       },
     );
@@ -634,8 +693,9 @@ class _CeoShellState extends State<CeoShell> {
   String _realtimeStatus = 'Connecting realtime...';
   final pages = const [
     OverviewPage(),
+    TownsOverviewPage(),
     AppealsPage(),
-    DailyEntriesPage(),
+    DailyLedgerReceiptPage(),
     MorePage(),
   ];
   final List<dynamic> _channels = [];
@@ -845,7 +905,7 @@ class _CeoShellState extends State<CeoShell> {
           onTap: () {
             setState(() {
               _fabTurns += .5;
-              _tab = _tab == 1 ? 0 : 1;
+              _tab = _tab == 2 ? 0 : 2;
             });
           },
           child: AnimatedRotation(
@@ -856,7 +916,7 @@ class _CeoShellState extends State<CeoShell> {
               width: 58,
               height: 58,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(_tab == 1 ? 18 : 29),
+                borderRadius: BorderRadius.circular(_tab == 2 ? 18 : 29),
                 gradient: const LinearGradient(
                   colors: [kPrimary, Color(0xFF8A84FF)],
                 ),
@@ -869,7 +929,7 @@ class _CeoShellState extends State<CeoShell> {
                 ],
               ),
               child: Icon(
-                _tab == 1 ? Icons.home_rounded : Icons.rule_rounded,
+                _tab == 2 ? Icons.home_rounded : Icons.rule_rounded,
                 color: Colors.white,
               ),
             ),
@@ -891,8 +951,9 @@ class PremiumBottomNav extends StatelessWidget {
 
   static const items = [
     (Icons.dashboard_customize_rounded, 'Home'),
+    (Icons.location_city_rounded, 'Towns'),
     (Icons.rule_rounded, 'Approvals'),
-    (Icons.receipt_long_rounded, 'Entries'),
+    (Icons.receipt_long_rounded, 'Ledger'),
     (Icons.apps_rounded, 'More'),
   ];
 
@@ -1060,7 +1121,7 @@ class PremiumScrollView extends StatelessWidget {
                 alignment: Alignment.topRight,
                 children: [
                   IconButton(
-                    onPressed: () => selectedTabNotifier.value = 3,
+                    onPressed: () => selectedTabNotifier.value = 4,
                     icon: const Icon(Icons.notifications_rounded, color: kText),
                   ),
                   Positioned(
@@ -1089,6 +1150,96 @@ class PremiumScrollView extends StatelessWidget {
   }
 }
 
+Future<List<TownPulse>> loadTownPulses() async {
+  final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  final results = await Future.wait<dynamic>([
+    supabase.from('towns').select('*').order('town_name'),
+    supabase
+        .from('appeals')
+        .select('*, requested_by_user_id(full_name,email,town_name,town_id)')
+        .eq('status', 'pending'),
+    supabase.from('daily_entries').select('*'),
+    supabase.from('all_sales').select('*'),
+    supabase
+        .from('users')
+        .select('full_name,town_name,town_id,role')
+        .eq('role', 'accountant'),
+  ]);
+
+  final towns = List<Map<String, dynamic>>.from(results[0]);
+  final appeals = List<Map<String, dynamic>>.from(results[1]);
+  final entries = List<Map<String, dynamic>>.from(results[2]);
+  final sales = List<Map<String, dynamic>>.from(results[3]);
+  final accountants = List<Map<String, dynamic>>.from(results[4]);
+
+  final names = <String>{
+    ...towns.map((t) => '${rowVal(t, 'Town_Name')}'.trim()),
+    ...appeals.map(appealTownName),
+    ...entries.map((e) => '${rowVal(e, 'Town_Name')}'.trim()),
+    ...sales.map((s) => '${rowVal(s, 'Town_Name')}'.trim()),
+  }..removeWhere((name) => name.isEmpty || name == 'null');
+
+  return names.map((townName) {
+    final townEntries = entries
+        .where((e) => '${rowVal(e, 'Town_Name')}'.trim() == townName)
+        .toList();
+    final todayEntries = townEntries
+        .where((e) => '${rowVal(e, 'Date')}'.startsWith(today))
+        .toList();
+    final townSales = sales
+        .where((s) => '${rowVal(s, 'Town_Name')}'.trim() == townName)
+        .toList();
+    final pendingAppeals = appeals
+        .where((a) => appealTownName(a).trim() == townName)
+        .length;
+    final accountant = accountants.firstWhere(
+      (a) =>
+          '${rowVal(a, 'Town_Name')}'.trim() == townName ||
+          '${a['town_id'] ?? ''}'.trim() == townName,
+      orElse: () => const <String, dynamic>{},
+    );
+    final totalIncome = townEntries
+        .where((e) => '${rowVal(e, 'Type')}'.toLowerCase() == 'income')
+        .fold<num>(0, (sum, e) => sum + asNum(rowVal(e, 'Amount')));
+    final totalExpense = townEntries
+        .where((e) => '${rowVal(e, 'Type')}'.toLowerCase() == 'expense')
+        .fold<num>(0, (sum, e) => sum + asNum(rowVal(e, 'Amount')));
+    final saleReceived = townSales.fold<num>(
+      0,
+      (sum, s) =>
+          sum +
+          (asNum(rowVal(s, 'Received_Amount')) == 0
+              ? asNum(rowVal(s, 'Advance_Amount_PKR'))
+              : asNum(rowVal(s, 'Received_Amount'))),
+    );
+    final pendingCollection = townSales.fold<num>(
+      0,
+      (sum, s) => sum + asNum(rowVal(s, 'Remaining_Amount')),
+    );
+    final todayIncome = todayEntries
+        .where((e) => '${rowVal(e, 'Type')}'.toLowerCase() == 'income')
+        .fold<num>(0, (sum, e) => sum + asNum(rowVal(e, 'Amount')));
+    final todayExpense = todayEntries
+        .where((e) => '${rowVal(e, 'Type')}'.toLowerCase() == 'expense')
+        .fold<num>(0, (sum, e) => sum + asNum(rowVal(e, 'Amount')));
+
+    final totalReceived = totalIncome + saleReceived;
+    final totalExpenses = totalExpense;
+    return TownPulse(
+      name: townName,
+      accountantName: '${accountant['full_name'] ?? ''}'.trim(),
+      totalReceived: totalReceived,
+      totalExpenses: totalExpenses,
+      cashBalance: totalReceived - totalExpenses,
+      pendingAppeals: pendingAppeals,
+      pendingCollection: pendingCollection,
+      todayIncome: todayIncome,
+      todayExpense: todayExpense,
+      salesCount: townSales.length,
+    );
+  }).toList()..sort((a, b) => a.name.compareTo(b.name));
+}
+
 class OverviewPage extends StatelessWidget {
   const OverviewPage({
     super.key,
@@ -1100,42 +1251,15 @@ class OverviewPage extends StatelessWidget {
 
   Future<Map<String, dynamic>> _load() async {
     await Future<void>.delayed(const Duration(milliseconds: 500));
-    final appeals = await supabase
-        .from('appeals')
-        .select('id')
-        .eq('status', 'pending')
-        .not('appeal_type', 'eq', 'agent_registration');
-    final notes = await supabase
-        .from('notifications')
-        .select('id')
-        .eq('dismissed', 'No');
-    final entries = await supabase.from('daily_entries').select();
-    final towns = await supabase
-        .from('towns')
-        .select('town_name,profit_loss,total_income_pkr,total_expenses_pkr');
-    final sales = await supabase
-        .from('all_sales')
-        .select('total_amount_pkr,received_amount,remaining_amount,status');
-    final rows = List<Map<String, dynamic>>.from(entries);
-    final income = rows
-        .where((e) => rowVal(e, 'Type') == 'Income')
-        .fold<num>(0, (s, e) => s + asNum(rowVal(e, 'Amount')));
-    final expense = rows
-        .where((e) => rowVal(e, 'Type') == 'Expense')
-        .fold<num>(0, (s, e) => s + asNum(rowVal(e, 'Amount')));
-    final saleRows = List<Map<String, dynamic>>.from(sales);
-    final soldValue = saleRows.fold<num>(
-      0,
-      (s, e) => s + asNum(rowVal(e, 'Total_Amount_PKR')),
-    );
+    final towns = await loadTownPulses();
     return {
-      'appeals': appeals.length,
-      'notes': notes.length,
-      'income': income,
-      'expense': expense,
-      'towns': towns.length,
-      'sales': sales.length,
-      'soldValue': soldValue,
+      'towns': towns,
+      'appeals': towns.fold<num>(0, (sum, t) => sum + t.pendingAppeals),
+      'received': towns.fold<num>(0, (sum, t) => sum + t.totalReceived),
+      'expenses': towns.fold<num>(0, (sum, t) => sum + t.totalExpenses),
+      'cash': towns.fold<num>(0, (sum, t) => sum + t.cashBalance),
+      'pending': towns.fold<num>(0, (sum, t) => sum + t.pendingCollection),
+      'sales': towns.fold<int>(0, (sum, t) => sum + t.salesCount),
     };
   }
 
@@ -1147,12 +1271,14 @@ class OverviewPage extends StatelessWidget {
         future: _load(),
         builder: (context, snap) {
           final d = snap.data;
+          final towns =
+              (d?['towns'] as List<TownPulse>?) ?? const <TownPulse>[];
           return PremiumScrollView(
             children: [
               const HeaderBlock(
-                title: 'Live business pulse',
+                title: 'All towns overview',
                 subtitle:
-                    'Fast CEO overview from Supabase. No town, price, plot or shop editing exists in this mobile app.',
+                    'One clean command center for every town, accountant request, ledger and balance.',
               ),
               StatusStrip(
                 items: [
@@ -1169,41 +1295,357 @@ class OverviewPage extends StatelessWidget {
                     const Color(0xFF2563EB),
                   ),
                   Metric(
-                    'Active alerts',
-                    '${d?['notes'] ?? '-'}',
-                    Icons.notifications_active,
-                    const Color(0xFFB45309),
-                  ),
-                  Metric(
-                    'Net balance',
-                    d == null ? '-' : money.format(d['income'] - d['expense']),
-                    Icons.account_balance_wallet,
+                    'Total received',
+                    d == null ? '-' : money.format(d['received']),
+                    Icons.trending_up_rounded,
                     const Color(0xFF0F766E),
                   ),
                   Metric(
-                    'Sales value',
-                    d == null ? '-' : money.format(d['soldValue']),
-                    Icons.sell,
-                    const Color(0xFF7C3AED),
+                    'Cash balance',
+                    d == null ? '-' : money.format(d['cash']),
+                    Icons.account_balance_wallet,
+                    const Color(0xFF2563EB),
                   ),
                   Metric(
-                    'Sales count',
-                    '${d?['sales'] ?? '-'}',
-                    Icons.receipt_long,
+                    'Expenses',
+                    d == null ? '-' : money.format(d['expenses']),
+                    Icons.trending_down_rounded,
                     const Color(0xFFBE123C),
                   ),
                   Metric(
+                    'Pending collection',
+                    d == null ? '-' : money.format(d['pending']),
+                    Icons.pending_actions_rounded,
+                    const Color(0xFFB45309),
+                  ),
+                  Metric(
                     'Towns tracked',
-                    '${d?['towns'] ?? '-'}',
+                    '${towns.length}',
                     Icons.location_city,
                     const Color(0xFF475569),
                   ),
                 ],
               ),
+              const SectionLabel('Town cards'),
+              if (!snap.hasData && !snap.hasError) const SkeletonList(),
+              if (snap.hasError)
+                ErrorBlock(error: friendlyDbError(snap.error!)),
+              for (var i = 0; i < towns.take(4).length; i++)
+                AnimatedEntry(
+                  index: i,
+                  child: TownPulseCard(
+                    town: towns[i],
+                    onTap: () => openTownDashboard(context, towns[i]),
+                  ),
+                ),
+              if (towns.length > 4)
+                FilledButton.icon(
+                  onPressed: () => selectedTabNotifier.value = 1,
+                  icon: const Icon(Icons.location_city_rounded),
+                  label: Text('View all ${towns.length} towns'),
+                ),
             ],
           );
         },
       ),
+    );
+  }
+}
+
+void openTownDashboard(BuildContext context, TownPulse town) {
+  Navigator.of(context).push(
+    premiumRoute(
+      DetailScaffold(
+        title: town.name,
+        child: TownDashboardDetail(town: town),
+      ),
+    ),
+  );
+}
+
+class TownPulseCard extends StatelessWidget {
+  const TownPulseCard({super.key, required this.town, required this.onTap});
+  final TownPulse town;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: GlassCard(
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const VectorBadge(kind: BadgeKind.town, size: 42),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        town.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        town.accountantName.isEmpty
+                            ? 'No accountant assigned'
+                            : 'Accountant: ${town.accountantName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: kMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                StatusPill(
+                  status: town.pendingAppeals > 0
+                      ? '${town.pendingAppeals} pending'
+                      : 'clear',
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                MiniValueChip('Cash', money.format(town.cashBalance)),
+                MiniValueChip('Today in', money.format(town.todayIncome)),
+                MiniValueChip('Today out', money.format(town.todayExpense)),
+                MiniValueChip('Pending', money.format(town.pendingCollection)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MiniValueChip extends StatelessWidget {
+  const MiniValueChip(this.label, this.value, {super.key});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 124),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: kPrimary.withValues(alpha: .06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: kPrimary.withValues(alpha: .10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: kMuted,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: kText,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class TownsOverviewPage extends StatelessWidget {
+  const TownsOverviewPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: () async => (context as Element).markNeedsBuild(),
+      child: FutureBuilder<List<TownPulse>>(
+        future: loadTownPulses(),
+        builder: (context, snap) {
+          final towns = snap.data ?? const <TownPulse>[];
+          return PremiumScrollView(
+            children: [
+              const HeaderBlock(
+                title: 'Town dashboards',
+                subtitle:
+                    'Every town has its own dashboard, accountant identity, balance, ledger and pending requests.',
+              ),
+              if (!snap.hasData && !snap.hasError) const SkeletonList(),
+              if (snap.hasError)
+                ErrorBlock(error: friendlyDbError(snap.error!)),
+              for (var i = 0; i < towns.length; i++)
+                AnimatedEntry(
+                  index: i,
+                  child: TownPulseCard(
+                    town: towns[i],
+                    onTap: () => openTownDashboard(context, towns[i]),
+                  ),
+                ),
+              if (snap.hasData && towns.isEmpty)
+                const EmptyBlock(text: 'No towns found yet.'),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class TownDashboardDetail extends StatelessWidget {
+  const TownDashboardDetail({super.key, required this.town});
+  final TownPulse town;
+
+  Future<List<Map<String, dynamic>>> _loadAppeals() async {
+    final data = await supabase
+        .from('appeals')
+        .select('*, requested_by_user_id(full_name,email,town_name,town_id)')
+        .eq('status', 'pending')
+        .order('created_at', ascending: false);
+    return List<Map<String, dynamic>>.from(
+      data,
+    ).where((a) => appealTownName(a) == town.name).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _loadAppeals(),
+      builder: (context, snap) {
+        final appeals = snap.data ?? const <Map<String, dynamic>>[];
+        return PremiumScrollView(
+          children: [
+            HeaderBlock(
+              title: town.name,
+              subtitle: town.accountantName.isEmpty
+                  ? 'Town dashboard without assigned accountant name.'
+                  : 'Town accountant: ${town.accountantName}',
+            ),
+            MetricGrid(
+              metrics: [
+                Metric(
+                  'Cash balance',
+                  money.format(town.cashBalance),
+                  Icons.account_balance_wallet_rounded,
+                  kPrimary,
+                ),
+                Metric(
+                  'Today income',
+                  money.format(town.todayIncome),
+                  Icons.trending_up_rounded,
+                  const Color(0xFF0F766E),
+                ),
+                Metric(
+                  'Today expense',
+                  money.format(town.todayExpense),
+                  Icons.trending_down_rounded,
+                  const Color(0xFFBE123C),
+                ),
+                Metric(
+                  'Pending appeals',
+                  '${town.pendingAppeals}',
+                  Icons.rule_rounded,
+                  const Color(0xFFB45309),
+                ),
+                Metric(
+                  'Pending collection',
+                  money.format(town.pendingCollection),
+                  Icons.pending_actions_rounded,
+                  const Color(0xFF7C3AED),
+                ),
+                Metric(
+                  'Sales count',
+                  '${town.salesCount}',
+                  Icons.sell_rounded,
+                  const Color(0xFF475569),
+                ),
+              ],
+            ),
+            const SectionLabel('Pending appeals'),
+            if (!snap.hasData && !snap.hasError) const SkeletonList(),
+            if (snap.hasError) ErrorBlock(error: friendlyDbError(snap.error!)),
+            for (var i = 0; i < appeals.length; i++)
+              AnimatedEntry(
+                index: i,
+                child: AppealInfoCard(row: appeals[i]),
+              ),
+            if (snap.hasData && appeals.isEmpty)
+              const EmptyBlock(text: 'No pending appeals for this town.'),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  premiumRoute(
+                    DetailScaffold(
+                      title: '${town.name} ledger receipts',
+                      child: DailyLedgerReceiptPage(initialTown: town.name),
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.receipt_long_rounded),
+              label: const Text('Open town ledger receipts'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class AppealInfoCard extends StatelessWidget {
+  const AppealInfoCard({super.key, required this.row, this.actions = const []});
+  final Map<String, dynamic> row;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final rd = row['requested_data'];
+    final data = rd is Map ? rd : const {};
+    final requester = row['requested_by_user_id'];
+    final user = requester is Map ? requester : const {};
+    final amount = data['amount'] ?? data['Amount'] ?? row['amount'];
+    final date = data['date'] ?? data['Date'] ?? row['created_at'];
+    return InfoCard(
+      icon: badgeForStatus('${row['status'] ?? 'pending'}'),
+      status: '${row['status'] ?? 'pending'}',
+      title: pretty(row['appeal_type']),
+      subtitle:
+          'Town: ${appealTownName(row).isEmpty ? 'Missing town' : appealTownName(row)}',
+      meta:
+          'Accountant: ${user['full_name'] ?? 'Unknown'} - ${formatDate(date)}',
+      body: [
+        if (amount != null) 'Amount: ${money.format(asNum(amount))}',
+        safeSummary(row['reason'] ?? data),
+      ].where((v) => v.trim().isNotEmpty).join(' - '),
+      actions: actions,
     );
   }
 }
@@ -1310,8 +1752,28 @@ class _AppealsPageState extends State<AppealsPage> {
         )
         .not('appeal_type', 'eq', 'agent_registration')
         .order('created_at', ascending: false);
-    final rows = List<Map<String, dynamic>>.from(data)
-        .map((row) => {...row, 'status': normalizeStatus(row['status'])})
+    var rows = List<Map<String, dynamic>>.from(
+      data,
+    ).map((row) => {...row, 'status': normalizeStatus(row['status'])}).toList();
+
+    final townless = rows
+        .where(
+          (row) =>
+              row['status'] == 'pending' &&
+              requiresTownForAppeal(row) &&
+              appealTownName(row).trim().isEmpty,
+        )
+        .toList();
+    for (final row in townless) {
+      await supabase
+          .rpc(
+            'ceo_review_appeal',
+            params: {'appeal_id': row['id'], 'new_status': 'rejected'},
+          )
+          .catchError((_) => null);
+    }
+    rows = rows
+        .where((row) => !townless.any((bad) => bad['id'] == row['id']))
         .where((row) => row['status'] == _filter)
         .toList();
     final seen = <String>{};
@@ -1411,17 +1873,8 @@ class _AppealsPageState extends State<AppealsPage> {
               for (var i = 0; i < rows.length; i++)
                 AnimatedEntry(
                   index: i,
-                  child: InfoCard(
-                    icon: badgeForStatus(_filter),
-                    status: _filter,
-                    title: pretty(rows[i]['appeal_type']),
-                    subtitle:
-                        '${rows[i]['entity_type'] ?? ''} ${rows[i]['entity_id'] ?? ''}',
-                    meta:
-                        '${rows[i]['requested_by_user_id']?['full_name'] ?? 'User'} - ${formatDate(rows[i]['created_at'])}',
-                    body: safeSummary(
-                      rows[i]['reason'] ?? rows[i]['requested_data'],
-                    ),
+                  child: AppealInfoCard(
+                    row: rows[i],
                     actions: [
                       if (_filter == 'pending') ...[
                         OutlinedButton.icon(
@@ -1605,125 +2058,287 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   }
 }
 
-class DailyLedgerReceiptPage extends StatelessWidget {
-  const DailyLedgerReceiptPage({super.key});
+class DailyLedgerReceiptPage extends StatefulWidget {
+  const DailyLedgerReceiptPage({super.key, this.initialTown});
+  final String? initialTown;
 
-  Future<List<Map<String, dynamic>>> _loadToday() async {
+  @override
+  State<DailyLedgerReceiptPage> createState() => _DailyLedgerReceiptPageState();
+}
+
+class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
+  DateTime _date = DateTime.now();
+
+  Future<List<LedgerReceipt>> _loadReceipts() async {
     await Future<void>.delayed(const Duration(milliseconds: 350));
-    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final day = DateFormat('yyyy-MM-dd').format(_date);
     final data = await supabase
         .from('daily_entries')
         .select('*')
         .order('created_at', ascending: false);
-    return List<Map<String, dynamic>>.from(
+    final rows = List<Map<String, dynamic>>.from(
       data,
-    ).where((row) => '${rowVal(row, 'Date')}'.startsWith(today)).toList();
+    ).where((row) => '${rowVal(row, 'Date')}'.startsWith(day)).toList();
+    final townNames =
+        rows
+            .map((row) => '${rowVal(row, 'Town_Name')}'.trim())
+            .where((name) => name.isNotEmpty && name != 'null')
+            .toSet()
+            .toList()
+          ..sort();
+    final receipts = townNames.map((town) {
+      final townRows = rows
+          .where((row) => '${rowVal(row, 'Town_Name')}'.trim() == town)
+          .toList();
+      return LedgerReceipt(
+        townName: town,
+        date: _date,
+        incomeRows: townRows
+            .where((row) => '${rowVal(row, 'Type')}'.toLowerCase() == 'income')
+            .toList(),
+        expenseRows: townRows
+            .where((row) => '${rowVal(row, 'Type')}'.toLowerCase() == 'expense')
+            .toList(),
+      );
+    }).toList();
+    if (widget.initialTown == null || widget.initialTown!.trim().isEmpty) {
+      return receipts;
+    }
+    return receipts.where((r) => r.townName == widget.initialTown).toList();
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+    );
+    if (picked != null) setState(() => _date = picked);
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _loadToday(),
+    return FutureBuilder<List<LedgerReceipt>>(
+      future: _loadReceipts(),
       builder: (context, snap) {
-        final rows = snap.data ?? const <Map<String, dynamic>>[];
-        final incomeRows = rows
-            .where((row) => '${rowVal(row, 'Type')}'.toLowerCase() == 'income')
-            .toList();
-        final expenseRows = rows
-            .where((row) => '${rowVal(row, 'Type')}'.toLowerCase() == 'expense')
-            .toList();
-        final income = incomeRows.fold<num>(
+        final receipts = snap.data ?? const <LedgerReceipt>[];
+        final income = receipts.fold<num>(
           0,
-          (sum, row) => sum + asNum(rowVal(row, 'Amount')),
+          (sum, receipt) => sum + receipt.income,
         );
-        final expense = expenseRows.fold<num>(
+        final expense = receipts.fold<num>(
           0,
-          (sum, row) => sum + asNum(rowVal(row, 'Amount')),
+          (sum, receipt) => sum + receipt.expense,
         );
-        final net = income - expense;
-
         return RefreshIndicator(
           onRefresh: () async => (context as Element).markNeedsBuild(),
           child: PremiumScrollView(
             children: [
               HeaderBlock(
-                title: 'Daily ledger receipt',
+                title: widget.initialTown == null
+                    ? 'Daily ledger receipts'
+                    : '${widget.initialTown} receipts',
                 subtitle:
-                    'Full income and expense receipt for ${shortDate.format(DateTime.now())}.',
+                    'Date-wise town receipt list for ${shortDate.format(_date)}.',
+              ),
+              OutlinedButton.icon(
+                onPressed: _pickDate,
+                icon: const Icon(Icons.calendar_month_rounded),
+                label: Text(shortDate.format(_date)),
               ),
               if (snap.hasError)
                 ErrorBlock(error: friendlyDbError(snap.error!)),
               if (!snap.hasData && !snap.hasError) const SkeletonList(),
-              if (snap.hasData) ...[
-                GlassCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Today summary',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      MetricGrid(
-                        metrics: [
-                          Metric(
-                            'Income',
-                            money.format(income),
-                            Icons.trending_up_rounded,
-                            const Color(0xFF0F766E),
-                          ),
-                          Metric(
-                            'Expenses',
-                            money.format(expense),
-                            Icons.trending_down_rounded,
-                            const Color(0xFFBE123C),
-                          ),
-                          Metric(
-                            'Net',
-                            money.format(net),
-                            Icons.account_balance_wallet_rounded,
-                            net >= 0
-                                ? const Color(0xFF2563EB)
-                                : const Color(0xFFB45309),
-                          ),
-                          Metric(
-                            'Entries',
-                            '${rows.length}',
-                            Icons.receipt_long_rounded,
-                            const Color(0xFF7C3AED),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SectionLabel('Income entries'),
-                if (incomeRows.isEmpty)
-                  const EmptyBlock(text: 'No income entered today.'),
-                for (var i = 0; i < incomeRows.length; i++)
-                  AnimatedEntry(
-                    index: i,
-                    child: _LedgerEntryCard(row: incomeRows[i], positive: true),
-                  ),
-                const SectionLabel('Expense entries'),
-                if (expenseRows.isEmpty)
-                  const EmptyBlock(text: 'No expenses entered today.'),
-                for (var i = 0; i < expenseRows.length; i++)
-                  AnimatedEntry(
-                    index: i,
-                    child: _LedgerEntryCard(
-                      row: expenseRows[i],
-                      positive: false,
+              if (snap.hasData)
+                MetricGrid(
+                  metrics: [
+                    Metric(
+                      'Towns',
+                      '${receipts.length}',
+                      Icons.location_city_rounded,
+                      kPrimary,
                     ),
-                  ),
-              ],
+                    Metric(
+                      'Income',
+                      money.format(income),
+                      Icons.trending_up_rounded,
+                      const Color(0xFF0F766E),
+                    ),
+                    Metric(
+                      'Expenses',
+                      money.format(expense),
+                      Icons.trending_down_rounded,
+                      const Color(0xFFBE123C),
+                    ),
+                    Metric(
+                      'Net',
+                      money.format(income - expense),
+                      Icons.account_balance_wallet_rounded,
+                      const Color(0xFF2563EB),
+                    ),
+                  ],
+                ),
+              const SectionLabel('Town receipts'),
+              for (var i = 0; i < receipts.length; i++)
+                AnimatedEntry(
+                  index: i,
+                  child: LedgerReceiptCard(receipt: receipts[i]),
+                ),
+              if (snap.hasData && receipts.isEmpty)
+                const EmptyBlock(
+                  text: 'No ledger receipts found for this date.',
+                ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class LedgerReceiptCard extends StatelessWidget {
+  const LedgerReceiptCard({super.key, required this.receipt});
+  final LedgerReceipt receipt;
+
+  @override
+  Widget build(BuildContext context) {
+    return InfoCard(
+      icon: const VectorBadge(kind: BadgeKind.money, size: 24),
+      title: receipt.townName,
+      subtitle:
+          'Income ${money.format(receipt.income)} - Expenses ${money.format(receipt.expense)}',
+      meta: '${shortDate.format(receipt.date)} - ${receipt.count} entries',
+      body: 'Net ${money.format(receipt.net)}',
+      actions: [
+        OutlinedButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            premiumRoute(
+              DetailScaffold(
+                title: '${receipt.townName} receipt',
+                child: LedgerReceiptDetailPage(receipt: receipt),
+              ),
+            ),
+          ),
+          icon: const Icon(Icons.open_in_new_rounded),
+          label: const Text('Open'),
+        ),
+      ],
+    );
+  }
+}
+
+class LedgerReceiptDetailPage extends StatelessWidget {
+  const LedgerReceiptDetailPage({super.key, required this.receipt});
+  final LedgerReceipt receipt;
+
+  Future<void> _sharePdf() async {
+    final doc = pw.Document();
+    doc.addPage(
+      pw.MultiPage(
+        build: (_) => [
+          pw.Text(
+            'AL SIRAJ DEVELOPERS',
+            style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text('Daily Ledger Receipt - ${receipt.townName}'),
+          pw.Text(shortDate.format(receipt.date)),
+          pw.SizedBox(height: 16),
+          pw.Text('Income: ${money.format(receipt.income)}'),
+          pw.Text('Expenses: ${money.format(receipt.expense)}'),
+          pw.Text('Net: ${money.format(receipt.net)}'),
+          pw.SizedBox(height: 16),
+          pw.Text(
+            'Income Entries',
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          ),
+          ...receipt.incomeRows.map(
+            (row) => pw.Text(
+              '${rowVal(row, 'Description') ?? ''} - ${money.format(asNum(rowVal(row, 'Amount')))}',
+            ),
+          ),
+          pw.SizedBox(height: 12),
+          pw.Text(
+            'Expense Entries',
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          ),
+          ...receipt.expenseRows.map(
+            (row) => pw.Text(
+              '${rowVal(row, 'Description') ?? ''} - ${money.format(asNum(rowVal(row, 'Amount')))}',
+            ),
+          ),
+        ],
+      ),
+    );
+    await Printing.sharePdf(
+      bytes: await doc.save(),
+      filename:
+          'al-siraj-${receipt.townName}-${DateFormat('yyyy-MM-dd').format(receipt.date)}.pdf',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PremiumScrollView(
+      children: [
+        HeaderBlock(
+          title: receipt.townName,
+          subtitle: 'Full receipt for ${shortDate.format(receipt.date)}.',
+        ),
+        FilledButton.icon(
+          onPressed: _sharePdf,
+          icon: const Icon(Icons.picture_as_pdf_rounded),
+          label: const Text('Download PDF'),
+        ),
+        MetricGrid(
+          metrics: [
+            Metric(
+              'Income',
+              money.format(receipt.income),
+              Icons.trending_up_rounded,
+              const Color(0xFF0F766E),
+            ),
+            Metric(
+              'Expenses',
+              money.format(receipt.expense),
+              Icons.trending_down_rounded,
+              const Color(0xFFBE123C),
+            ),
+            Metric(
+              'Net',
+              money.format(receipt.net),
+              Icons.account_balance_wallet_rounded,
+              kPrimary,
+            ),
+            Metric(
+              'Entries',
+              '${receipt.count}',
+              Icons.receipt_long_rounded,
+              const Color(0xFF7C3AED),
+            ),
+          ],
+        ),
+        const SectionLabel('Income entries'),
+        if (receipt.incomeRows.isEmpty)
+          const EmptyBlock(text: 'No income entered for this town.'),
+        for (var i = 0; i < receipt.incomeRows.length; i++)
+          AnimatedEntry(
+            index: i,
+            child: _LedgerEntryCard(row: receipt.incomeRows[i], positive: true),
+          ),
+        const SectionLabel('Expense entries'),
+        if (receipt.expenseRows.isEmpty)
+          const EmptyBlock(text: 'No expenses entered for this town.'),
+        for (var i = 0; i < receipt.expenseRows.length; i++)
+          AnimatedEntry(
+            index: i,
+            child: _LedgerEntryCard(
+              row: receipt.expenseRows[i],
+              positive: false,
+            ),
+          ),
+      ],
     );
   }
 }
@@ -1863,6 +2478,21 @@ class MorePage extends StatelessWidget {
               const DetailScaffold(
                 title: 'Notifications',
                 child: NotificationsPage(),
+              ),
+            ),
+          );
+        },
+      ),
+      MoreItem(
+        'Daily entries review',
+        'Approve or reject accountant income and expense entries.',
+        const VectorBadge(kind: BadgeKind.entry),
+        () {
+          Navigator.of(context).push(
+            premiumRoute(
+              const DetailScaffold(
+                title: 'Daily entries review',
+                child: DailyEntriesPage(),
               ),
             ),
           );
@@ -3077,9 +3707,10 @@ void routeFromPushData(Map<String, dynamic> data) {
     return;
   }
   final nextTab = switch ('$route') {
-    'appeals' => 1,
-    'entries' => 2,
-    'activity' || 'notifications' || 'towns' => 3,
+    'towns' => 1,
+    'appeals' => 2,
+    'entries' => 4,
+    'activity' || 'notifications' => 4,
     _ => 0,
   };
   selectedTabNotifier.value = nextTab;
