@@ -28,6 +28,7 @@ const UPSERT_CONFLICT = {
   construction_projects: 'project_id',
   construction_payments: 'payment_id',
   commission_receipts: 'receipt_id',
+  collection_payments: 'payment_id',
   receipt_archive: 'receipt_id',
   money_ledger: 'ledger_id',
   town_financial_summary: 'town_name',
@@ -89,6 +90,17 @@ const TABLE_KEY_MAP = {
     Paid_Date: 'paid_at',
     Created_At: 'created_at',
   },
+  collection_payments: {
+    Payment_ID: 'payment_id',
+    Sale_ID: 'sale_code',
+    Sale_Code: 'sale_code',
+    Type: 'property_type',
+    Received_Before: 'received_before',
+    Received_After: 'received_after',
+    Remaining_After: 'remaining_after',
+    Payment_Date: 'payment_date',
+    Payment_Method: 'payment_method',
+  },
 };
 
 const TABLE_SKIP_KEYS = {};
@@ -103,7 +115,7 @@ const DATE_COLUMNS = new Set([
 const TABLE_COLUMNS = {
   towns: ['Town_Name', 'Location', 'Commission_Rate', 'Latitude', 'Longitude', 'Total_Plots', 'Total_Shops', 'Total_Income_PKR', 'Total_Expenses_PKR', 'Profit_Loss', 'Status'],
   all_sales: ['Sale_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Company_Income', 'Expense_Total', 'Profit_Loss', 'Receipt_Number', 'File_Status', 'File_Delivery_Image', 'Status', 'Sale_Type', 'Payment_Method', 'Cheque_Number', 'Cheque_Bank', 'Cheque_Image', 'Transaction_ID', 'Transfer_Bank', 'Transfer_Image'],
-  installments: ['Tracker_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Customer_Name', 'Phone_Number', 'Monthly_Amount', 'Due_Date', 'Status', 'Paid_Date', 'Month_Number', 'Total_Months', 'Received_Amount', 'Remaining_Amount', 'Agent_Name'],
+  installments: ['Tracker_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Customer_Name', 'Phone_Number', 'Monthly_Amount', 'Due_Date', 'Status', 'Paid_Date', 'Month_Number', 'Total_Months', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Receipt_Number', 'Paid_By', 'Payee_Name'],
   expenses: ['Expense_ID', 'Town_Name', 'Expense_Name', 'Amount_PKR', 'Description', 'Category', 'Date', 'Added_By'],
   ceo_expenses: ['Expense_ID', 'Town_Name', 'Expense_Name', 'Amount_PKR', 'Description', 'Category', 'Date', 'Town_Income', 'Expense_Limit', 'Is_Over_Limit'],
   ceo_salary: ['Salary_ID', 'Town_Name', 'Month_Year', 'Amount_PKR', 'Date_Recorded', 'Notes'],
@@ -121,6 +133,7 @@ const TABLE_COLUMNS = {
   construction_payments: ['Payment_ID','Project_ID','Town_Name','Category','Constructor_Name','Amount','Payment_Date','Material_Name','Material_Quantity','Material_Rate','Remaining_After','Receipt_Number','Notes','Created_By'],
   commissions: ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Commission_Amount','Status','Paid_Date','Created_At'],
   commission_receipts: ['Receipt_ID','Commission_ID','Sale_ID','Town_Name','Agent_Name','Plot_Shop_Number','Amount','Paid_Date','Receipt_Number','Paid_By'],
+  collection_payments: ['Payment_ID','Sale_ID','Sale_Code','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes'],
   receipt_archive: ['Receipt_ID','Receipt_Number','Receipt_Type','Town_Name','Entity_ID','Entity_Name','Amount','Receipt_Date','Payload_JSON','Created_At'],
   money_ledger: ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'],
   town_financial_summary: ['Town_Name','Total_Received','Total_Expenses','Cash_Balance','Pending_Collection','Investor_Balance','Updated_At'],

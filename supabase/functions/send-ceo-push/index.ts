@@ -103,10 +103,20 @@ function buildSafeMessage(payload: PushPayload) {
   };
 
   if (table === "appeals") {
+    const requestedData = typeof record.requested_data === "object" && record.requested_data
+      ? record.requested_data as Record<string, unknown>
+      : {};
+    const appealType = prettyText(record.appeal_type || "approval");
+    const town = String(record.town_name || requestedData.townName || requestedData.Town_Name || requestedData.town_name || requestedData.town || "").trim();
+    const requester = String(requestedData.accountant_name || requestedData.full_name || record.requested_by_role || "Accountant").trim();
     return {
-      title: event === "UPDATE" ? "Appeal updated" : "New appeal",
-      body: "A request needs CEO review",
-      data,
+      title: "New CEO approval",
+      body: `${appealType}${town ? ` - ${town}` : ""}${requester ? ` by ${requester}` : ""}`,
+      data: {
+        ...data,
+        appeal_type: String(record.appeal_type || ""),
+        town_name: town,
+      },
     };
   }
 
@@ -147,6 +157,14 @@ function buildSafeMessage(payload: PushPayload) {
     body: "Open CEO app for details",
     data,
   };
+}
+
+function prettyText(value: unknown) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
 function shouldSkipPush(payload: PushPayload) {

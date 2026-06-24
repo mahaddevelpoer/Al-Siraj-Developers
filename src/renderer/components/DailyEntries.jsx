@@ -77,6 +77,7 @@ export default function DailyEntries({ showToast, townName }) {
             appeal_type: isFuture ? 'future_daily_entry' : 'backdated_daily_entry',
             entity_type: 'daily_entry',
             entity_id: 'pending_' + Date.now(),
+            town_name: townName,
             requested_data: payload,
             status: 'pending',
             otp_code: generatedOtp,

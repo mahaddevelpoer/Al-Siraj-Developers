@@ -5,7 +5,7 @@ import OfficialReceipt from './OfficialReceipt';
 const CATEGORIES = ['Sewerage', 'Road', 'Office construction', 'Boundary wall', 'Electricity', 'Gate', 'Other'];
 const fmt = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
 
-export default function ConstructionDashboard({ townName, showToast }) {
+export default function ConstructionDashboard({ townName, showToast, refreshKey = 0 }) {
   const [projects, setProjects] = useState([]);
   const [payments, setPayments] = useState([]);
   const [project, setProject] = useState({ Category: 'Sewerage', Constructor_Name: '', Phone_Number: '', Company_Name: '', Material_Name: '', Material_Quantity: '', Material_Rate: '', Deal_Amount: '', Notes: '' });
@@ -21,7 +21,7 @@ export default function ConstructionDashboard({ townName, showToast }) {
     setProjects(Array.isArray(p) ? p : []);
     setPayments(Array.isArray(pay) ? pay : []);
   };
-  useEffect(() => { load(); }, [townName]);
+  useEffect(() => { load(); }, [townName, refreshKey]);
 
   const u = (key) => (e) => setProject(f => ({ ...f, [key]: e.target.value }));
   const pu = (key) => (e) => setPayment(f => ({ ...f, [key]: e.target.value }));

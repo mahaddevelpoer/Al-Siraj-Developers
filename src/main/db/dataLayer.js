@@ -7,7 +7,7 @@ class DataLayer {
     this._dbPath = '';
     this._windowGetter = null;
     this._preferDbReads = true;
-    this._cloudReadTimeoutMs = 900;
+    this._cloudReadTimeoutMs = 6000;
   }
 
   init(dbPath, windowGetter) {
@@ -38,10 +38,6 @@ class DataLayer {
           supabaseFn(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud read timeout; using local cache')), this._cloudReadTimeoutMs)),
         ]);
-        if (Array.isArray(cloud) && cloud.length === 0 && typeof localFn === 'function') {
-          const local = await localFn();
-          if (Array.isArray(local) && local.length > 0) return local;
-        }
         if (cloud !== undefined && cloud !== null) return cloud;
       } catch (err) {
         if (!String(err?.message || '').includes('timeout')) this._sendSyncWarning(err);

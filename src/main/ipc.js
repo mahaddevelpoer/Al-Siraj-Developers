@@ -36,6 +36,13 @@ function sendSyncWarning(message) {
   }
 }
 
+function sendCloudDataRefreshed(detail = {}) {
+  const win = getActiveWindow();
+  if (win && !win.isDestroyed()) {
+    try { win.webContents.send('cloud-data-refreshed', { at: new Date().toISOString(), ...detail }); } catch {}
+  }
+}
+
 function scheduleQueuedFileUpload(delayMs = 3000) {
   storage.queueAllLocalFiles();
 }
@@ -52,6 +59,8 @@ function scheduleQueuedCloudSync(delayMs = 1500) {
     try {
       await performFullSyncUp(() => {});
       await pendingSync.markAllPendingSynced();
+      sendCloudDataRefreshed({ source: 'queued-cloud-sync' });
+      scheduleCloudDownload(900);
     } catch (e) {
       sendSyncWarning('Cloud database sync error: ' + (e.message || 'Unknown'));
     } finally {
@@ -147,6 +156,13 @@ async function syncOnline(localFn, supabaseFn, options = {}) {
     try {
       await withTimeout(supabaseFn(localResult), 4000, 'Cloud quick sync');
       await pendingSync.markPendingSynced(clientWriteId);
+      sendCloudDataRefreshed({
+        source: 'quick-write',
+        tableName: options.tableName || 'mixed',
+        operation: options.operation || 'upsert',
+        clientWriteId,
+      });
+      scheduleCloudDownload(900);
     } catch (e) {
       syncWarning = 'Cloud quick sync failed: ' + (e.message || 'Unknown');
       sendSyncWarning(syncWarning);
@@ -232,6 +248,114 @@ function filterSoldByScope(result) {
     plots: filterRowsByScope(result?.plots || []),
     shops: filterRowsByScope(result?.shops || []),
   };
+}
+
+function stableReceiptId(receiptNumber, prefix = 'REC') {
+  const raw = String(receiptNumber || `${prefix}-${Date.now()}`);
+  return `${prefix}-${raw}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120);
+}
+
+function buildReceiptArchiveRow({
+  receiptNumber,
+  receiptType,
+  townName,
+  entityId,
+  entityName,
+  amount,
+  receiptDate,
+  payload,
+}) {
+  return {
+    Receipt_ID: stableReceiptId(receiptNumber, 'REC'),
+    Receipt_Number: receiptNumber || '',
+    Receipt_Type: receiptType || '',
+    Town_Name: townName || '',
+    Entity_ID: entityId || '',
+    Entity_Name: entityName || '',
+    Amount: parseFloat(amount) || 0,
+    Receipt_Date: receiptDate || new Date().toISOString().split('T')[0],
+    Payload_JSON: typeof payload === 'string' ? payload : JSON.stringify(payload || {}),
+    Created_At: new Date().toISOString(),
+  };
+}
+
+function buildInvestorReceiptPayload(tx) {
+  return buildReceiptArchiveRow({
+    receiptNumber: tx.Receipt_Number,
+    receiptType: 'investor',
+    townName: tx.Town_Name,
+    entityId: tx.Investor_ID,
+    entityName: tx.Investor_Name,
+    amount: tx.Amount,
+    receiptDate: tx.Date,
+    payload: {
+      type: 'investor',
+      townName: tx.Town_Name,
+      date: tx.Date,
+      receiptNumber: tx.Receipt_Number,
+      investorName: tx.Investor_Name,
+      transactionType: tx.Type,
+      amount: tx.Amount,
+      balanceAfter: tx.Balance_After,
+      note: tx.Notes,
+    },
+  });
+}
+
+function buildConstructionDealReceiptPayload(project) {
+  const receiptNumber = project.Deal_Receipt_Number || `CON-DEAL-${project.Project_ID}`;
+  return buildReceiptArchiveRow({
+    receiptNumber,
+    receiptType: 'construction_deal',
+    townName: project.Town_Name,
+    entityId: project.Project_ID,
+    entityName: project.Constructor_Name,
+    amount: project.Deal_Amount,
+    receiptDate: project.Start_Date,
+    payload: {
+      type: 'construction_deal',
+      townName: project.Town_Name,
+      date: project.Start_Date,
+      receiptNumber,
+      category: project.Category,
+      constructorName: project.Constructor_Name,
+      phoneNumber: project.Phone_Number,
+      companyName: project.Company_Name,
+      materialName: project.Material_Name,
+      materialQuantity: project.Material_Quantity,
+      materialRate: project.Material_Rate,
+      dealAmount: project.Deal_Amount,
+      paidAmount: project.Paid_Amount,
+      remainingAmount: project.Remaining_Amount,
+      note: project.Notes,
+    },
+  });
+}
+
+function buildConstructionPaymentReceiptPayload(payment) {
+  return buildReceiptArchiveRow({
+    receiptNumber: payment.Receipt_Number,
+    receiptType: 'construction_payment',
+    townName: payment.Town_Name,
+    entityId: payment.Project_ID,
+    entityName: payment.Constructor_Name,
+    amount: payment.Amount,
+    receiptDate: payment.Payment_Date,
+    payload: {
+      type: 'construction_payment',
+      townName: payment.Town_Name,
+      date: payment.Payment_Date,
+      receiptNumber: payment.Receipt_Number,
+      category: payment.Category,
+      constructorName: payment.Constructor_Name,
+      materialName: payment.Material_Name,
+      materialQuantity: payment.Material_Quantity,
+      materialRate: payment.Material_Rate,
+      amount: payment.Amount,
+      remainingAmount: payment.Remaining_After,
+      note: payment.Notes,
+    },
+  });
 }
 
 async function purgeLocalTownBusinessData(townName) {
@@ -490,12 +614,26 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
 
   // Installments
   ipcMain.handle('get-installments', async () => { try { const rows = await dataLayer.read(() => getInstallments(), () => onlineDb.getAllInstallments()); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-due-installments', async () => { try { const rows = await dataLayer.read(() => getDueInstallments(), async () => { const all = await onlineDb.getAllInstallments(); const today = new Date().toISOString().split('T')[0]; return (all || []).filter(i => { const s = (i.Status || '').toLowerCase(); if (s === 'paid') return false; const d = i.Due_Date || ''; return d < today; }).map(i => ({ ...i, Status: 'Overdue' })); }); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-due-installments', async () => { try { const rows = await dataLayer.read(() => getDueInstallments(), async () => { const all = await onlineDb.getAllInstallments(); const today = new Date().toISOString().split('T')[0]; const lead = new Date(); lead.setDate(lead.getDate() + 7); const leadDate = lead.toISOString().split('T')[0]; return (all || []).filter(i => { const s = (i.Status || '').toLowerCase(); if (s === 'paid') return false; const d = i.Due_Date || ''; return d && (d < today || d <= leadDate || s === 'overdue'); }).map(i => ({ ...i, Status: (i.Due_Date || '') < today ? 'Overdue' : 'Due' })); }); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('mark-installment-paid', async (_, data) => {
     try {
       assertObjectPayload(data, 'installment payload');
       if (!isNonEmpty(data.Tracker_ID)) throw new Error('Tracker_ID is required');
-      return await syncOnline(() => markInstallmentPaid(data), () => onlineDb.markInstallmentPaid(data));
+      return await syncOnline(
+        () => markInstallmentPaid(data),
+        async (localResult) => {
+          await onlineDb.markInstallmentPaid({
+            ...data,
+            Paid_Date: localResult?.receipt?.date || data.Paid_Date,
+            Receipt_Number: localResult?.receiptNumber || data.Receipt_Number,
+          });
+          if (localResult?.receiptArchive) {
+            await onlineDb.insert('receipt_archive', localResult.receiptArchive);
+          }
+          return localResult;
+        },
+        { tableName: 'installments', operation: 'update', payload: data }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('extend-installment-date', async (_, data) => {
@@ -877,6 +1015,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         appeal_type: 'salary_increase',
         status: 'pending',
         reason,
+        town_name: allowedTown,
         requested_data: {
           employeeName,
           employeeId,
@@ -912,6 +1051,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         entity_id: String(employeeId),
         status: 'pending',
         reason: `Delete employee: ${employeeName} (${designation || 'Employee'})`,
+        town_name: allowedTown,
         requested_data: {
           employeeId,
           employeeName,
@@ -1351,7 +1491,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertObjectPayload(data, 'town agent payload');
       if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
-      return await syncOnline(() => businessExtras.addTownAgent(data), () => onlineDb.insert('town_agents', data));
+      return await syncOnline(
+        () => businessExtras.addTownAgent(data),
+        (localAgent) => onlineDb.insert('town_agents', localAgent),
+        { tableName: 'town_agents', payload: data }
+      );
     } catch (e) { return { error: e.message }; }
   });
 
@@ -1364,7 +1508,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertObjectPayload(data, 'investor payload');
       if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
-      return await syncOnline(() => businessExtras.addInvestor(data), () => onlineDb.insert('investors', data));
+      return await syncOnline(
+        () => businessExtras.addInvestor(data),
+        (localInvestor) => onlineDb.insert('investors', localInvestor),
+        { tableName: 'investors', payload: data }
+      );
     } catch (e) { return { error: e.message }; }
   });
 
@@ -1389,7 +1537,37 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           });
           return tx;
         },
-        () => onlineDb.insert('investor_transactions', data)
+        async (tx) => {
+          await onlineDb.insert('investor_transactions', tx);
+          await onlineDb.updateWhere('investors', { Investor_ID: tx.Investor_ID }, { Balance: tx.Balance_After });
+          await onlineDb.insert('receipt_archive', buildInvestorReceiptPayload(tx));
+          await onlineDb.addDailyEntry({
+            Entry_ID: `INV-${String(tx.Transaction_ID || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 32)}`,
+            Town_Name: tx.Town_Name,
+            Date: tx.Date,
+            Type: tx.Type === 'Credit' ? 'Income' : 'Expense',
+            Category: tx.Type === 'Credit' ? 'Investor Credit' : 'Investor Debit',
+            Amount: tx.Amount,
+            Description: `Investor ${tx.Type}: ${tx.Investor_Name}`,
+            Reference: tx.Transaction_ID,
+            Created_By: tx.Created_By || 'System',
+            Review_Status: 'approved',
+          });
+          await onlineDb.recordMoneyEvent({
+            sourceType: 'investor_transaction',
+            sourceId: tx.Transaction_ID,
+            direction: tx.Type === 'Debit' ? 'expense' : 'income',
+            amount: tx.Amount,
+            townName: tx.Town_Name,
+            date: tx.Date,
+            partyName: tx.Investor_Name,
+            description: `Investor ${tx.Type}`,
+            receiptNumber: tx.Receipt_Number,
+            createdBy: tx.Created_By || 'System',
+            status: 'approved',
+          });
+        },
+        { tableName: 'investor_transactions', payload: data }
       );
       return result;
     } catch (e) { return { error: e.message }; }
@@ -1401,7 +1579,18 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   });
 
   ipcMain.handle('get-receipt-archive', async (_, params = {}) => {
-    try { const town = scopedTown(params.townName, isAccountantScoped()); return await businessExtras.getReceiptArchive(town, params.receiptType); }
+    try {
+      const town = scopedTown(params.townName, isAccountantScoped());
+      return await dataLayer.read(
+        () => businessExtras.getReceiptArchive(town, params.receiptType),
+        async () => {
+          const match = {};
+          if (town) match.Town_Name = town;
+          if (params.receiptType) match.Receipt_Type = params.receiptType;
+          return await onlineDb.findMany('receipt_archive', match);
+        }
+      );
+    }
     catch (e) { return { error: e.message }; }
   });
 
@@ -1414,7 +1603,14 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertObjectPayload(data, 'construction project payload');
       if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
-      return await syncOnline(() => businessExtras.addConstructionProject(data), () => onlineDb.insert('construction_projects', data));
+      return await syncOnline(
+        () => businessExtras.addConstructionProject(data),
+        async (project) => {
+          await onlineDb.insert('construction_projects', project);
+          await onlineDb.insert('receipt_archive', buildConstructionDealReceiptPayload(project));
+        },
+        { tableName: 'construction_projects', payload: data }
+      );
     } catch (e) { return { error: e.message }; }
   });
 
@@ -1439,7 +1635,47 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           });
           return payment;
         },
-        () => onlineDb.insert('construction_payments', data)
+        async (payment) => {
+          await onlineDb.insert('construction_payments', payment);
+          try {
+            const cloudProject = await onlineDb.findOne('construction_projects', { Project_ID: payment.Project_ID });
+            const deal = parseFloat(cloudProject?.Deal_Amount || cloudProject?.deal_amount) || 0;
+            const remaining = parseFloat(payment.Remaining_After) || 0;
+            const paid = deal > 0 ? Math.max(0, deal - remaining) : undefined;
+            await onlineDb.updateWhere('construction_projects', { Project_ID: payment.Project_ID }, {
+              ...(paid !== undefined ? { Paid_Amount: paid } : {}),
+              Remaining_Amount: payment.Remaining_After,
+              Status: remaining <= 0 ? 'Completed' : 'Active',
+            });
+          } catch (_) {}
+          await onlineDb.insert('receipt_archive', buildConstructionPaymentReceiptPayload(payment));
+          await onlineDb.addDailyEntry({
+            Entry_ID: `CON-${String(payment.Payment_ID || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 32)}`,
+            Town_Name: payment.Town_Name,
+            Date: payment.Payment_Date,
+            Type: 'Expense',
+            Category: 'Construction',
+            Amount: payment.Amount,
+            Description: `Construction ${payment.Category}: ${payment.Constructor_Name}`,
+            Reference: payment.Payment_ID,
+            Created_By: payment.Created_By || 'System',
+            Review_Status: 'approved',
+          });
+          await onlineDb.recordMoneyEvent({
+            sourceType: 'construction_payment',
+            sourceId: payment.Payment_ID,
+            direction: 'expense',
+            amount: payment.Amount,
+            townName: payment.Town_Name,
+            date: payment.Payment_Date,
+            partyName: payment.Constructor_Name,
+            description: `Construction ${payment.Category}`,
+            receiptNumber: payment.Receipt_Number,
+            createdBy: payment.Created_By || 'System',
+            status: 'approved',
+          });
+        },
+        { tableName: 'construction_payments', payload: data }
       );
       return result;
     } catch (e) { return { error: e.message }; }
@@ -1804,8 +2040,8 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const wanted = [filter.agentName, filter.agentEmail]
         .map(v => String(v || '').trim().toLowerCase())
         .filter(Boolean);
-      const rows = filterRowsByScope(await getAllSales());
-      const installments = filterRowsByScope(await getInstallments());
+      const rows = filterRowsByScope(await dataLayer.read(() => getAllSales(), () => onlineDb.getAllSales()));
+      const installments = filterRowsByScope(await dataLayer.read(() => getInstallments(), () => onlineDb.getAllInstallments()));
       const today = new Date().toISOString().split('T')[0];
       const data = (rows || [])
         .map((r) => ({
@@ -1860,7 +2096,14 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       allowedTown = scopedTown(allowedTown, true);
       const result = await syncOnline(
         () => recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName: allowedTown, amount, paymentMethod, notes }),
-        () => onlineDb.recordCollectionPayment(saleId, amount, paymentMethod, notes)
+        (localResult) => onlineDb.recordCollectionPayment(
+          saleId || localResult?.payment?.Sale_ID,
+          amount,
+          paymentMethod,
+          notes,
+          localResult?.payment || null
+        ),
+        { tableName: 'collection_payments', operation: 'upsert', payload: { saleId, amount, paymentMethod, notes, townName: allowedTown } }
       );
       return { success: true, ...result };
     } catch (e) { return { error: e.message }; }
@@ -1870,16 +2113,19 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       const { readExcelFile } = require('./db/core');
       const historyPath = path.join(require('./db/core').getGlobalsPath(), 'Collection_Payments.xlsx');
-      const rows = await readExcelFile(historyPath, 'Data');
+      const rows = await dataLayer.read(
+        () => readExcelFile(historyPath, 'Data'),
+        () => onlineDb.findMany('collection_payments', { Sale_ID: saleId })
+      );
       const data = (rows || [])
-        .filter(r => String(r.Sale_ID || '') === String(saleId || ''))
+        .filter(r => String(r.Sale_ID || r.sale_code || r.Sale_Code || r.sale_id || '') === String(saleId || '') || !saleId)
         .filter(r => !isAccountantScoped() || String(r.Town_Name || r.town_name || '') === requireAccountantTown())
         .map(r => ({
-          id: r.Payment_ID,
-          payment_date: r.Payment_Date,
-          amount: r.Amount,
-          payment_method: r.Payment_Method,
-          notes: r.Notes,
+          id: r.Payment_ID || r.payment_id || r.id,
+          payment_date: r.Payment_Date || r.payment_date,
+          amount: r.Amount || r.amount,
+          payment_method: r.Payment_Method || r.payment_method,
+          notes: r.Notes || r.notes,
         }));
       return { data };
     }

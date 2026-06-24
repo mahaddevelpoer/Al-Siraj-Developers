@@ -103,6 +103,7 @@ export default function AgentRegister() {
         appeal_type: 'agent_registration',
         entity_type: 'agent',
         entity_id: tempUserId,
+        town_name: selectedTownNames,
         requested_data: {
           townName: selectedTownNames,
           agent_town: selectedTownNames,

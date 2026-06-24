@@ -10,7 +10,8 @@ BEGIN
     'ceo_salary','notifications','daily_entries','employees','employees_v2',
     'advance_salaries','salary_records','salary_payments','town_agents',
     'investors','investor_transactions','construction_projects',
-    'construction_payments','commission_receipts','receipt_archive','money_ledger',
+    'construction_payments','commissions','commission_receipts',
+    'collection_payments','resell_history','receipt_archive','money_ledger',
     'town_financial_summary'
   ]
   LOOP
@@ -45,7 +46,8 @@ BEGIN
     'ceo_salary','notifications','daily_entries','employees','employees_v2',
     'advance_salaries','salary_records','salary_payments','town_agents',
     'investors','investor_transactions','construction_projects',
-    'construction_payments','commission_receipts','receipt_archive','money_ledger',
+    'construction_payments','commissions','commission_receipts',
+    'collection_payments','resell_history','receipt_archive','money_ledger',
     'town_financial_summary'
   ]
   LOOP
@@ -60,7 +62,14 @@ DO $$
 DECLARE
   t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['appeals','daily_entries','notifications','money_ledger','town_financial_summary','all_sales','installments']
+  FOREACH t IN ARRAY ARRAY[
+    'appeals','daily_entries','notifications','money_ledger','town_financial_summary',
+    'towns','properties','all_sales','installments','expenses','ceo_expenses',
+    'ceo_salary','employees','employees_v2','advance_salaries','salary_records',
+    'salary_payments','town_agents','investors','investor_transactions',
+    'construction_projects','construction_payments','commissions',
+    'commission_receipts','collection_payments','resell_history','receipt_archive'
+  ]
   LOOP
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t)
        AND NOT EXISTS (
@@ -71,6 +80,62 @@ BEGIN
       EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
     END IF;
   END LOOP;
+END $$;
+
+DO $$
+BEGIN
+  CREATE TABLE IF NOT EXISTS public.receipt_archive (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    receipt_id TEXT UNIQUE,
+    receipt_number TEXT,
+    receipt_type TEXT,
+    town_name TEXT,
+    entity_id TEXT,
+    entity_name TEXT,
+    amount NUMERIC DEFAULT 0,
+    receipt_date DATE,
+    payload_json JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    client_write_id TEXT,
+    sync_status TEXT DEFAULT 'synced',
+    deleted_at TIMESTAMPTZ
+  );
+  ALTER TABLE public.receipt_archive ENABLE ROW LEVEL SECURITY;
+  DROP POLICY IF EXISTS receipt_archive_read_all ON public.receipt_archive;
+  DROP POLICY IF EXISTS receipt_archive_write_all ON public.receipt_archive;
+  CREATE POLICY receipt_archive_read_all ON public.receipt_archive FOR SELECT USING (true);
+  CREATE POLICY receipt_archive_write_all ON public.receipt_archive FOR ALL USING (true) WITH CHECK (true);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'receipt_archive'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.receipt_archive;
+  END IF;
+
+  IF to_regclass('public.appeals') IS NOT NULL THEN
+    ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS town_name TEXT;
+    CREATE INDEX IF NOT EXISTS appeals_town_status_created_idx
+      ON public.appeals (town_name, status, created_at DESC);
+  END IF;
+
+  IF to_regclass('public.installments') IS NOT NULL THEN
+    ALTER TABLE public.installments ADD COLUMN IF NOT EXISTS receipt_number TEXT;
+    ALTER TABLE public.installments ADD COLUMN IF NOT EXISTS paid_by TEXT;
+    ALTER TABLE public.installments ADD COLUMN IF NOT EXISTS payee_name TEXT;
+  END IF;
+
+  IF to_regclass('public.collection_payments') IS NOT NULL THEN
+    ALTER TABLE public.collection_payments ADD COLUMN IF NOT EXISTS payment_id TEXT;
+    ALTER TABLE public.collection_payments ADD COLUMN IF NOT EXISTS sale_code TEXT;
+    ALTER TABLE public.collection_payments ADD COLUMN IF NOT EXISTS received_before NUMERIC DEFAULT 0;
+    ALTER TABLE public.collection_payments ADD COLUMN IF NOT EXISTS received_after NUMERIC DEFAULT 0;
+    CREATE UNIQUE INDEX IF NOT EXISTS collection_payments_payment_id_uidx
+      ON public.collection_payments (payment_id)
+      WHERE payment_id IS NOT NULL;
+  END IF;
 END $$;
 
 NOTIFY pgrst, 'reload schema';

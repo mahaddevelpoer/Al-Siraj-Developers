@@ -89,6 +89,14 @@ function isCurrentCeoContext() {
   }
 }
 
+function isCurrentAccountantContext() {
+  try {
+    return String(storageSync.getSyncContext()?.role || '').toLowerCase() === 'accountant';
+  } catch (_) {
+    return false;
+  }
+}
+
 function getAppIconPath() {
   return path.join(__dirname, '../../public/favicon.ico');
 }
@@ -481,14 +489,14 @@ app.whenReady().then(async () => {
   // Persists due reminders into Notifications_Log.xlsx and only toasts newly created reminders.
   setInterval(async () => {
     try {
-      const created = await upsertDueInstallmentNotifications({ leadDays: 2 });
+      const created = await upsertDueInstallmentNotifications({ leadDays: 7 });
       if (!Array.isArray(created) || created.length === 0) return;
 
       const first = created[0];
       const title = first.Type === 'Overdue' ? 'Overdue Installment' : 'Due Installment';
       const body = first.Message || `Installment reminder (${first.Town_Name || ''})`.trim();
 
-      if (isCurrentCeoContext()) new Notification({ title, body, icon: getAppIconPath() }).show();
+      if (isCurrentAccountantContext()) new Notification({ title, body, icon: getAppIconPath() }).show();
     } catch (_) {
       // silent: reminder scheduler should never crash the app
     }

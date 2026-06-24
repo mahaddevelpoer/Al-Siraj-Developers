@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BriefcaseIcon, UsersIcon, WarnIcon } from './Icons';
 
-export default function CommissionTracker({ showToast, townName }) {
+export default function CommissionTracker({ showToast, townName, refreshKey = 0 }) {
   const [sales, setSales] = useState([]);
   const [registeredAgents, setRegisteredAgents] = useState([]);
   const [commissions, setCommissions] = useState([]);
@@ -9,7 +9,7 @@ export default function CommissionTracker({ showToast, townName }) {
   const [search, setSearch] = useState('');
   const [agentFilter, setAgentFilter] = useState('all');
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [townName, refreshKey]);
 
   const loadData = async () => {
     if (!window.api) { setLoading(false); return; }

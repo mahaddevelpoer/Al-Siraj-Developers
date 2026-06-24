@@ -288,16 +288,16 @@ export default function TownDashboard({
       case 'prices': return <TownPrices townName={townData.Town_Name} showToast={showToast} />;
       case 'addPlot': return <AddProperty type="Plot" townName={townData.Town_Name} showToast={showToast} />;
       case 'addShop': return <AddProperty type="Shop" townName={townData.Town_Name} showToast={showToast} />;
-      case 'sold': return <SoldProperties townName={townData.Town_Name} showToast={showToast} />;
+      case 'sold': return <SoldProperties townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'resell': return <ResellProperty townName={townData.Town_Name} showToast={showToast} />;
-      case 'resellHistory': return <ResellHistory townName={townData.Town_Name} />;
-      case 'installments': return <InstallmentTracker townName={townData.Town_Name} showToast={showToast} />;
-      case 'commission': return <CommissionTracker townName={townData.Town_Name} showToast={showToast} />;
-      case 'expenses': return <EmployeeSalary townName={townData.Town_Name} showToast={showToast} />;
+      case 'resellHistory': return <ResellHistory townName={townData.Town_Name} refreshKey={overviewRefreshKey} />;
+      case 'installments': return <InstallmentTracker townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
+      case 'commission': return <CommissionTracker townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
+      case 'expenses': return <EmployeeSalary townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'townAgents': return <TownAgents townName={townData.Town_Name} showToast={showToast} />;
-      case 'investors': return <InvestorDashboard townName={townData.Town_Name} showToast={showToast} />;
-      case 'construction': return <ConstructionDashboard townName={townData.Town_Name} showToast={showToast} />;
-      case 'dailyEntries': return <DailyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} />;
+      case 'investors': return <InvestorDashboard townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
+      case 'construction': return <ConstructionDashboard townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
+      case 'dailyEntries': return <DailyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} refreshKey={overviewRefreshKey} />;
       default: return <TownOverview town={townData} refreshKey={overviewRefreshKey} />;
     }
   };
@@ -431,7 +431,6 @@ export default function TownDashboard({
 
         {/* ─── Content Area ────────────────────────────────────────────── */}
         <div
-          key={activeTab}
           className="ui-town-content"
         >
           {/* Tab Header */}

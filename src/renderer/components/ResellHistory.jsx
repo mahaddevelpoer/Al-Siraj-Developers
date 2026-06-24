@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { HistoryIcon } from './Icons';
 
-export default function ResellHistory({ townName }) {
+export default function ResellHistory({ townName, refreshKey = 0 }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [townName, refreshKey]);
   const loadData = async () => {
     if (!window.api) { setLoading(false); return; }
     try { const d = await window.api.getResellHistory(); if (Array.isArray(d)) setHistory(d); } catch(e) {}

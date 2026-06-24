@@ -9,7 +9,7 @@ import { IconCalendar, IconIncome, IconExpenseType, IconNote, IconMoney, IconWar
 const fmtPkr = (val) => `PKR ${(val || 0).toLocaleString()}`;
 
 // modalStep: null | 'choose' | 'otp' | 'dashboard'
-export default function DailyLedger({ townName, showToast, onEntryAdded }) {
+export default function DailyLedger({ townName, showToast, onEntryAdded, refreshKey = 0 }) {
   const { userRole, user } = useAuth();
 
   const [activeTab, setActiveTab] = useState('income');
@@ -29,7 +29,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded }) {
   const todayStr = new Date().toISOString().split('T')[0];
   const isNonToday = userRole === 'accountant' && selectedDate !== todayStr;
 
-  useEffect(() => { loadEntries(); }, [selectedDate, townName]);
+  useEffect(() => { loadEntries(); }, [selectedDate, townName, refreshKey]);
 
   // Realtime: CEO approved/rejected from Dashboard
   useEffect(() => {
@@ -95,7 +95,8 @@ export default function DailyLedger({ townName, showToast, onEntryAdded }) {
         appeal_type: isFuture ? 'future_daily_entry' : 'backdated_daily_entry',
         entity_type: 'daily_entry',
         entity_id: 'pending_' + Date.now(),
-        requested_data: pendingPayload,
+        town_name: townName,
+        requested_data: { ...pendingPayload, townName },
         status: 'pending',
       }]).select().single();
       if (error) throw error;
@@ -116,7 +117,8 @@ export default function DailyLedger({ townName, showToast, onEntryAdded }) {
         appeal_type: isFuture ? 'future_daily_entry' : 'backdated_daily_entry',
         entity_type: 'daily_entry',
         entity_id: 'pending_' + Date.now(),
-        requested_data: pendingPayload,
+        town_name: townName,
+        requested_data: { ...pendingPayload, townName },
         status: 'pending',
       }]).select().single();
       if (error) throw error;

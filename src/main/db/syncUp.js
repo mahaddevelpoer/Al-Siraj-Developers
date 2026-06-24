@@ -136,6 +136,7 @@ async function performFullSyncUp(reportProgress, options = {}) {
     ['construction_payments', 'Construction_Payments.xlsx'],
     ['commissions', 'Commissions.xlsx'],
     ['commission_receipts', 'Commission_Receipts.xlsx'],
+    ['collection_payments', 'Collection_Payments.xlsx'],
     ['receipt_archive', 'Receipt_Archive.xlsx'],
     ['money_ledger', 'Money_Ledger.xlsx'],
     ['town_financial_summary', 'Town_Financial_Summary.xlsx'],

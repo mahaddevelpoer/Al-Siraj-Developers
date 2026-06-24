@@ -2051,8 +2051,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
     final rows = List<Map<String, dynamic>>.from(data);
     return rows
         .where(
-          (row) =>
-              '${row['review_status'] ?? 'pending'}'.toLowerCase() == _filter,
+          (row) => reviewStatusOf(row) == _filter,
         )
         .toList();
   }
@@ -2080,10 +2079,26 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   Future<void> _mark(Map<String, dynamic> row, String status) async {
     setState(() => _reviewing = true);
     try {
-      final result = await supabase.rpc(
-        'ceo_review_daily_entry',
-        params: {'entry_uuid': row['id'], 'new_status': status},
-      );
+      dynamic result;
+      final uuid = row['id'] ?? row['uuid'];
+      final entryId = rowVal(row, 'Entry_ID') ?? row['entry_id'];
+      if (uuid != null && '$uuid'.trim().isNotEmpty) {
+        result = await supabase.rpc(
+          'ceo_review_daily_entry',
+          params: {'entry_uuid': uuid, 'new_status': status},
+        );
+      } else if (entryId != null && '$entryId'.trim().isNotEmpty) {
+        await supabase
+            .from('daily_entries')
+            .update({
+              'review_status': status,
+              'reviewed_at': DateTime.now().toIso8601String(),
+            })
+            .eq('entry_id', '$entryId');
+        result = {'message': 'updated'};
+      } else {
+        throw Exception('Entry id missing in cloud row');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2092,7 +2107,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
         );
         setState(
           () => _items = (_items ?? [])
-              .where((item) => item['id'] != row['id'])
+              .where((item) => dailyEntryStableKey(item) != dailyEntryStableKey(row))
               .toList(),
         );
       }
@@ -2157,15 +2172,15 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
                   index: i,
                   child: InfoCard(
                     icon: badgeForStatus(
-                      '${rows[i]['review_status'] ?? 'pending'}',
+                      reviewStatusOf(rows[i]),
                     ),
-                    status: '${rows[i]['review_status'] ?? 'pending'}',
+                    status: reviewStatusOf(rows[i]),
                     title:
                         '${rowVal(rows[i], 'Type') ?? 'Entry'} - ${money.format(asNum(rowVal(rows[i], 'Amount')))}',
                     subtitle:
                         '${rowVal(rows[i], 'Town_Name') ?? 'No town'} - ${rowVal(rows[i], 'Category') ?? 'General'}',
                     meta:
-                        '${formatDate(rowVal(rows[i], 'Date'))} - ${rows[i]['review_status'] ?? 'pending'}',
+                        '${formatDate(rowVal(rows[i], 'Date'))} - ${reviewStatusOf(rows[i])}',
                     body: '${rowVal(rows[i], 'Description') ?? ''}',
                     actions: [
                       if (_filter == 'pending') ...[
@@ -2217,7 +2232,12 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
         .order('created_at', ascending: false);
     final rows = List<Map<String, dynamic>>.from(
       data,
-    ).where((row) => '${rowVal(row, 'Date')}'.startsWith(day)).toList();
+    ).where((row) {
+      final status = reviewStatusOf(row);
+      return '${rowVal(row, 'Date')}'.startsWith(day) &&
+          status != 'pending' &&
+          status != 'rejected';
+    }).toList();
     final townNames =
         rows
             .map((row) => '${rowVal(row, 'Town_Name')}'.trim())
@@ -2523,7 +2543,7 @@ class _LedgerEntryCard extends StatelessWidget {
       subtitle:
           '${rowVal(row, 'Town_Name') ?? 'No town'} - ${rowVal(row, 'Category') ?? 'General'}',
       meta:
-          '${formatDate(rowVal(row, 'Date'))} - ${row['review_status'] ?? 'pending'}',
+          '${formatDate(rowVal(row, 'Date'))} - ${reviewStatusOf(row)}',
       body: '${rowVal(row, 'Description') ?? ''}',
     );
   }
@@ -3831,6 +3851,26 @@ String normalizeStatus(dynamic status) {
   final clean = '${status ?? 'pending'}'.trim().toLowerCase();
   if (clean == 'approved' || clean == 'rejected') return clean;
   return 'pending';
+}
+
+String reviewStatusOf(Map<String, dynamic> row) {
+  final raw = rowVal(row, 'Review_Status') ??
+      row['review_status'] ??
+      row['status'] ??
+      row['Status'];
+  final text = '${raw ?? ''}'.trim().toLowerCase();
+  if (text.isEmpty || text == 'null') return 'approved';
+  return normalizeStatus(raw);
+}
+
+String dailyEntryStableKey(Map<String, dynamic> row) {
+  final value = row['id'] ??
+      row['uuid'] ??
+      rowVal(row, 'Entry_ID') ??
+      row['entry_id'] ??
+      rowVal(row, 'Reference') ??
+      '';
+  return '$value';
 }
 
 String titleForTable(dynamic table) {

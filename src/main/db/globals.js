@@ -96,11 +96,11 @@ async function getInstallments() {
   return await readExcelFile(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data');
 }
 
-function computeDueInstallments(allInstallments) {
+function computeDueInstallments(allInstallments, { leadDays = 7 } = {}) {
   const today = new Date().toISOString().split('T')[0];
-  const twoDaysAhead = (() => {
+  const leadDate = (() => {
     const d = new Date();
-    d.setDate(d.getDate() + 2);
+    d.setDate(d.getDate() + Math.max(0, parseInt(leadDays, 10) || 0));
     return d.toISOString().split('T')[0];
   })();
 
@@ -109,8 +109,7 @@ function computeDueInstallments(allInstallments) {
     if (status === 'paid') return false;
     const due = i.Due_Date || '';
     if (!due) return false;
-    // Show only when overdue OR within 2 days before due date
-    return due < today || (due >= today && due <= twoDaysAhead) || status === 'overdue';
+    return due < today || (due >= today && due <= leadDate) || status === 'overdue';
   }).map(i => {
     const due = i.Due_Date || '';
     const status = (i.Status || '').toLowerCase();
@@ -126,7 +125,7 @@ function computeDueInstallments(allInstallments) {
 
 async function getDueInstallments() {
   const all = await getInstallments();
-  return computeDueInstallments(all);
+  return computeDueInstallments(all, { leadDays: 7 });
 }
 
 /**
@@ -136,14 +135,10 @@ async function getDueInstallments() {
  *
  * Returns only notifications that were newly inserted (so caller can show OS notification).
  */
-async function upsertDueInstallmentNotifications({ leadDays = 2 } = {}) {
-  // keep behavior aligned with computeDueInstallments() (today + up to 2 days + overdue)
+async function upsertDueInstallmentNotifications({ leadDays = 7 } = {}) {
   const allInstallments = await getInstallments();
   const today = new Date().toISOString().split('T')[0];
-
-  // Reuse computeDueInstallments but ensure it's based on leadDays=2 behavior.
-  // Existing computeDueInstallments currently hardcodes 2 days ahead, so keep it.
-  const due = computeDueInstallments(allInstallments);
+  const due = computeDueInstallments(allInstallments, { leadDays });
 
   const filePath = path.join(getGlobalsPath(), 'Notifications_Log.xlsx');
   const existing = await readExcelFile(filePath, 'Data');
@@ -216,15 +211,25 @@ async function upsertDueInstallmentNotifications({ leadDays = 2 } = {}) {
 async function markInstallmentPaid(data) {
   const { Tracker_ID } = data;
   const filePath = path.join(getGlobalsPath(), 'Installments_Tracker.xlsx');
+  await ensureSheetColumns(filePath, 'Data', ['Receipt_Number', 'Paid_By', 'Payee_Name']);
   const all = await readExcelFile(filePath, 'Data');
   const item = all.find(i => i.Tracker_ID === Tracker_ID);
   if (!item) throw new Error('Installment not found');
+  if (String(item.Status || '').toLowerCase() === 'paid') {
+    return { success: true, alreadyPaid: true, receiptNumber: item.Receipt_Number || '' };
+  }
+
+  const paidDate = data.Paid_Date || new Date().toISOString().split('T')[0];
+  const receiptNumber = data.Receipt_Number || item.Receipt_Number || `INS-${String(item.Tracker_ID || Date.now()).replace(/[^a-zA-Z0-9]/g, '').slice(-10)}-${paidDate.replace(/-/g, '')}`;
 
   await updateExcelRow(filePath, 'Data', item._rowNumber, {
     Status: 'Paid',
-    Paid_Date: new Date().toISOString().split('T')[0],
+    Paid_Date: paidDate,
     Received_Amount: item.Monthly_Amount,
     Remaining_Amount: 0,
+    Receipt_Number: receiptNumber,
+    Paid_By: data.Paid_By || data.createdBy || 'Accountant',
+    Payee_Name: data.Payee_Name || item.Customer_Name || '',
   });
 
   const salesPath = path.join(getGlobalsPath(), 'All_Sales.xlsx');
@@ -292,13 +297,45 @@ async function markInstallmentPaid(data) {
     direction: 'income',
     amount: item.Monthly_Amount,
     townName: item.Town_Name,
-    date: new Date().toISOString().split('T')[0],
+    date: paidDate,
     partyName: item.Customer_Name,
     description: `${item.Type || 'Property'} ${item.Plot_Shop_Number || ''} installment ${item.Month_Number || ''}`,
+    receiptNumber,
     createdBy: item.Agent_Name || 'System',
   });
 
-  return { success: true };
+  const receiptPayload = {
+    receiptNumber,
+    receiptType: 'installment_payment',
+    townName: item.Town_Name,
+    date: paidDate,
+    amount: parseFloat(item.Monthly_Amount) || 0,
+    propertyType: item.Type || '',
+    propertyNumber: item.Plot_Shop_Number || '',
+    customerName: item.Customer_Name || '',
+    payeeSignature: item.Customer_Name || 'Payee',
+    accountantSignature: data.Paid_By || data.createdBy || 'Accountant',
+    installmentNumber: item.Month_Number || '',
+    totalInstallments: item.Total_Months || '',
+    dueDate: item.Due_Date || '',
+  };
+  let receiptArchive = null;
+  try {
+    const { saveReceiptArchive } = require('./businessExtras');
+    receiptArchive = await saveReceiptArchive({
+      Receipt_ID: `REC-${receiptNumber}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120),
+      Receipt_Number: receiptNumber,
+      Receipt_Type: 'installment_payment',
+      Town_Name: item.Town_Name,
+      Entity_ID: item.Tracker_ID,
+      Entity_Name: item.Customer_Name || '',
+      Amount: parseFloat(item.Monthly_Amount) || 0,
+      Receipt_Date: paidDate,
+      Payload_JSON: receiptPayload,
+    });
+  } catch (_) {}
+
+  return { success: true, receiptNumber, receipt: receiptPayload, receiptArchive };
 }
 
 async function extendInstallmentDate(data) {
@@ -756,9 +793,10 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
   await ensureCollectionPaymentsFile(historyPath);
   await ensureSheetColumns(historyPath, 'Data', ['Payment_ID','Sale_ID','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes']);
   const paymentId = generateId();
-  await appendToExcel(historyPath, 'Data', {
+  const paymentRow = {
     Payment_ID: paymentId,
     Sale_ID: item.Sale_ID || saleId || `${item.Type}|${item.Plot_Shop_Number}|${item.Town_Name}`,
+    Sale_Code: item.Sale_ID || saleId || `${item.Type}|${item.Plot_Shop_Number}|${item.Town_Name}`,
     Type: item.Type || type,
     Plot_Shop_Number: item.Plot_Shop_Number || plotShopNumber,
     Town_Name: item.Town_Name || townName,
@@ -771,7 +809,8 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
     Payment_Date: new Date().toISOString().split('T')[0],
     Payment_Method: paymentMethod || 'Cash',
     Notes: notes || '',
-  });
+  };
+  await appendToExcel(historyPath, 'Data', paymentRow);
   await recordMoneyEvent({
     sourceType: 'collection_payment',
     sourceId: paymentId,
@@ -788,7 +827,7 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
     await upsertCommissionForSaleLocal({ ...item, Received_Amount: newReceived, Remaining_Amount: newRemaining });
   }
 
-  return { newReceived, newRemaining };
+  return { newReceived, newRemaining, payment: paymentRow };
 }
 
 module.exports = { getInstallments, getDueInstallments, upsertDueInstallmentNotifications, markInstallmentPaid, extendInstallmentDate, addEmployee, getEmployees, deleteEmployee, getNotifications, dismissNotification, getDashboardStats, getAllSales, getAllExpenses, getCeoExpenses, getCeoSalary, addCeoSalary, deleteCeoSalary, getResellHistory, getProfitLossReport, recordSalaryPayment, getSalaryRecords, getTownPerformance, getInstallmentProperties, getPropertyInstallments, recordCollectionPaymentLocal };

@@ -4,7 +4,7 @@ import OfficialReceipt from './OfficialReceipt';
 
 const fmt = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
 
-export default function InvestorDashboard({ townName, showToast }) {
+export default function InvestorDashboard({ townName, showToast, refreshKey = 0 }) {
   const [investors, setInvestors] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [form, setForm] = useState({ Investor_Name: '', Phone_Number: '', CNIC: '', Address: '', Notes: '' });
@@ -22,7 +22,7 @@ export default function InvestorDashboard({ townName, showToast }) {
     setInvestors(Array.isArray(inv) ? inv : []);
     setTransactions(Array.isArray(ledger) ? ledger : []);
   };
-  useEffect(() => { load(); }, [townName]);
+  useEffect(() => { load(); }, [townName, refreshKey]);
 
   const u = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
   const tu = (key) => (e) => setTx(f => ({ ...f, [key]: e.target.value }));

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CalendarIcon, PlotIcon, ShopIcon, UsersIcon, BellIcon } from './Icons';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function InstallmentTracker({ showToast, townName, panel }) {
+export default function InstallmentTracker({ showToast, townName, panel, refreshKey = 0 }) {
   const { userProfile } = useAuth();
   const [installments, setInstallments] = useState([]);
   const [filter, setFilter] = useState('all');
@@ -11,7 +11,7 @@ export default function InstallmentTracker({ showToast, townName, panel }) {
   const [extendModal, setExtendModal] = useState(null); // item being extended
   const [extendDate, setExtendDate] = useState('');
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [townName, refreshKey]);
   const loadData = async () => {
     if (!window.api) { setLoading(false); return; }
     try { const d = await window.api.getInstallments(); if (Array.isArray(d)) setInstallments(d); } catch(e) {}

@@ -240,6 +240,7 @@ export default function AuthScreen({ onLogin }) {
               appeal_type: 'agent_registration',
               entity_type: 'agent',
               entity_id: userId,
+              town_name: regTown,
               requested_data: {
                 townName: regTown,
                 agent_town: regTown,
@@ -259,6 +260,7 @@ export default function AuthScreen({ onLogin }) {
         } else {
           if (otpRecord?.id) {
             await supabase.from('appeals').update({
+              town_name: regTown,
               requested_data: {
                 townName: regTown,
                 agent_town: regTown,

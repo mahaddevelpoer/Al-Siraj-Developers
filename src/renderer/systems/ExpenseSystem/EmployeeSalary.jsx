@@ -29,6 +29,7 @@ function SalaryIncreaseModal({ employee, townName, onClose, showToast }) {
         appeal_type: 'salary_increase',
         entity_type: 'employee',
         entity_id: String(employee.id),
+        town_name: townName,
         status: 'pending',
         reason,
         requested_data: {
@@ -134,6 +135,7 @@ function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess
         appeal_type: 'delete_employee',
         entity_type: 'employee',
         entity_id: String(employee.id),
+        town_name: townName,
         status: 'pending',
         reason: `Delete employee: ${employee.name} (${employee.designation || 'Employee'})`,
         requested_data: {
@@ -237,6 +239,7 @@ function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess
         appeal_type: 'delete_employee',
         entity_type: 'employee',
         entity_id: String(employee.id),
+        town_name: townName,
         status: 'pending',
         reason: `Delete employee: ${employee.name} (${employee.designation || 'Employee'})`,
         requested_data: {
@@ -1074,7 +1077,7 @@ function AdvanceSalariesList({ townName, showToast }) {
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
-export default function EmployeeSalary({ townName, showToast }) {
+export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) {
   const [employees, setEmployees] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [showPayModal, setShowPayModal] = useState(false);
@@ -1096,7 +1099,7 @@ export default function EmployeeSalary({ townName, showToast }) {
 
   useEffect(() => {
     loadEmployees();
-  }, [townName]);
+  }, [townName, refreshKey]);
 
   const loadEmployees = async () => {
     setLoadingEmps(true);

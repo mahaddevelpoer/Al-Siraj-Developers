@@ -372,16 +372,25 @@ function AppInner() {
       channels.push(ch);
     }
 
-    if (userRole === 'ceo') {
+    if (userRole === 'accountant') {
+      const accountantTown = userProfile?.town_name || userProfile?.town_id || '';
       const ch = supabase
         .channel('global-installments')
         .on('postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'installments' },
+          { event: '*', schema: 'public', table: 'installments' },
           (payload) => {
-            if (payload.new?.Status === 'overdue') {
+            const row = payload.new || {};
+            const status = String(row.Status || row.status || '').toLowerCase();
+            const town = row.Town_Name || row.town_name || '';
+            const dueDate = row.Due_Date || row.due_date || '';
+            const lead = new Date();
+            lead.setDate(lead.getDate() + 7);
+            const leadDate = lead.toISOString().split('T')[0];
+            const inWindow = dueDate && dueDate <= leadDate;
+            if ((!accountantTown || town === accountantTown) && status !== 'paid' && inWindow) {
               window.api.showNotification(
-                'Installment Overdue',
-                payload.new.Plot_Shop_Number + ' - ' + payload.new.Town_Name + ' is overdue!'
+                status === 'overdue' ? 'Installment Overdue' : 'Installment Reminder',
+                `${row.Plot_Shop_Number || row.plot_shop_number || 'Property'} - ${town || 'Town'} due on ${dueDate}`
               );
             }
           }
@@ -430,7 +439,7 @@ function AppInner() {
     return () => {
       channels.forEach(ch => supabase.removeChannel(ch));
     };
-  }, [user?.id, user?.email, userRole, userProfile?.full_name]);
+  }, [user?.id, user?.email, userRole, userProfile?.full_name, userProfile?.town_name, userProfile?.town_id]);
 
   // Keep startup visually clean while auth is checked.
   if (!ready) {

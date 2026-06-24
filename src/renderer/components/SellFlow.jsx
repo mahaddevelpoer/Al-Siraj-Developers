@@ -724,6 +724,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
             appeal_type: 'custom_installment_plan',
             entity_type: form.type,
             entity_id: form.number,
+            town_name: form.townName,
             requested_data: {
               town: form.townName,
               customer_name: form.Customer_Name,
@@ -853,6 +854,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         appeal_type: 'date_change_otp',
         entity_type: form.type,
         entity_id: form.number,
+        town_name: form.townName,
         requested_data: { newDate: requestedDate, town: form.townName, townName: form.townName },
         reason: `Date change: ${form.Sell_Date} → ${requestedDate}`,
         status: 'pending',
@@ -951,6 +953,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         appeal_type: 'date_change',
         entity_type: form.type,
         entity_id: form.number,
+        town_name: form.townName,
         requested_data: { newDate: requestedDate, town: form.townName, townName: form.townName },
         reason: dateChangeReason,
         status: 'pending',

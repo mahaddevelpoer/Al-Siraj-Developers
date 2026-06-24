@@ -16,6 +16,7 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
     setError('');
 
     try {
+      const townName = requestedData?.townName || requestedData?.town || currentData?.Town_Name || currentData?.town_name || '';
       const { error: insertError } = await supabase
         .from('appeals')
         .insert([{
@@ -24,8 +25,9 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
           appeal_type: appealType,
           entity_type: entityType,
           entity_id: entityId,
+          town_name: townName,
           original_data: currentData,
-          requested_data: requestedData,
+          requested_data: { ...requestedData, townName },
           reason,
           status: 'pending',
         }]);

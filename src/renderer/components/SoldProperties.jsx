@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { PlotIcon, ShopIcon, SoldIcon, ClockIcon } from './Icons';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function SoldProperties({ showToast, loadNotifications, townName, panel }) {
+export default function SoldProperties({ showToast, loadNotifications, townName, panel, refreshKey = 0 }) {
   const { userProfile } = useAuth();
   const agentName = userProfile?.full_name || '';
   const [data, setData] = useState({ plots: [], shops: [] });
@@ -16,7 +16,7 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
   const [deliveryPhoto, setDeliveryPhoto] = useState(null);
   const [deliveryTarget, setDeliveryTarget] = useState(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [townName, refreshKey]);
   const loadData = async () => {
     if (!window.api) { setLoading(false); return; }
     try { const d = await window.api.getSoldProperties(); if (d && !d.error) setData(d); } catch(e) {}

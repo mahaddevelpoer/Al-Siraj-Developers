@@ -42,6 +42,7 @@ const UPSERT_CONFLICT = {
   construction_projects: 'project_id',
   construction_payments: 'payment_id',
   commission_receipts: 'receipt_id',
+  collection_payments: 'payment_id',
   receipt_archive: 'receipt_id',
   money_ledger: 'ledger_id',
   town_financial_summary: 'town_name',
@@ -332,7 +333,7 @@ async function getInstallmentsByProperty(type, number, townName) {
 }
 
 async function markInstallmentPaid(data) {
-  const { Tracker_ID, Paid_Date } = data;
+  const { Tracker_ID, Paid_Date, Receipt_Number } = data;
 
   // Get the installment record first
   const inst = await findOne('installments', { Tracker_ID });
@@ -344,7 +345,15 @@ async function markInstallmentPaid(data) {
   // Mark installment as paid
   await updateWhere('installments',
     { Tracker_ID },
-    { Status: 'paid', Paid_Date: paidDate, Received_Amount: paidAmount, Remaining_Amount: 0 }
+    {
+      Status: 'paid',
+      Paid_Date: paidDate,
+      Received_Amount: paidAmount,
+      Remaining_Amount: 0,
+      Receipt_Number: Receipt_Number || '',
+      Paid_By: data.Paid_By || data.Created_By || 'Accountant',
+      Payee_Name: inst.Customer_Name || '',
+    }
   );
 
   await recordMoneyEvent({
@@ -356,6 +365,7 @@ async function markInstallmentPaid(data) {
     date: paidDate,
     partyName: inst.Customer_Name || '',
     description: `${inst.Type || 'Property'} ${inst.Plot_Shop_Number || ''} installment ${inst.Month_Number || ''}`,
+    receiptNumber: Receipt_Number || '',
     createdBy: data.Created_By || 'Accountant',
     status: 'approved',
   });
@@ -862,13 +872,18 @@ async function getPendingAppeals(userId, appealType) {
 
 // ─── PENDING COLLECTIONS ────────────────────────────────────────
 
-async function recordCollectionPayment(saleId, amount, paymentMethod, notes) {
-  let { data: sale, error: findErr } = await supabase
-    .from('all_sales')
-    .select('*')
-    .eq('id', saleId)
-    .maybeSingle();
-  if (!sale && findErr) throw findErr;
+async function recordCollectionPayment(saleId, amount, paymentMethod, notes, paymentOverride = null) {
+  const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(saleId || ''));
+  let sale = null;
+  if (uuidLike) {
+    const { data, error: findErr } = await supabase
+      .from('all_sales')
+      .select('*')
+      .eq('id', saleId)
+      .maybeSingle();
+    if (!data && findErr) throw findErr;
+    sale = data;
+  }
   if (!sale) {
     const bySaleId = await supabase
       .from('all_sales')
@@ -908,8 +923,11 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes) {
     }).eq('id', prop.id);
   }
 
+  const localPaymentId = paymentOverride?.Payment_ID || paymentOverride?.payment_id || generateId();
   const paymentRecord = {
-    sale_id: saleId,
+    payment_id: localPaymentId,
+    sale_code: paymentOverride?.Sale_Code || paymentOverride?.Sale_ID || saleId || getRowVal(sale, 'Sale_ID') || '',
+    sale_id: sale.id || (uuidLike ? saleId : null),
     property_type: getRowVal(sale, 'Type'),
     plot_shop_number: getRowVal(sale, 'Plot_Shop_Number'),
     town_name: getRowVal(sale, 'Town_Name'),
@@ -917,16 +935,27 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes) {
     agent_name: getRowVal(sale, 'Agent_Name'),
     amount: parseFloat(amount),
     remaining_before: Math.max(0, total - currentReceived),
+    received_before: currentReceived,
+    received_after: newReceived,
     remaining_after: newRemaining,
-    payment_date: new Date().toISOString().split('T')[0],
+    payment_date: paymentOverride?.Payment_Date || paymentOverride?.payment_date || new Date().toISOString().split('T')[0],
     payment_method: paymentMethod || 'Cash',
     notes: notes || '',
   };
 
-  const { error: insErr } = await supabase
-    .from('collection_payments')
-    .insert(paymentRecord);
-  if (insErr) throw insErr;
+  await insert('collection_payments', paymentRecord);
+  await recordMoneyEvent({
+    sourceType: 'collection_payment',
+    sourceId: localPaymentId,
+    direction: 'income',
+    amount: parseFloat(amount),
+    townName: getRowVal(sale, 'Town_Name'),
+    date: paymentRecord.payment_date,
+    partyName: getRowVal(sale, 'Customer_Name') || '',
+    description: `${getRowVal(sale, 'Type') || 'Property'} ${getRowVal(sale, 'Plot_Shop_Number') || ''} collection received`,
+    createdBy: getRowVal(sale, 'Agent_Name') || 'System',
+    status: 'approved',
+  });
 
   // If fully paid → auto-create commission record
   if (newRemaining <= 0) {
