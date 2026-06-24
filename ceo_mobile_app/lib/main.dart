@@ -8,7 +8,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:lottie/lottie.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
@@ -197,12 +196,15 @@ class CeoMobileApp extends StatelessWidget {
         ),
       ),
       home: const AuthGate(),
+      scrollBehavior: const SmoothAppScrollBehavior(),
       builder: (context, child) {
         final media = MediaQuery.of(context);
-        final scale = media.textScaler
-            .scale(1)
-            .clamp(0.9, media.size.width < 380 ? 1.08 : 1.18)
-            .toDouble();
+        final maxScale = media.size.width < 360
+            ? 1.0
+            : media.size.width < 420
+            ? 1.06
+            : 1.14;
+        final scale = media.textScaler.scale(1).clamp(0.9, maxScale).toDouble();
         return MediaQuery(
           data: media.copyWith(textScaler: TextScaler.linear(scale)),
           child: ResponsiveBreakpoints.builder(
@@ -217,6 +219,23 @@ class CeoMobileApp extends StatelessWidget {
       },
     );
   }
+}
+
+class SmoothAppScrollBehavior extends MaterialScrollBehavior {
+  const SmoothAppScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+  }
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+  };
 }
 
 class AuthGate extends StatefulWidget {
@@ -467,38 +486,15 @@ class PremiumBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        const ColoredBox(color: kBg, child: SizedBox.expand()),
-        Positioned(
-          top: -110,
-          right: -95,
-          child: Container(
-            width: 260,
-            height: 260,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [kPrimary.withValues(alpha: .18), Colors.transparent],
-              ),
-            ),
-          ),
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFF9FAFF), kBg],
         ),
-        Positioned(
-          bottom: 80,
-          left: -120,
-          child: Container(
-            width: 240,
-            height: 240,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [kSecondary.withValues(alpha: .14), Colors.transparent],
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
+      child: SizedBox.expand(),
     );
   }
 }
@@ -520,28 +516,24 @@ class GlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final card = PressableScale(
       onTap: onTap,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            padding: padding,
-            decoration: BoxDecoration(
-              color: kSurface.withValues(alpha: .96),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withValues(alpha: .8)),
-              boxShadow: [
-                BoxShadow(
-                  color: kPrimary.withValues(alpha: .08),
-                  blurRadius: 32,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: child,
+      child: RepaintBoundary(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          padding: padding,
+          decoration: BoxDecoration(
+            color: kSurface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: kBorder),
+            boxShadow: [
+              BoxShadow(
+                color: kPrimary.withValues(alpha: .055),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
+          child: child,
         ),
       ),
     );
@@ -701,6 +693,7 @@ class _CeoShellState extends State<CeoShell> {
   final List<dynamic> _channels = [];
   StreamSubscription<RemoteMessage>? _foregroundPushSub;
   StreamSubscription<RemoteMessage>? _openedPushSub;
+  Timer? _liveRefreshTimer;
 
   @override
   void initState() {
@@ -779,6 +772,13 @@ class _CeoShellState extends State<CeoShell> {
   }
 
   void _subscribeToLiveAlerts() {
+    void scheduleLiveRefresh() {
+      if (_liveRefreshTimer?.isActive == true) return;
+      _liveRefreshTimer = Timer(const Duration(milliseconds: 900), () {
+        if (mounted) setState(() {});
+      });
+    }
+
     final channel = supabase
         .channel('ceo-mobile-live-alerts')
         .onPostgresChanges(
@@ -786,7 +786,7 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'appeals',
           callback: (payload) {
-            if (mounted) setState(() {});
+            scheduleLiveRefresh();
           },
         )
         .onPostgresChanges(
@@ -794,7 +794,7 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'all_sales',
           callback: (payload) {
-            if (mounted) setState(() {});
+            scheduleLiveRefresh();
           },
         )
         .onPostgresChanges(
@@ -802,7 +802,7 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'properties',
           callback: (payload) {
-            if (mounted) setState(() {});
+            scheduleLiveRefresh();
           },
         )
         .onPostgresChanges(
@@ -810,7 +810,7 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'installments',
           callback: (payload) {
-            if (mounted) setState(() {});
+            scheduleLiveRefresh();
           },
         )
         .onPostgresChanges(
@@ -818,7 +818,7 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'expenses',
           callback: (payload) {
-            if (mounted) setState(() {});
+            scheduleLiveRefresh();
           },
         )
         .onPostgresChanges(
@@ -826,7 +826,7 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'notifications',
           callback: (payload) {
-            if (mounted) setState(() {});
+            scheduleLiveRefresh();
           },
         )
         .onPostgresChanges(
@@ -834,7 +834,7 @@ class _CeoShellState extends State<CeoShell> {
           schema: 'public',
           table: 'daily_entries',
           callback: (payload) {
-            if (mounted) setState(() {});
+            scheduleLiveRefresh();
           },
         )
         .subscribe((status, error) {
@@ -851,6 +851,7 @@ class _CeoShellState extends State<CeoShell> {
   @override
   void dispose() {
     selectedTabNotifier.removeListener(_applySelectedTab);
+    _liveRefreshTimer?.cancel();
     _foregroundPushSub?.cancel();
     _openedPushSub?.cancel();
     for (final channel in _channels) {
@@ -959,6 +960,8 @@ class PremiumBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final showLabel = width >= 390;
     return SafeArea(
       top: false,
       child: Padding(
@@ -986,7 +989,7 @@ class PremiumBottomNav extends StatelessWidget {
                 children: [
                   for (var i = 0; i < items.length; i++)
                     Expanded(
-                      flex: currentIndex == i ? 14 : 10,
+                      flex: currentIndex == i && showLabel ? 14 : 10,
                       child: PressableScale(
                         onTap: () => onTap(i),
                         child: AnimatedContainer(
@@ -1022,17 +1025,28 @@ class PremiumBottomNav extends StatelessWidget {
                                   AnimatedSize(
                                     duration: const Duration(milliseconds: 220),
                                     curve: Curves.easeOutCubic,
-                                    child: currentIndex == i
+                                    child: currentIndex == i && showLabel
                                         ? Padding(
                                             padding: const EdgeInsets.only(
                                               left: 7,
                                             ),
-                                            child: Text(
-                                              items[i].$2,
-                                              style: const TextStyle(
-                                                color: kPrimary,
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 12,
+                                            child: ConstrainedBox(
+                                              constraints: const BoxConstraints(
+                                                maxWidth: 72,
+                                              ),
+                                              child: FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                child: Text(
+                                                  items[i].$2,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: kPrimary,
+                                                    fontWeight: FontWeight.w900,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
                                               ),
                                             ),
                                           )
@@ -1240,7 +1254,7 @@ Future<List<TownPulse>> loadTownPulses() async {
   }).toList()..sort((a, b) => a.name.compareTo(b.name));
 }
 
-class OverviewPage extends StatelessWidget {
+class OverviewPage extends StatefulWidget {
   const OverviewPage({
     super.key,
     this.pushStatus = '',
@@ -1249,8 +1263,21 @@ class OverviewPage extends StatelessWidget {
   final String pushStatus;
   final String realtimeStatus;
 
+  @override
+  State<OverviewPage> createState() => _OverviewPageState();
+}
+
+class _OverviewPageState extends State<OverviewPage> {
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
   Future<Map<String, dynamic>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 220));
     final towns = await loadTownPulses();
     return {
       'towns': towns,
@@ -1263,12 +1290,18 @@ class OverviewPage extends StatelessWidget {
     };
   }
 
+  Future<void> _refresh() async {
+    final next = _load();
+    setState(() => _future = next);
+    await next;
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
-      onRefresh: () async => (context as Element).markNeedsBuild(),
+      onRefresh: _refresh,
       child: FutureBuilder<Map<String, dynamic>>(
-        future: _load(),
+        future: _future,
         builder: (context, snap) {
           final d = snap.data;
           final towns =
@@ -1282,8 +1315,8 @@ class OverviewPage extends StatelessWidget {
               ),
               StatusStrip(
                 items: [
-                  pushStatus,
-                  realtimeStatus,
+                  widget.pushStatus,
+                  widget.realtimeStatus,
                 ].where((e) => e.trim().isNotEmpty).toList(),
               ),
               MetricGrid(
@@ -1481,15 +1514,34 @@ class MiniValueChip extends StatelessWidget {
   }
 }
 
-class TownsOverviewPage extends StatelessWidget {
+class TownsOverviewPage extends StatefulWidget {
   const TownsOverviewPage({super.key});
+
+  @override
+  State<TownsOverviewPage> createState() => _TownsOverviewPageState();
+}
+
+class _TownsOverviewPageState extends State<TownsOverviewPage> {
+  late Future<List<TownPulse>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = loadTownPulses();
+  }
+
+  Future<void> _refresh() async {
+    final next = loadTownPulses();
+    setState(() => _future = next);
+    await next;
+  }
 
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
-      onRefresh: () async => (context as Element).markNeedsBuild(),
+      onRefresh: _refresh,
       child: FutureBuilder<List<TownPulse>>(
-        future: loadTownPulses(),
+        future: _future,
         builder: (context, snap) {
           final towns = snap.data ?? const <TownPulse>[];
           return PremiumScrollView(
@@ -2751,6 +2803,9 @@ class StatusStrip extends StatelessWidget {
         children: items
             .map(
               (item) => Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width - 48,
+                ),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
                   vertical: 7,
@@ -2762,6 +2817,8 @@ class StatusStrip extends StatelessWidget {
                 ),
                 child: Text(
                   item,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
@@ -2811,21 +2868,23 @@ class MetricGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final narrow = constraints.maxWidth < 360;
+        final columns = constraints.maxWidth < 430 ? 1 : 2;
+        final narrow = columns == 1;
+        final aspectRatio = narrow ? 2.0 : 0.86;
         return AnimationLimiter(
           child: GridView.count(
-            crossAxisCount: narrow ? 1 : 2,
+            crossAxisCount: columns,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: narrow ? 2.55 : 1.12,
+            childAspectRatio: aspectRatio,
             children: [
               for (var i = 0; i < metrics.length; i++)
                 AnimationConfiguration.staggeredGrid(
                   position: i,
                   duration: const Duration(milliseconds: 460),
-                  columnCount: narrow ? 1 : 2,
+                  columnCount: columns,
                   child: SlideAnimation(
                     verticalOffset: 22,
                     curve: Curves.easeOutCubic,
@@ -2837,13 +2896,13 @@ class MetricGrid extends StatelessWidget {
                           children: [
                             GradientIconBox(
                               icon: metrics[i].icon,
-                              size: 46,
+                              size: narrow ? 38 : 42,
                               colors: [
                                 metrics[i].color,
                                 metrics[i].color.withValues(alpha: .62),
                               ],
                             ),
-                            const Spacer(),
+                            SizedBox(height: narrow ? 12 : 18),
                             Text(
                               metrics[i].value,
                               maxLines: 1,
@@ -3119,18 +3178,16 @@ class EmptyBlock extends StatelessWidget {
       child: Center(
         child: Column(
           children: [
-            SizedBox(
-              width: 140,
-              height: 140,
-              child: Lottie.network(
-                'https://assets10.lottiefiles.com/packages/lf20_tutvdkg0.json',
-                fit: BoxFit.contain,
-                repeat: true,
-                errorBuilder: (_, __, ___) => const GradientIconBox(
-                  icon: Icons.inbox_rounded,
-                  size: 92,
-                  colors: [kSecondary, Color(0xFF31E6C5)],
-                ),
+            Container(
+              width: 112,
+              height: 112,
+              decoration: BoxDecoration(
+                color: kSecondary.withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(34),
+                border: Border.all(color: kSecondary.withValues(alpha: .22)),
+              ),
+              child: const Center(
+                child: VectorBadge(kind: BadgeKind.activity, size: 62),
               ),
             ),
             const SizedBox(height: 10),
@@ -3163,6 +3220,7 @@ class StatusPill extends StatelessWidget {
         : const Color(0xFFB45309);
     return Container(
       margin: const EdgeInsets.only(left: 8),
+      constraints: const BoxConstraints(maxWidth: 96),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
@@ -3171,6 +3229,8 @@ class StatusPill extends StatelessWidget {
       ),
       child: Text(
         clean,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: color,
           fontSize: 10,
@@ -3623,8 +3683,8 @@ class CeoNotificationService {
     const details = NotificationDetails(android: android);
     await _plugin.zonedSchedule(
       800200,
-      'Daily ledger receipt ready',
-      'Tap to view today\'s full income and expense report.',
+      'Daily receipt ledger is ready',
+      'Daily receipt ledger of all towns has been fully created.',
       _nextEightPm(),
       details,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
