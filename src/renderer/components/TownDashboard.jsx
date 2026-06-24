@@ -190,8 +190,8 @@ function TownOverview({ town, refreshKey = 0 }) {
       });
       if (res?.error) throw new Error(res.error);
       setReport(res.report);
-      await window.api.openReportFile?.(kind === 'excel' ? res.excelPath : res.htmlPath);
-      setReportMessage(`${kind === 'excel' ? 'Excel' : 'Print/PDF'} report ready`);
+      await window.api.openReportFile?.(kind === 'excel' ? res.excelPath : res.pdfPath || res.htmlPath);
+      setReportMessage(`${kind === 'excel' ? 'Excel' : 'PDF'} report ready`);
     } catch (e) {
       setReportMessage(e.message || 'Report export failed');
     } finally {
@@ -271,7 +271,7 @@ function TownOverview({ town, refreshKey = 0 }) {
             <input type="date" value={reportFrom} max={reportTo} onChange={(e) => setReportFrom(e.target.value)} style={{ height: 36, borderRadius: 10, border: '1px solid var(--border)', padding: '0 10px', background: '#fff', color: '#111827' }} />
             <label style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)' }}>To</label>
             <input type="date" value={reportTo} min={reportFrom} onChange={(e) => setReportTo(e.target.value)} style={{ height: 36, borderRadius: 10, border: '1px solid var(--border)', padding: '0 10px', background: '#fff', color: '#111827' }} />
-            <button className="btn btn-secondary" type="button" onClick={() => exportReport('print')} disabled={exporting || reportLoading}>Print / PDF</button>
+            <button className="btn btn-secondary" type="button" onClick={() => exportReport('pdf')} disabled={exporting || reportLoading}>PDF</button>
             <button className="btn btn-primary" type="button" onClick={() => exportReport('excel')} disabled={exporting || reportLoading}>Excel</button>
           </div>
         </div>

@@ -1,5 +1,5 @@
 const dataLayer = require('./db/dataLayer');
-const { shell } = require('electron');
+const { BrowserWindow, shell } = require('electron');
 const { addTown, getTowns, getTownDetails, getTownPrices, setTownPrices, addCeoExpense, deleteCeoExpense, editCeoExpense, updateTown, deleteTown } = require('./db/towns');
 const { addPlot, addShop, getPropertyFile, getAllPropertiesByTown, getAllProperties, sellProperty, updateFileStatus, resellProperty, getSoldProperties, cancelDeal } = require('./db/properties');
 const { getDailyEntries, addDailyEntry, deleteDailyEntry } = require('./db/dailyEntries');
@@ -42,6 +42,39 @@ function sendCloudDataRefreshed(detail = {}) {
   const win = getActiveWindow();
   if (win && !win.isDestroyed()) {
     try { win.webContents.send('cloud-data-refreshed', { at: new Date().toISOString(), ...detail }); } catch {}
+  }
+}
+
+async function renderHtmlReportToPdf(htmlPath) {
+  if (!htmlPath || !fs.existsSync(htmlPath)) throw new Error('Report HTML not found');
+  const pdfPath = htmlPath.replace(/\.html?$/i, '.pdf');
+  const win = new BrowserWindow({
+    show: false,
+    width: 1240,
+    height: 1754,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  try {
+    await win.loadFile(htmlPath);
+    const pdf = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      margins: {
+        marginType: 'custom',
+        top: 0.35,
+        bottom: 0.35,
+        left: 0.35,
+        right: 0.35,
+      },
+    });
+    fs.writeFileSync(pdfPath, pdf);
+    return pdfPath;
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
   }
 }
 
@@ -864,7 +897,9 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('export-town-ledger-report', async (_, params = {}) => {
     try {
       const town = scopedTown(params.townName, true);
-      return await exportTownLedgerReport({ ...params, townName: town });
+      const result = await exportTownLedgerReport({ ...params, townName: town });
+      const pdfPath = await renderHtmlReportToPdf(result.htmlPath);
+      return { ...result, pdfPath };
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('open-report-file', async (_, filePath) => {
