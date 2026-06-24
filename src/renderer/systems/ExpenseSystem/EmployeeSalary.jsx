@@ -494,7 +494,7 @@ function EmployeeCard({ emp, isSelected, onSelect, onSalaryIncrease, onGiveSalar
 }
 
 // ─── Salary Payment Panel ────────────────────────────────────────────────────
-function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
+function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved }) {
   const [month, setMonth] = useState(() => {
     const d = new Date();
     const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -637,7 +637,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
   };
 
   if (showReceipt && receiptData) {
-    return <OfficialReceipt data={receiptData} townName={townName} onClose={() => { setShowReceipt(false); onClose(); }} />;
+    return <OfficialReceipt data={receiptData} townName={townName} onClose={() => { setShowReceipt(false); onSaved?.(); onClose(); }} />;
   }
 
   return (
@@ -1146,6 +1146,7 @@ function AdvanceSalariesList({ townName, showToast }) {
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) {
   const [employees, setEmployees] = useState([]);
+  const [salaryRecords, setSalaryRecords] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [showPayModal, setShowPayModal] = useState(false);
   const [showSalaryIncreaseModal, setShowSalaryIncreaseModal] = useState(false);
@@ -1154,7 +1155,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
   const [loadingEmps, setLoadingEmps] = useState(true);
 
   // Sub-tabs state
-  const [activeTab, setActiveTab] = useState('employees'); // 'employees', 'history', 'advances'
+  const [activeTab, setActiveTab] = useState('employees'); // 'employees', 'ledgers', 'history', 'advances'
 
   // Deletion Appeal states
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -1166,6 +1167,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
 
   useEffect(() => {
     loadEmployees();
+    loadSalaryRecords();
   }, [townName, refreshKey]);
 
   const loadEmployees = async () => {
@@ -1184,6 +1186,48 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
     }
     setLoadingEmps(false);
   };
+
+  const loadSalaryRecords = async () => {
+    try {
+      const rows = await window.api.getSalaryRecords?.({ townName });
+      setSalaryRecords(Array.isArray(rows) ? rows : []);
+    } catch {
+      setSalaryRecords([]);
+    }
+  };
+
+  const salaryLedgers = employees.map((emp) => {
+    const empRows = salaryRecords.filter((row) =>
+      String(row.Name || row.employeeName || '').trim().toLowerCase() === String(emp.name || '').trim().toLowerCase()
+    );
+    const paid = empRows.reduce((sum, row) => {
+      const salaryPart = parseFloat(row.Salary_Paid_Amount);
+      return sum + (Number.isFinite(salaryPart) ? salaryPart : Math.max(0, (parseFloat(row.Amount) || 0) - (parseFloat(row.New_Advance_Given) || 0)));
+    }, 0);
+    const disbursed = empRows.reduce((sum, row) => sum + (parseFloat(row.Amount) || 0), 0);
+    const advances = empRows.reduce((sum, row) => sum + (parseFloat(row.New_Advance_Given) || 0), 0);
+    const latest = [...empRows].sort((a, b) => new Date(b.Date || b.date || 0) - new Date(a.Date || a.date || 0))[0];
+    const monthlySalary = parseFloat(latest?.Salary_Amount || emp.baseSalary) || 0;
+    const currentRemaining = Math.max(0, parseFloat(latest?.Salary_Remaining_After ?? monthlySalary) || 0);
+    return {
+      employee: emp,
+      rows: empRows,
+      paid,
+      disbursed,
+      advances,
+      monthlySalary,
+      currentRemaining,
+      lastPaid: latest?.Date || latest?.date || '',
+      lastMonth: latest?.Month || latest?.month || '',
+    };
+  });
+  const salaryTotals = salaryLedgers.reduce((acc, row) => ({
+    salaryBase: acc.salaryBase + row.monthlySalary,
+    paid: acc.paid + row.paid,
+    disbursed: acc.disbursed + row.disbursed,
+    advances: acc.advances + row.advances,
+    remaining: acc.remaining + row.currentRemaining,
+  }), { salaryBase: 0, paid: 0, disbursed: 0, advances: 0, remaining: 0 });
 
   const handleSalaryIncreaseClick = (emp) => {
     setSalaryIncreaseTarget(emp);
@@ -1240,6 +1284,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
           townName={townName}
           showToast={showToast}
           onClose={() => { setShowPayModal(false); setSelectedEmployee(null); }}
+          onSaved={() => { loadSalaryRecords(); loadEmployees(); }}
         />
       )}
       {showSalaryIncreaseModal && salaryIncreaseTarget && (
@@ -1288,6 +1333,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', marginBottom: 20, gap: 16 }}>
         {[
           { id: 'employees', label: 'Active Employees', icon: <IconWorker size={14} />, count: employees.length },
+          { id: 'ledgers', label: 'Employee Ledgers', icon: <IconFile size={14} />, count: salaryLedgers.filter(l => l.rows.length > 0).length },
           { id: 'history', label: 'Salary History', icon: <IconClipboard size={14} /> },
           { id: 'advances', label: 'Advance Salaries', icon: <IconBanknote size={14} /> }
         ].map(tab => (
@@ -1376,6 +1422,87 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
             </div>
           )}
         </>
+      )}
+
+      {activeTab === 'ledgers' && (
+        <div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12,
+            marginBottom: 18,
+          }}>
+            {[
+              { label: 'Monthly Salary Base', value: salaryTotals.salaryBase, color: '#1d4ed8' },
+              { label: 'Salary Paid', value: salaryTotals.paid, color: '#0f766e' },
+              { label: 'Cash Disbursed', value: salaryTotals.disbursed, color: '#059669' },
+              { label: 'Advance Salary', value: salaryTotals.advances, color: '#b45309' },
+              { label: 'Current Remaining', value: salaryTotals.remaining, color: salaryTotals.remaining > 0 ? '#dc2626' : '#0f766e' },
+            ].map((item) => (
+              <div key={item.label} style={{ padding: 16, background: '#fff', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{item.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: item.color, marginTop: 6 }}>PKR {item.value.toLocaleString()}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14 }}>
+            {salaryLedgers.map((ledger) => (
+              <div key={ledger.employee.id || ledger.employee.name} style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: 16, overflow: 'hidden' }}>
+                <div style={{ padding: 16, borderBottom: '1px solid var(--border-color)', background: 'linear-gradient(135deg, #eff6ff, #f8fafc)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)' }}>{ledger.employee.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{ledger.employee.designation || 'Employee'} • {ledger.rows.length} payment row{ledger.rows.length !== 1 ? 's' : ''}</div>
+                    </div>
+                    <button className="btn btn-success btn-sm" type="button" onClick={() => handlePayClick(ledger.employee)}>
+                      <IconMoney size={12} /> Pay
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+                    <div style={{ padding: 10, borderRadius: 10, background: '#fff', border: '1px solid #dbeafe' }}>
+                      <div style={{ fontSize: 10, color: '#1d4ed8', fontWeight: 900 }}>PAID</div>
+                      <b style={{ color: '#0f766e' }}>PKR {ledger.paid.toLocaleString()}</b>
+                    </div>
+                    <div style={{ padding: 10, borderRadius: 10, background: '#fff', border: '1px solid #fee2e2' }}>
+                      <div style={{ fontSize: 10, color: '#b91c1c', fontWeight: 900 }}>REMAINING</div>
+                      <b style={{ color: ledger.currentRemaining > 0 ? '#dc2626' : '#0f766e' }}>PKR {ledger.currentRemaining.toLocaleString()}</b>
+                    </div>
+                    <div style={{ padding: 10, borderRadius: 10, background: '#fff', border: '1px solid #fef3c7' }}>
+                      <div style={{ fontSize: 10, color: '#b45309', fontWeight: 900 }}>ADVANCE</div>
+                      <b style={{ color: '#b45309' }}>PKR {ledger.advances.toLocaleString()}</b>
+                    </div>
+                    <div style={{ padding: 10, borderRadius: 10, background: '#fff', border: '1px solid #e5e7eb' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 900 }}>LAST PAID</div>
+                      <b>{ledger.lastPaid || '-'}</b>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ padding: 12, maxHeight: 220, overflowY: 'auto' }}>
+                  {ledger.rows.length === 0 ? (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No ledger rows yet.</div>
+                  ) : (
+                    [...ledger.rows]
+                      .sort((a, b) => new Date(b.Date || b.date || 0) - new Date(a.Date || a.date || 0))
+                      .slice(0, 8)
+                      .map((row) => (
+                        <div key={row.Receipt_Number || `${row.Date}-${row.Amount}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 800 }}>{row.Month || '-'} • {row.Date || '-'}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{row.Receipt_Number || ''}</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 12, fontWeight: 900, color: '#0f766e' }}>PKR {(parseFloat(row.Salary_Paid_Amount || row.Amount) || 0).toLocaleString()}</div>
+                            {(parseFloat(row.New_Advance_Given) || 0) > 0 && <div style={{ fontSize: 10, color: '#b45309' }}>Advance PKR {(parseFloat(row.New_Advance_Given) || 0).toLocaleString()}</div>}
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {activeTab === 'history' && (

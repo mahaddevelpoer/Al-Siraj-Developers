@@ -8,6 +8,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [agentFilter, setAgentFilter] = useState('all');
+  const [selectedAgent, setSelectedAgent] = useState('all');
 
   useEffect(() => { loadData(); }, [townName, refreshKey]);
 
@@ -17,7 +18,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
       const [d, agents, commissionRes] = await Promise.all([
         window.api.getAllSales(),
         window.api.getTownAgents?.(townName),
-        window.api.getCommissions?.({ status: 'pending' }),
+        window.api.getCommissions?.({}),
       ]);
       if (Array.isArray(d)) setSales(d);
       setRegisteredAgents(Array.isArray(agents) ? agents : []);
@@ -86,6 +87,21 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
     agentSummary[agent].paid += paid;
     agentSummary[agent].remaining += Number.isFinite(remaining) ? remaining : Math.max(0, total - paid);
   }
+  const overallCommission = Object.values(agentSummary).reduce((acc, item) => ({
+    earned: acc.earned + (item.commission || 0),
+    paid: acc.paid + (item.paid || 0),
+    remaining: acc.remaining + (item.remaining || 0),
+    sales: acc.sales + (item.count || 0),
+  }), { earned: 0, paid: 0, remaining: 0, sales: 0 });
+  const selectedAgentName = selectedAgent === 'all'
+    ? (agentFilter !== 'all' ? agentFilter : Object.keys(agentSummary)[0])
+    : selectedAgent;
+  const selectedAgentSummary = agentSummary[selectedAgentName];
+  const selectedAgentSales = townFiltered.filter((s) => normalizeAgentName(s.Agent_Name) === selectedAgentName);
+  const selectedAgentCommissions = commissions.filter((c) =>
+    normalizeAgentName(c.agent_name || c.Agent_Name) === selectedAgentName &&
+    (!townName || String(c.Town_Name || c.town_name || '') === String(townName))
+  );
 
   return (
     <div>
@@ -104,9 +120,30 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
           <div className="card-value" style={{ color: 'var(--text-muted)' }}>{noCommission}</div>
         </div>
         <div className="stat-card red">
-          <div className="card-label">Total Commission Paid</div>
+          <div className="card-label">Visible Commission Earned</div>
           <div className="card-value loss">{fmt(totalCommission)}</div>
         </div>
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+        gap: 12,
+        marginBottom: 18,
+      }}>
+        {[
+          { label: 'Group Sales', value: overallCommission.sales, money: false, color: '#1d4ed8' },
+          { label: 'Group Earned', value: overallCommission.earned, money: true, color: '#b45309' },
+          { label: 'Group Paid', value: overallCommission.paid, money: true, color: '#0f766e' },
+          { label: 'Group Remaining', value: overallCommission.remaining, money: true, color: overallCommission.remaining > 0 ? '#dc2626' : '#0f766e' },
+        ].map((item) => (
+          <div key={item.label} style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{item.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: item.color, marginTop: 6 }}>
+              {item.money ? fmt(item.value) : item.value}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Agent Summary Cards */}
@@ -123,11 +160,20 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {Object.entries(agentSummary).map(([agent, data]) => {
-              const pending = commissions.find(c => normalizeAgentName(c.agent_name || c.Agent_Name) === agent && (!townName || String(c.Town_Name || c.town_name || '') === String(townName)));
+              const pending = commissions.find(c => {
+                const status = String(c.Status || c.status || 'pending').toLowerCase();
+                const total = parseFloat(c.Commission_Amount || c.commission_amount) || 0;
+                const paid = parseFloat(c.Paid_Amount || c.paid_amount) || 0;
+                const remaining = parseFloat(c.Remaining_Amount || c.remaining_amount) || Math.max(0, total - paid);
+                return normalizeAgentName(c.agent_name || c.Agent_Name) === agent &&
+                  (!townName || String(c.Town_Name || c.town_name || '') === String(townName)) &&
+                  (status === 'pending' || status === 'partial') &&
+                  remaining > 0;
+              });
               return (
               <div
                 key={agent}
-                onClick={() => setAgentFilter(agentFilter === agent ? 'all' : agent)}
+                onClick={() => { setAgentFilter(agentFilter === agent ? 'all' : agent); setSelectedAgent(agent); }}
                 style={{
                   padding: '10px 16px',
                   borderRadius: 10,
@@ -175,6 +221,64 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
                 )}
               </div>
             );})}
+          </div>
+        </div>
+      )}
+
+      {selectedAgentSummary && (
+        <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Individual Agent Ledger</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--text-primary)' }}>{selectedAgentName}</div>
+            </div>
+            <select
+              value={selectedAgentName}
+              onChange={(e) => { setSelectedAgent(e.target.value); setAgentFilter(e.target.value); }}
+              style={{ height: 36, borderRadius: 10, border: '1px solid var(--border-color)', padding: '0 10px', background: '#fff' }}
+            >
+              {Object.keys(agentSummary).map((agent) => <option key={agent} value={agent}>{agent}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
+            {[
+              { label: 'Sales', value: selectedAgentSummary.count, money: false, color: '#1d4ed8' },
+              { label: 'Earned', value: selectedAgentSummary.commission, money: true, color: '#b45309' },
+              { label: 'Paid', value: selectedAgentSummary.paid, money: true, color: '#0f766e' },
+              { label: 'Remaining', value: selectedAgentSummary.remaining, money: true, color: selectedAgentSummary.remaining > 0 ? '#dc2626' : '#0f766e' },
+            ].map((item) => (
+              <div key={item.label} style={{ padding: 12, borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+                <div style={{ fontSize: 10, fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{item.label}</div>
+                <div style={{ fontSize: 16, fontWeight: 900, color: item.color }}>{item.money ? fmt(item.value) : item.value}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6 }}>Commission Rows</div>
+              {selectedAgentCommissions.slice(0, 6).map((c) => {
+                const total = parseFloat(c.Commission_Amount || c.commission_amount) || 0;
+                const paid = parseFloat(c.Paid_Amount || c.paid_amount) || 0;
+                const remaining = parseFloat(c.Remaining_Amount || c.remaining_amount) || Math.max(0, total - paid);
+                return (
+                  <div key={c.Commission_ID || c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '7px 0', borderTop: '1px solid var(--border-color)', fontSize: 12 }}>
+                    <span>{c.Plot_Shop_Number || c.Sale_ID || 'Commission'}</span>
+                    <b>{fmt(paid)} paid / {fmt(remaining)} left</b>
+                  </div>
+                );
+              })}
+              {selectedAgentCommissions.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No commission rows yet.</div>}
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6 }}>Sale References</div>
+              {selectedAgentSales.slice(0, 6).map((s) => (
+                <div key={s.Sale_ID || `${s.Type}-${s.Plot_Shop_Number}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '7px 0', borderTop: '1px solid var(--border-color)', fontSize: 12 }}>
+                  <span>{s.Type} {s.Plot_Shop_Number} - {s.Customer_Name || '-'}</span>
+                  <b>{fmt(parseFloat(s.Commission_Amount) || 0)}</b>
+                </div>
+              ))}
+              {selectedAgentSales.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No sales for this agent.</div>}
+            </div>
           </div>
         </div>
       )}
