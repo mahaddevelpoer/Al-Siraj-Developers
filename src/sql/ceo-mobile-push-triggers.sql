@@ -342,15 +342,10 @@ CREATE TRIGGER appeals_ceo_mobile_push
 AFTER INSERT ON public.appeals
 FOR EACH ROW EXECUTE FUNCTION public.notify_ceo_mobile_push();
 
+-- Android push must stay appeal-only. notifications/daily_entries are fetched
+-- inside the app, but they should not create separate FCM banners.
 DROP TRIGGER IF EXISTS notifications_ceo_mobile_push ON public.notifications;
-CREATE TRIGGER notifications_ceo_mobile_push
-AFTER INSERT ON public.notifications
-FOR EACH ROW EXECUTE FUNCTION public.notify_ceo_mobile_push();
-
 DROP TRIGGER IF EXISTS daily_entries_ceo_mobile_push ON public.daily_entries;
-CREATE TRIGGER daily_entries_ceo_mobile_push
-AFTER INSERT ON public.daily_entries
-FOR EACH ROW EXECUTE FUNCTION public.notify_ceo_mobile_push();
 
 DROP TRIGGER IF EXISTS all_sales_ceo_mobile_push ON public.all_sales;
 DROP TRIGGER IF EXISTS properties_ceo_mobile_push ON public.properties;

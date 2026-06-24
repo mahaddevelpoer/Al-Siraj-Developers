@@ -411,9 +411,21 @@ function AppInner() {
           },
           (payload) => {
             const a = payload.new;
-            if (a?.status !== 'rejected') return;
             if (a.appeal_type !== 'backdated_daily_entry' && a.appeal_type !== 'future_daily_entry') return;
 
+            if (a?.status === 'approved') {
+              const seenApprovedKey = `daily_entry_approval_notified_${a.id}`;
+              if (localStorage.getItem(seenApprovedKey)) return;
+              localStorage.setItem(seenApprovedKey, '1');
+              const rd = a.requested_data || {};
+              const body = `${rd.type || 'Entry'} ${rd.date || ''} approved by CEO`;
+              showToast(body, 'success');
+              window.api?.showNotification?.('Daily Entry Approved', body);
+              setDataRefreshKey((k) => k + 1);
+              return;
+            }
+
+            if (a?.status !== 'rejected') return;
             const seenKey = `daily_entry_rejection_notified_${a.id}`;
             if (localStorage.getItem(seenKey)) return;
             localStorage.setItem(seenKey, '1');
