@@ -918,19 +918,25 @@ class _CeoShellState extends State<CeoShell> {
               height: 58,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(_tab == 2 ? 18 : 29),
-                gradient: const LinearGradient(
-                  colors: [kPrimary, Color(0xFF8A84FF)],
+                gradient: LinearGradient(
+                  colors: _tab == 2
+                      ? const [Color(0xFF0F766E), kSecondary]
+                      : const [Color(0xFF2563EB), Color(0xFF7C3AED)],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: kPrimary.withValues(alpha: .26),
+                    color: (_tab == 2 ? kSecondary : kPrimary).withValues(
+                      alpha: .24,
+                    ),
                     blurRadius: 26,
                     offset: const Offset(0, 12),
                   ),
                 ],
               ),
               child: Icon(
-                _tab == 2 ? Icons.home_rounded : Icons.rule_rounded,
+                _tab == 2
+                    ? Icons.dashboard_customize_rounded
+                    : Icons.fact_check_rounded,
                 color: Colors.white,
               ),
             ),
@@ -1092,9 +1098,15 @@ class PremiumScrollView extends StatelessWidget {
     super.key,
     required this.children,
     this.padding = const EdgeInsets.fromLTRB(20, 20, 20, 110),
+    this.appBarTitle = 'Overview',
+    this.showAppBar = true,
+    this.showNotificationAction = true,
   });
   final List<Widget> children;
   final EdgeInsetsGeometry padding;
+  final String appBarTitle;
+  final bool showAppBar;
+  final bool showNotificationAction;
 
   @override
   Widget build(BuildContext context) {
@@ -1103,58 +1115,57 @@ class PremiumScrollView extends StatelessWidget {
         parent: BouncingScrollPhysics(),
       ),
       slivers: [
-        SliverAppBar(
-          floating: true,
-          snap: true,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          toolbarHeight: 58,
-          titleSpacing: 20,
-          title: Row(
-            children: const [
-              GradientIconBox(icon: Icons.apartment_rounded, size: 34),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'AL SIRAJ CEO',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: kText,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 14),
-              child: Stack(
-                alignment: Alignment.topRight,
-                children: [
-                  IconButton(
-                    onPressed: () => selectedTabNotifier.value = 4,
-                    icon: const Icon(Icons.notifications_rounded, color: kText),
-                  ),
-                  Positioned(
-                    right: 10,
-                    top: 10,
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: kSecondary,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ],
+        if (showAppBar)
+          SliverAppBar(
+            automaticallyImplyLeading: false,
+            floating: true,
+            snap: true,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            toolbarHeight: 58,
+            titleSpacing: 20,
+            title: Text(
+              appBarTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: kText,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
               ),
             ),
-          ],
-        ),
+            actions: showNotificationAction
+                ? [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 14),
+                      child: Stack(
+                        alignment: Alignment.topRight,
+                        children: [
+                          IconButton(
+                            onPressed: () => selectedTabNotifier.value = 4,
+                            icon: const Icon(
+                              Icons.notifications_rounded,
+                              color: kText,
+                            ),
+                          ),
+                          Positioned(
+                            right: 10,
+                            top: 10,
+                            child: Container(
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                color: kSecondary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ]
+                : null,
+          ),
         SliverPadding(
           padding: padding,
           sliver: SliverList(delegate: SliverChildListDelegate.fixed(children)),
@@ -1306,7 +1317,23 @@ class _OverviewPageState extends State<OverviewPage> {
           final d = snap.data;
           final towns =
               (d?['towns'] as List<TownPulse>?) ?? const <TownPulse>[];
+          final received = asNum(d?['received']);
+          final expenses = asNum(d?['expenses']);
+          final pending = asNum(d?['pending']);
+          final appeals = asNum(d?['appeals']);
+          final collectionTotal = received + pending;
+          final moneyMovement = received + expenses;
+          final collectionProgress = collectionTotal <= 0
+              ? null
+              : (received / collectionTotal).clamp(0, 1).toDouble();
+          final expenseShare = moneyMovement <= 0
+              ? null
+              : (expenses / moneyMovement).clamp(0, 1).toDouble();
+          final appealProgress = towns.isEmpty || appeals <= 0
+              ? null
+              : (appeals / (towns.length * 5)).clamp(0, 1).toDouble();
           return PremiumScrollView(
+            appBarTitle: 'Overview',
             children: [
               const HeaderBlock(
                 title: 'All towns overview',
@@ -1326,6 +1353,7 @@ class _OverviewPageState extends State<OverviewPage> {
                     '${d?['appeals'] ?? '-'}',
                     Icons.rule,
                     const Color(0xFF2563EB),
+                    progress: appealProgress,
                   ),
                   Metric(
                     'Total received',
@@ -1344,12 +1372,14 @@ class _OverviewPageState extends State<OverviewPage> {
                     d == null ? '-' : money.format(d['expenses']),
                     Icons.trending_down_rounded,
                     const Color(0xFFBE123C),
+                    progress: expenseShare,
                   ),
                   Metric(
                     'Pending collection',
                     d == null ? '-' : money.format(d['pending']),
                     Icons.pending_actions_rounded,
                     const Color(0xFFB45309),
+                    progress: collectionProgress,
                   ),
                   Metric(
                     'Towns tracked',
@@ -1545,6 +1575,7 @@ class _TownsOverviewPageState extends State<TownsOverviewPage> {
         builder: (context, snap) {
           final towns = snap.data ?? const <TownPulse>[];
           return PremiumScrollView(
+            appBarTitle: 'Town dashboards',
             children: [
               const HeaderBlock(
                 title: 'Town dashboards',
@@ -1593,7 +1624,15 @@ class TownDashboardDetail extends StatelessWidget {
       future: _loadAppeals(),
       builder: (context, snap) {
         final appeals = snap.data ?? const <Map<String, dynamic>>[];
+        final collectionTotal = town.totalReceived + town.pendingCollection;
+        final collectionProgress = collectionTotal <= 0
+            ? null
+            : (town.totalReceived / collectionTotal).clamp(0, 1).toDouble();
+        final appealProgress = town.pendingAppeals <= 0
+            ? null
+            : (town.pendingAppeals / 10).clamp(0, 1).toDouble();
         return PremiumScrollView(
+          showAppBar: false,
           children: [
             HeaderBlock(
               title: town.name,
@@ -1626,12 +1665,14 @@ class TownDashboardDetail extends StatelessWidget {
                   '${town.pendingAppeals}',
                   Icons.rule_rounded,
                   const Color(0xFFB45309),
+                  progress: appealProgress,
                 ),
                 Metric(
                   'Pending collection',
                   money.format(town.pendingCollection),
                   Icons.pending_actions_rounded,
                   const Color(0xFF7C3AED),
+                  progress: collectionProgress,
                 ),
                 Metric(
                   'Sales count',
@@ -1734,6 +1775,7 @@ class ActivityPage extends StatelessWidget {
     return FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
       future: _load(),
       builder: (context, snap) => PremiumScrollView(
+        showAppBar: false,
         children: [
           const HeaderBlock(
             title: 'Live activity',
@@ -1794,6 +1836,13 @@ class _AppealsPageState extends State<AppealsPage> {
   String _filter = 'pending';
   List<Map<String, dynamic>>? _items;
   Object? _error;
+  late Future<List<Map<String, dynamic>>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
 
   Future<List<Map<String, dynamic>>> _load() async {
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -1834,7 +1883,13 @@ class _AppealsPageState extends State<AppealsPage> {
 
   Future<void> _refresh() async {
     try {
-      final rows = await _load();
+      final next = _load();
+      setState(() {
+        _future = next;
+        _items = null;
+        _error = null;
+      });
+      final rows = await next;
       if (mounted) {
         setState(() {
           _items = rows;
@@ -1893,17 +1948,22 @@ class _AppealsPageState extends State<AppealsPage> {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _items == null && _error == null
-          ? _load()
-          : Future.value(_items ?? const <Map<String, dynamic>>[]),
+      future: _future,
       builder: (context, snap) {
-        if (snap.hasData && _items == null) {
+        if (snap.connectionState == ConnectionState.done &&
+            snap.hasData &&
+            _items == null) {
           _items = snap.data;
         }
-        final rows = _items ?? snap.data ?? const <Map<String, dynamic>>[];
+        final isFreshLoading =
+            _items == null && snap.connectionState != ConnectionState.done;
+        final rows = isFreshLoading
+            ? const <Map<String, dynamic>>[]
+            : _items ?? snap.data ?? const <Map<String, dynamic>>[];
         return RefreshIndicator(
           onRefresh: _refresh,
           child: PremiumScrollView(
+            appBarTitle: 'Approvals',
             children: [
               const HeaderBlock(
                 title: 'Approvals',
@@ -1913,15 +1973,19 @@ class _AppealsPageState extends State<AppealsPage> {
               FilterChips(
                 value: _filter,
                 options: const ['pending', 'approved', 'rejected'],
-                onChanged: (next) => setState(() {
-                  _filter = next;
-                  _items = null;
-                  _error = null;
-                }),
+                onChanged: (next) {
+                  if (next == _filter) return;
+                  setState(() {
+                    _filter = next;
+                    _items = null;
+                    _error = null;
+                    _future = _load();
+                  });
+                },
               ),
               if (_error != null)
                 ErrorBlock(error: 'Schema/API issue: $_error'),
-              if (!snap.hasData && _error == null) const SkeletonList(),
+              if (isFreshLoading && _error == null) const SkeletonList(),
               for (var i = 0; i < rows.length; i++)
                 AnimatedEntry(
                   index: i,
@@ -1947,7 +2011,7 @@ class _AppealsPageState extends State<AppealsPage> {
                     ],
                   ),
                 ),
-              if (snap.hasData && rows.isEmpty && _error == null)
+              if (!isFreshLoading && rows.isEmpty && _error == null)
                 EmptyBlock(text: 'No $_filter appeals.'),
             ],
           ),
@@ -1969,6 +2033,13 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   String _filter = 'pending';
   List<Map<String, dynamic>>? _items;
   Object? _error;
+  late Future<List<Map<String, dynamic>>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
 
   Future<List<Map<String, dynamic>>> _load() async {
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -1988,7 +2059,13 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
 
   Future<void> _refresh() async {
     try {
-      final rows = await _load();
+      final next = _load();
+      setState(() {
+        _future = next;
+        _items = null;
+        _error = null;
+      });
+      final rows = await next;
       if (mounted) {
         setState(() {
           _items = rows;
@@ -2036,17 +2113,23 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _items == null && _error == null
-          ? _load()
-          : Future.value(_items ?? const <Map<String, dynamic>>[]),
+      future: _future,
       builder: (context, snap) {
-        if (snap.hasData && _items == null) {
+        if (snap.connectionState == ConnectionState.done &&
+            snap.hasData &&
+            _items == null) {
           _items = snap.data;
         }
-        final rows = _items ?? snap.data ?? const <Map<String, dynamic>>[];
+        final isFreshLoading =
+            _items == null && snap.connectionState != ConnectionState.done;
+        final rows = isFreshLoading
+            ? const <Map<String, dynamic>>[]
+            : _items ?? snap.data ?? const <Map<String, dynamic>>[];
         return RefreshIndicator(
           onRefresh: _refresh,
           child: PremiumScrollView(
+            appBarTitle: 'Daily entries',
+            showAppBar: !(ModalRoute.of(context)?.canPop ?? false),
             children: [
               const HeaderBlock(
                 title: 'Daily entries review',
@@ -2056,15 +2139,19 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
               FilterChips(
                 value: _filter,
                 options: const ['pending', 'approved', 'rejected'],
-                onChanged: (next) => setState(() {
-                  _filter = next;
-                  _items = null;
-                  _error = null;
-                }),
+                onChanged: (next) {
+                  if (next == _filter) return;
+                  setState(() {
+                    _filter = next;
+                    _items = null;
+                    _error = null;
+                    _future = _load();
+                  });
+                },
               ),
               if (_error != null)
                 ErrorBlock(error: 'Schema/API issue: $_error'),
-              if (!snap.hasData && _error == null) const SkeletonList(),
+              if (isFreshLoading && _error == null) const SkeletonList(),
               for (var i = 0; i < rows.length; i++)
                 AnimatedEntry(
                   index: i,
@@ -2100,7 +2187,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
                     ],
                   ),
                 ),
-              if (snap.hasData && rows.isEmpty && _error == null)
+              if (!isFreshLoading && rows.isEmpty && _error == null)
                 EmptyBlock(text: 'No $_filter daily entries.'),
             ],
           ),
@@ -2171,6 +2258,7 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
 
   @override
   Widget build(BuildContext context) {
+    final inDetailRoute = ModalRoute.of(context)?.canPop ?? false;
     return FutureBuilder<List<LedgerReceipt>>(
       future: _loadReceipts(),
       builder: (context, snap) {
@@ -2183,9 +2271,20 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
           0,
           (sum, receipt) => sum + receipt.expense,
         );
+        final movement = income + expense;
+        final incomeShare = movement <= 0
+            ? null
+            : (income / movement).clamp(0, 1).toDouble();
+        final expenseShare = movement <= 0
+            ? null
+            : (expense / movement).clamp(0, 1).toDouble();
         return RefreshIndicator(
           onRefresh: () async => (context as Element).markNeedsBuild(),
           child: PremiumScrollView(
+            appBarTitle: widget.initialTown == null
+                ? 'Daily ledger'
+                : '${widget.initialTown} ledger',
+            showAppBar: !inDetailRoute,
             children: [
               HeaderBlock(
                 title: widget.initialTown == null
@@ -2216,12 +2315,14 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
                       money.format(income),
                       Icons.trending_up_rounded,
                       const Color(0xFF0F766E),
+                      progress: incomeShare,
                     ),
                     Metric(
                       'Expenses',
                       money.format(expense),
                       Icons.trending_down_rounded,
                       const Color(0xFFBE123C),
+                      progress: expenseShare,
                     ),
                     Metric(
                       'Net',
@@ -2332,7 +2433,15 @@ class LedgerReceiptDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final movement = receipt.income + receipt.expense;
+    final incomeShare = movement <= 0
+        ? null
+        : (receipt.income / movement).clamp(0, 1).toDouble();
+    final expenseShare = movement <= 0
+        ? null
+        : (receipt.expense / movement).clamp(0, 1).toDouble();
     return PremiumScrollView(
+      showAppBar: false,
       children: [
         HeaderBlock(
           title: receipt.townName,
@@ -2350,12 +2459,14 @@ class LedgerReceiptDetailPage extends StatelessWidget {
               money.format(receipt.income),
               Icons.trending_up_rounded,
               const Color(0xFF0F766E),
+              progress: incomeShare,
             ),
             Metric(
               'Expenses',
               money.format(receipt.expense),
               Icons.trending_down_rounded,
               const Color(0xFFBE123C),
+              progress: expenseShare,
             ),
             Metric(
               'Net',
@@ -2437,6 +2548,7 @@ class NotificationsPage extends StatelessWidget {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _load(),
       builder: (context, snap) => PremiumScrollView(
+        showAppBar: false,
         children: [
           const HeaderBlock(
             title: 'Notifications',
@@ -2474,6 +2586,7 @@ class TownsPage extends StatelessWidget {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _load(),
       builder: (context, snap) => PremiumScrollView(
+        showAppBar: false,
         children: [
           const HeaderBlock(
             title: 'Balance enquiries',
@@ -2591,6 +2704,7 @@ class MorePage extends StatelessWidget {
     ];
 
     return PremiumScrollView(
+      appBarTitle: 'More',
       children: [
         const HeaderBlock(
           title: 'More',
@@ -2745,27 +2859,27 @@ class HeaderBlock extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      const GradientIconBox(
-                        icon: Icons.auto_graph_rounded,
-                        size: 50,
+                  Container(
+                    width: 44,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF2563EB), kSecondary],
                       ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Text(
-                          title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(
-                            fontSize: titleSize,
-                            fontWeight: FontWeight.w900,
-                            height: 1.02,
-                            color: kText,
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
+                  ),
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: titleSize,
+                      fontWeight: FontWeight.w900,
+                      height: 1.02,
+                      color: kText,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Text(
@@ -2853,11 +2967,12 @@ class ErrorBlock extends StatelessWidget {
 }
 
 class Metric {
-  const Metric(this.label, this.value, this.icon, this.color);
+  const Metric(this.label, this.value, this.icon, this.color, {this.progress});
   final String label;
   final String value;
   final IconData icon;
   final Color color;
+  final double? progress;
 }
 
 class MetricGrid extends StatelessWidget {
@@ -2924,11 +3039,13 @@ class MetricGrid extends StatelessWidget {
                                 fontSize: 12,
                               ),
                             ),
-                            const SizedBox(height: 10),
-                            PremiumProgress(
-                              percent: .72,
-                              color: metrics[i].color,
-                            ),
+                            if ((metrics[i].progress ?? 0) > 0) ...[
+                              const SizedBox(height: 10),
+                              PremiumProgress(
+                                percent: metrics[i].progress!,
+                                color: metrics[i].color,
+                              ),
+                            ],
                           ],
                         ),
                       ),
