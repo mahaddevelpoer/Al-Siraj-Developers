@@ -1,4 +1,5 @@
 const dataLayer = require('./db/dataLayer');
+const { shell } = require('electron');
 const { addTown, getTowns, getTownDetails, getTownPrices, setTownPrices, addCeoExpense, deleteCeoExpense, editCeoExpense, updateTown, deleteTown } = require('./db/towns');
 const { addPlot, addShop, getPropertyFile, getAllPropertiesByTown, getAllProperties, sellProperty, updateFileStatus, resellProperty, getSoldProperties, cancelDeal } = require('./db/properties');
 const { getDailyEntries, addDailyEntry, deleteDailyEntry } = require('./db/dailyEntries');
@@ -15,6 +16,7 @@ const onlineDb = require('./db/online');
 const storage = require('./db/storage');
 const businessExtras = require('./db/businessExtras');
 const pendingSync = require('./db/pendingSync');
+const { buildTownLedgerReport, exportTownLedgerReport } = require('./db/townReport');
 
 let _windowGetter = null;
 let _queuedUploadTimer = null;
@@ -851,6 +853,25 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       const town = scopedTown(townName, true);
       return await dataLayer.read(() => getTownPerformance(town), () => onlineDb.getTownPerformance(town));
+    } catch(e) { return { error: e.message }; }
+  });
+  ipcMain.handle('get-town-ledger-report', async (_, params = {}) => {
+    try {
+      const town = scopedTown(params.townName, true);
+      return await buildTownLedgerReport({ ...params, townName: town });
+    } catch(e) { return { error: e.message }; }
+  });
+  ipcMain.handle('export-town-ledger-report', async (_, params = {}) => {
+    try {
+      const town = scopedTown(params.townName, true);
+      return await exportTownLedgerReport({ ...params, townName: town });
+    } catch(e) { return { error: e.message }; }
+  });
+  ipcMain.handle('open-report-file', async (_, filePath) => {
+    try {
+      if (!filePath || !fs.existsSync(filePath)) throw new Error('Report file not found');
+      const err = await shell.openPath(filePath);
+      return err ? { error: err } : { success: true };
     } catch(e) { return { error: e.message }; }
   });
 

@@ -19,6 +19,11 @@ import {
 } from './Icons';
 
 const fmtPkr = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
+const isoDate = (date = new Date()) => date.toISOString().slice(0, 10);
+const firstDayOfMonth = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+};
 
 const menuItems = [
   { key: 'overview',      Icon: ChartIcon,      label: 'Overview',            color: '#3b82f6' },
@@ -114,12 +119,22 @@ function SimpleDonut({ sold, total, color }) {
 function TownOverview({ town, refreshKey = 0 }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [reportFrom, setReportFrom] = useState(firstDayOfMonth());
+  const [reportTo, setReportTo] = useState(isoDate());
+  const [report, setReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportMessage, setReportMessage] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => { loadStats(); }, []);
 
   useEffect(() => {
     if (refreshKey > 0) loadStats();
   }, [refreshKey]);
+
+  useEffect(() => {
+    loadReport();
+  }, [town?.Town_Name, reportFrom, reportTo, refreshKey]);
 
   const loadStats = async () => {
     if (!window.api || !town?.Town_Name) { setLoading(false); return; }
@@ -142,6 +157,46 @@ function TownOverview({ town, refreshKey = 0 }) {
       setStats({ soldPlots, soldShops, totalPlots, totalShops, investorBalance, constructionPaid, performance });
     } catch { /* silent */ }
     setLoading(false);
+  };
+
+  const loadReport = async () => {
+    if (!window.api?.getTownLedgerReport || !town?.Town_Name) return;
+    setReportLoading(true);
+    setReportMessage('');
+    try {
+      const res = await window.api.getTownLedgerReport({
+        townName: town.Town_Name,
+        fromDate: reportFrom,
+        toDate: reportTo,
+      });
+      if (res?.error) throw new Error(res.error);
+      setReport(res);
+    } catch (e) {
+      setReportMessage(e.message || 'Report could not be loaded');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const exportReport = async (kind) => {
+    if (!window.api?.exportTownLedgerReport || !town?.Town_Name) return;
+    setExporting(true);
+    setReportMessage('');
+    try {
+      const res = await window.api.exportTownLedgerReport({
+        townName: town.Town_Name,
+        fromDate: reportFrom,
+        toDate: reportTo,
+      });
+      if (res?.error) throw new Error(res.error);
+      setReport(res.report);
+      await window.api.openReportFile?.(kind === 'excel' ? res.excelPath : res.htmlPath);
+      setReportMessage(`${kind === 'excel' ? 'Excel' : 'Print/PDF'} report ready`);
+    } catch (e) {
+      setReportMessage(e.message || 'Report export failed');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const townData = town || {};
@@ -203,6 +258,75 @@ function TownOverview({ town, refreshKey = 0 }) {
       </div>
 
       {/* Row 2 — Two side by side panels */}
+      <div className="ui-town-map-card" style={{ padding: 18, marginTop: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div>
+            <div className="ui-label">Date range ledger</div>
+            <h3 style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 900, color: 'var(--text-primary)' }}>
+              Full received, paid, receivable and payable report
+            </h3>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)' }}>From</label>
+            <input type="date" value={reportFrom} max={reportTo} onChange={(e) => setReportFrom(e.target.value)} style={{ height: 36, borderRadius: 10, border: '1px solid var(--border)', padding: '0 10px', background: '#fff', color: '#111827' }} />
+            <label style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)' }}>To</label>
+            <input type="date" value={reportTo} min={reportFrom} onChange={(e) => setReportTo(e.target.value)} style={{ height: 36, borderRadius: 10, border: '1px solid var(--border)', padding: '0 10px', background: '#fff', color: '#111827' }} />
+            <button className="btn btn-secondary" type="button" onClick={() => exportReport('print')} disabled={exporting || reportLoading}>Print / PDF</button>
+            <button className="btn btn-primary" type="button" onClick={() => exportReport('excel')} disabled={exporting || reportLoading}>Excel</button>
+          </div>
+        </div>
+        {reportMessage && (
+          <div style={{ marginBottom: 12, color: reportMessage.toLowerCase().includes('fail') || reportMessage.toLowerCase().includes('could') ? '#dc2626' : '#047857', fontSize: 12, fontWeight: 700 }}>
+            {reportMessage}
+          </div>
+        )}
+        <div className="ui-kpi-grid-4" style={{ marginBottom: 16 }}>
+          {[
+            { label: 'Range Received', value: report?.summary?.totalReceived, color: '#10b981' },
+            { label: 'Range Paid', value: report?.summary?.totalPaid, color: '#ef4444' },
+            { label: 'Cash Balance', value: report?.summary?.cashBalance, color: (report?.summary?.cashBalance || 0) >= 0 ? '#10b981' : '#ef4444' },
+            { label: 'Receivable', value: report?.summary?.receivable, color: '#f59e0b' },
+            { label: 'Payable', value: report?.summary?.payable, color: '#8b5cf6' },
+          ].map((item) => (
+            <div key={item.label} className="ui-town-financial-item" style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12 }}>
+              <div className="ui-town-financial-lbl">{item.label}</div>
+              <div className="ui-town-financial-val" style={{ color: item.color }}>
+                {reportLoading ? 'Loading...' : fmtPkr(item.value)}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>Employee Ledger</div>
+            {(report?.employeeLedgers || []).slice(0, 4).map((row) => (
+              <div key={row.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
+                <span>{row.name}</span><b>{fmtPkr(row.paid)} paid / {fmtPkr(row.remaining)} left</b>
+              </div>
+            ))}
+            {!reportLoading && !(report?.employeeLedgers || []).length && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No employee salary rows.</div>}
+          </div>
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>Agent Commission Ledger</div>
+            {(report?.agentLedgers || []).slice(0, 4).map((row) => (
+              <div key={row.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
+                <span>{row.name}</span><b>{fmtPkr(row.paid)} paid / {fmtPkr(row.remaining)} left</b>
+              </div>
+            ))}
+            {!reportLoading && !(report?.agentLedgers || []).length && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No agent commission rows.</div>}
+          </div>
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>Customer Receivables</div>
+            {(report?.customerLedgers || []).slice(0, 4).map((row, idx) => (
+              <div key={`${row.property}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
+                <span>{row.property || row.customer}</span><b>{fmtPkr(row.remaining)} left</b>
+              </div>
+            ))}
+            {!reportLoading && !(report?.customerLedgers || []).length && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No sales in selected range.</div>}
+          </div>
+        </div>
+      </div>
+
       <div className="ui-town-donut-grid">
         <div className="ui-town-donut-card">
           <div className="ui-town-donut-title">
