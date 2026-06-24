@@ -30,7 +30,7 @@ const UPSERT_CONFLICT = {
   commission_receipts: 'receipt_id',
   collection_payments: 'payment_id',
   receipt_archive: 'receipt_id',
-  money_ledger: 'ledger_id',
+  money_ledger: 'source_type,source_id,direction',
   town_financial_summary: 'town_name',
 };
 

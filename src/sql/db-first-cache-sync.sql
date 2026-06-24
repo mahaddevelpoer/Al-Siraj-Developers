@@ -127,6 +127,12 @@ BEGIN
     ALTER TABLE public.installments ADD COLUMN IF NOT EXISTS payee_name TEXT;
   END IF;
 
+  IF to_regclass('public.money_ledger') IS NOT NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS money_ledger_source_type_source_id_direction_uidx
+      ON public.money_ledger (source_type, source_id, direction)
+      WHERE source_type IS NOT NULL AND source_id IS NOT NULL AND direction IS NOT NULL;
+  END IF;
+
   IF to_regclass('public.collection_payments') IS NOT NULL THEN
     ALTER TABLE public.collection_payments ADD COLUMN IF NOT EXISTS payment_id TEXT;
     ALTER TABLE public.collection_payments ADD COLUMN IF NOT EXISTS sale_code TEXT;

@@ -1191,7 +1191,9 @@ Future<List<TownPulse>> loadTownPulses() async {
         .eq('role', 'accountant'),
   ]);
 
-  final towns = List<Map<String, dynamic>>.from(results[0]);
+  final towns = List<Map<String, dynamic>>.from(
+    results[0],
+  ).where(isActiveTownRow).toList();
   final appeals = List<Map<String, dynamic>>.from(results[1]);
   final entries = List<Map<String, dynamic>>.from(results[2]);
   final sales = List<Map<String, dynamic>>.from(results[3]);
@@ -1199,9 +1201,6 @@ Future<List<TownPulse>> loadTownPulses() async {
 
   final names = <String>{
     ...towns.map((t) => '${rowVal(t, 'Town_Name')}'.trim()),
-    ...appeals.map(appealTownName),
-    ...entries.map((e) => '${rowVal(e, 'Town_Name')}'.trim()),
-    ...sales.map((s) => '${rowVal(s, 'Town_Name')}'.trim()),
   }..removeWhere((name) => name.isEmpty || name == 'null');
 
   return names.map((townName) {
@@ -2226,17 +2225,26 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
   Future<List<LedgerReceipt>> _loadReceipts() async {
     await Future<void>.delayed(const Duration(milliseconds: 350));
     final day = DateFormat('yyyy-MM-dd').format(_date);
-    final data = await supabase
-        .from('daily_entries')
-        .select('*')
-        .order('created_at', ascending: false);
+    final results = await Future.wait<dynamic>([
+      supabase
+          .from('daily_entries')
+          .select('*')
+          .order('created_at', ascending: false),
+      supabase.from('towns').select('*'),
+    ]);
+    final data = results[0];
+    final activeTownNames = List<Map<String, dynamic>>.from(
+      results[1],
+    ).where(isActiveTownRow).map((town) => '${rowVal(town, 'Town_Name')}'.trim()).toSet();
     final rows = List<Map<String, dynamic>>.from(
       data,
     ).where((row) {
       final status = reviewStatusOf(row);
+      final town = '${rowVal(row, 'Town_Name')}'.trim();
       return '${rowVal(row, 'Date')}'.startsWith(day) &&
           status != 'pending' &&
-          status != 'rejected';
+          status != 'rejected' &&
+          (activeTownNames.isEmpty || activeTownNames.contains(town));
     }).toList();
     final townNames =
         rows
@@ -2598,7 +2606,7 @@ class TownsPage extends StatelessWidget {
   Future<List<Map<String, dynamic>>> _load() async {
     await Future<void>.delayed(const Duration(milliseconds: 500));
     final data = await supabase.from('towns').select('*').order('town_name');
-    return List<Map<String, dynamic>>.from(data);
+    return List<Map<String, dynamic>>.from(data).where(isActiveTownRow).toList();
   }
 
   @override
@@ -3871,6 +3879,13 @@ String dailyEntryStableKey(Map<String, dynamic> row) {
       rowVal(row, 'Reference') ??
       '';
   return '$value';
+}
+
+bool isActiveTownRow(Map<String, dynamic> row) {
+  final deletedAt = '${rowVal(row, 'Deleted_At') ?? row['deleted_at'] ?? ''}'.trim();
+  if (deletedAt.isNotEmpty && deletedAt.toLowerCase() != 'null') return false;
+  final status = '${rowVal(row, 'Status') ?? row['status'] ?? 'Active'}'.trim().toLowerCase();
+  return status != 'deleted' && status != 'inactive' && status != 'archived';
 }
 
 String titleForTable(dynamic table) {

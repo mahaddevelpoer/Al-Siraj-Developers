@@ -1,6 +1,7 @@
-const supabase = require('../supabase');
+const anonSupabase = require('../supabase');
 const crypto = require('crypto');
 const {
+  getAdminClient,
   toCloudRow,
   toCloudMatch,
   getRowVal,
@@ -11,6 +12,25 @@ const {
   mapCeoExpenseFromCloud,
   mapGenericFromCloud,
 } = require('../syncHelpers');
+
+let adminSupabase = null;
+function getCloudClient() {
+  if (adminSupabase) return adminSupabase;
+  try {
+    adminSupabase = getAdminClient();
+    return adminSupabase;
+  } catch (_) {
+    return anonSupabase;
+  }
+}
+
+const supabase = new Proxy({}, {
+  get(_target, prop) {
+    const client = getCloudClient();
+    const value = client[prop];
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
+});
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
@@ -44,7 +64,7 @@ const UPSERT_CONFLICT = {
   commission_receipts: 'receipt_id',
   collection_payments: 'payment_id',
   receipt_archive: 'receipt_id',
-  money_ledger: 'ledger_id',
+  money_ledger: 'source_type,source_id,direction',
   town_financial_summary: 'town_name',
 };
 
