@@ -1856,24 +1856,7 @@ class _AppealsPageState extends State<AppealsPage> {
       data,
     ).map((row) => {...row, 'status': normalizeStatus(row['status'])}).toList();
 
-    final townless = rows
-        .where(
-          (row) =>
-              row['status'] == 'pending' &&
-              requiresTownForAppeal(row) &&
-              appealTownName(row).trim().isEmpty,
-        )
-        .toList();
-    for (final row in townless) {
-      await supabase
-          .rpc(
-            'ceo_review_appeal',
-            params: {'appeal_id': row['id'], 'new_status': 'rejected'},
-          )
-          .catchError((_) => null);
-    }
     rows = rows
-        .where((row) => !townless.any((bad) => bad['id'] == row['id']))
         .where((row) => row['status'] == _filter)
         .toList();
     final seen = <String>{};

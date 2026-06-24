@@ -572,6 +572,26 @@ app.whenReady().then(async () => {
     .on('postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'appeals' },
       (payload) => {
+        const updatedAppeal = payload.new || {};
+        const status = String(updatedAppeal.status || '').toLowerCase();
+        if (status === 'approved' || status === 'rejected') {
+          const appealType = String(updatedAppeal.appeal_type || 'appeal').replace(/_/g, ' ');
+          const townName = updatedAppeal.town_name || updatedAppeal.requested_data?.townName || updatedAppeal.requested_data?.Town_Name || '';
+          const message = `${appealType} ${status}${townName ? ` for ${townName}` : ''}`;
+          try {
+            if (activeWindow && !activeWindow.isDestroyed() && activeWindow.webContents) {
+              activeWindow.webContents.send('sync-warning', `CEO review ${status}: ${message}`);
+              activeWindow.webContents.send('realtime-new-appeal', updatedAppeal);
+            }
+          } catch (_) {}
+          if (isCurrentCeoContext() || isCurrentAccountantContext()) {
+            showDesktopNotification({
+              title: `Appeal ${status}`,
+              body: message,
+              silent: true,
+            });
+          }
+        }
         applyApprovedDailyEntryAppeal(payload.new).catch((e) => {
           console.error('[appeal-sync] Failed to apply approved daily entry appeal:', e);
           if (isCurrentCeoContext()) showDesktopNotification({

@@ -37,12 +37,28 @@ Deno.serve(async (req) => {
     return json({ error: "Missing FIREBASE_SERVICE_ACCOUNT_JSON secret" }, 500);
   }
 
-  const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount;
   const payload = await req.json() as PushPayload;
   const skipReason = shouldSkipPush(payload);
   if (skipReason) {
     return json({ ok: true, skipped: true, reason: skipReason });
   }
+
+  const backgroundTask = sendFcmPush(serviceAccountJson, payload);
+  const edgeRuntime = (globalThis as unknown as {
+    EdgeRuntime?: { waitUntil?: (promise: Promise<unknown>) => void };
+  }).EdgeRuntime;
+  if (edgeRuntime?.waitUntil) {
+    edgeRuntime.waitUntil(backgroundTask.catch((error) => {
+      console.error("FCM background send failed", error);
+    }));
+    return json({ ok: true, queued: true });
+  }
+
+  return await backgroundTask;
+});
+
+async function sendFcmPush(serviceAccountJson: string, payload: PushPayload) {
+  const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount;
   const safeMessage = buildSafeMessage(payload);
   const token = await getAccessToken(serviceAccount);
 
@@ -83,7 +99,7 @@ Deno.serve(async (req) => {
   }
 
   return json({ ok: true, fcm: JSON.parse(responseBody) });
-});
+}
 
 function buildSafeMessage(payload: PushPayload) {
   const table = payload.table || "unknown";
