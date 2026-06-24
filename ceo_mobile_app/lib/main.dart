@@ -3867,7 +3867,7 @@ String reviewStatusOf(Map<String, dynamic> row) {
       row['status'] ??
       row['Status'];
   final text = '${raw ?? ''}'.trim().toLowerCase();
-  if (text.isEmpty || text == 'null') return 'approved';
+  if (text.isEmpty || text == 'null') return 'pending';
   return normalizeStatus(raw);
 }
 

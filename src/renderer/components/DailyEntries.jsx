@@ -174,9 +174,8 @@ export default function DailyEntries({ showToast, townName }) {
         
       if (error || !data) throw new Error('Invalid or expired OTP');
       
-      await supabase.from('appeals').update({ status: 'approved', otp_code: null }).eq('id', appealId);
-      setShowOtpModal(false);
-      await submitEntryToApi(pendingEntryPayload);
+      showToast?.('OTP verified. Waiting for CEO approval from dashboard/app.');
+      setOtpCode('');
     } catch (err) {
       showToast?.(err.message, 'error');
     }

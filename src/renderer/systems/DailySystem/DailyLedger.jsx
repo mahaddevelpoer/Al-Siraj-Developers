@@ -174,9 +174,9 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
       if (new Date(data.otp_expires_at) < new Date()) throw new Error('OTP expired — click "Resend OTP" to get a new one');
       if (String(data.otp_code).trim() !== otpInput.trim()) throw new Error('Incorrect OTP — please check and try again');
 
-      await supabase.from('appeals').update({ status: 'approved', otp_code: null }).eq('id', appealId);
-      setModalStep(null);
-      await submitEntryToApi(pendingPayload);
+      showToast?.('OTP verified. Waiting for CEO approval from dashboard/app.');
+      setOtpInput('');
+      setModalStep('dashboard');
     } catch (e) { showToast?.(e.message, 'error'); }
     setBusy(false);
   };
