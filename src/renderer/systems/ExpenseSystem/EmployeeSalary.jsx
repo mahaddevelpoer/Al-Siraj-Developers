@@ -501,6 +501,8 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
     return `${months[d.getMonth()]} ${d.getFullYear()}`;
   });
   const [baseSalary, setBaseSalary] = useState(String(employee.baseSalary || ''));
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [monthPaid, setMonthPaid] = useState(0);
   const [advanceDeduction, setAdvanceDeduction] = useState(0);
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
@@ -516,7 +518,8 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
 
   useEffect(() => {
     loadActiveAdvance();
-  }, [employee.name]);
+    loadSalaryMonth();
+  }, [employee.name, month, townName]);
 
   const loadActiveAdvance = async () => {
     const advances = await window.api.getAdvanceSalaries({ townName, employeeName: employee.name });
@@ -527,14 +530,35 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
     }
   };
 
+  const loadSalaryMonth = async () => {
+    const rows = await window.api.getSalaryRecords?.({ townName });
+    const paid = (Array.isArray(rows) ? rows : [])
+      .filter(r =>
+        String(r.Name || '').trim().toLowerCase() === String(employee.name || '').trim().toLowerCase() &&
+        String(r.Month || '').trim().toLowerCase() === String(month || '').trim().toLowerCase()
+      )
+      .reduce((sum, r) => sum + (parseFloat(r.Amount) || 0), 0);
+    setMonthPaid(paid);
+    setPaymentAmount(prev => prev || String(Math.max(0, (parseFloat(baseSalary) || 0) - paid)));
+  };
+
   const numericBaseSalary = parseFloat(baseSalary) || 0;
-  const netAmount = numericBaseSalary - advanceDeduction;
+  const remainingSalary = Math.max(0, numericBaseSalary - monthPaid);
+  const numericPaymentAmount = parseFloat(paymentAmount) || 0;
+  const advanceFromOverpay = Math.max(0, numericPaymentAmount - remainingSalary);
+  const netAmount = numericPaymentAmount - advanceDeduction;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!month || numericBaseSalary <= 0) {
-      showToast('Please fill all required fields', 'error');
+    if (!month || numericBaseSalary <= 0 || numericPaymentAmount <= 0) {
+      showToast('Please fill month, base salary and pay amount', 'error');
       return;
+    }
+    if (numericPaymentAmount > remainingSalary) {
+      const ok = window.confirm(
+        `${employee.name} ki ${month} salary me sirf PKR ${remainingSalary.toLocaleString()} remaining hai. Extra PKR ${advanceFromOverpay.toLocaleString()} advance salary ke tor par save karna hai?`
+      );
+      if (!ok) return;
     }
     setLoading(true);
     try {
@@ -565,13 +589,15 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
       const res = await window.api.recordSalaryPayment({
         employeeName: employee.name,
         designation: employee.designation,
-        amount: numericBaseSalary,
+        amount: numericPaymentAmount + advAmt,
+        salaryAmount: numericBaseSalary,
         month,
         townName,
         type: 'Employee',
         note,
         advanceDeduction,
-        newAdvanceGiven: advAmt,
+        newAdvanceGiven: advAmt + advanceFromOverpay,
+        isAdvanceSalary: advanceFromOverpay > 0,
       });
 
       if (res && !res.error) {
@@ -585,12 +611,15 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
           employeePhone: employee.phone,
           employeeCNIC: employee.cnic,
           month,
-          amount: numericBaseSalary,
+          amount: numericPaymentAmount + advAmt,
           baseSalary: numericBaseSalary,
           advanceDeduction,
-          newAdvanceGiven: advAmt,
-          netAmount: numericBaseSalary - advanceDeduction,
-          totalDisbursed: numericBaseSalary - advanceDeduction + advAmt,
+          newAdvanceGiven: advAmt + advanceFromOverpay,
+          netAmount,
+        totalDisbursed: numericPaymentAmount + advAmt,
+          paidBefore: monthPaid,
+          paidAfter: Math.min(numericBaseSalary, monthPaid + numericPaymentAmount),
+          remainingAfter: Math.max(0, numericBaseSalary - monthPaid - numericPaymentAmount),
           townName,
           note,
           advanceType: advAmt > 0 ? advanceType : null,
@@ -658,6 +687,44 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose }) {
                 style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 8, boxSizing: 'border-box' }}
               />
             </div>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: 10,
+            marginBottom: 16,
+          }}>
+            <div style={{ padding: 12, borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Paid This Month</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: '#0f766e' }}>PKR {monthPaid.toLocaleString()}</div>
+            </div>
+            <div style={{ padding: 12, borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Remaining</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: remainingSalary > 0 ? '#b45309' : '#0f766e' }}>PKR {remainingSalary.toLocaleString()}</div>
+            </div>
+            <div style={{ padding: 12, borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: '#1d4ed8', textTransform: 'uppercase' }}>Status</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: remainingSalary > 0 ? '#1d4ed8' : '#0f766e' }}>{remainingSalary > 0 ? 'Partial' : 'Paid'}</div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 4, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Pay Now (PKR) *</label>
+            <input
+              type="number"
+              min="1"
+              value={paymentAmount}
+              onChange={e => setPaymentAmount(e.target.value)}
+              placeholder="Amount actually paid now"
+              required
+              style={{ width: '100%', padding: '12px 14px', border: '1px solid var(--border-color)', borderRadius: 10, boxSizing: 'border-box', fontWeight: 800 }}
+            />
+            {advanceFromOverpay > 0 && (
+              <div style={{ marginTop: 6, fontSize: 12, color: '#b45309', fontWeight: 700 }}>
+                Extra PKR {advanceFromOverpay.toLocaleString()} advance salary banay ga.
+              </div>
+            )}
           </div>
 
           {/* Active advance badge */}

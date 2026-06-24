@@ -256,7 +256,10 @@ async function createSale(data) {
     CNIC: data.CNIC || '',
     Phone_Number: data.Phone_Number || '',
     Sell_Date: data.Sell_Date || new Date().toISOString().split('T')[0],
-    Total_Amount_PKR: parseFloat(data.Total_Amount_PKR) || 0,
+    Expected_Amount_PKR: parseFloat(data.Expected_Amount_PKR) || parseFloat(data.Total_Amount_PKR) || 0,
+    Deal_Amount_PKR: parseFloat(data.Deal_Amount_PKR ?? data.Total_Amount_PKR) || 0,
+    Discount_Amount_PKR: parseFloat(data.Discount_Amount_PKR) || Math.max(0, (parseFloat(data.Expected_Amount_PKR) || parseFloat(data.Total_Amount_PKR) || 0) - (parseFloat(data.Deal_Amount_PKR ?? data.Total_Amount_PKR) || 0)),
+    Total_Amount_PKR: parseFloat(data.Deal_Amount_PKR ?? data.Total_Amount_PKR) || 0,
     Advance_Amount_PKR: parseFloat(data.Advance_Amount_PKR) || 0,
     Total_Installments: parseInt(data.Total_Installments) || 0,
     Total_Period_Months: parseInt(data.Total_Period_Months) || 0,
@@ -271,7 +274,7 @@ async function createSale(data) {
     Profit_Loss: parseFloat(data.Profit_Loss) || 0,
     Receipt_Number: data.Receipt_Number || '',
     Received_Amount: parseFloat(data.Received_Amount || data.Advance_Amount_PKR) || 0,
-    Remaining_Amount: parseFloat(data.Remaining_Amount) || Math.max(0, (parseFloat(data.Total_Amount_PKR) || 0) - (parseFloat(data.Advance_Amount_PKR) || 0)),
+    Remaining_Amount: parseFloat(data.Remaining_Amount) || Math.max(0, (parseFloat(data.Deal_Amount_PKR ?? data.Total_Amount_PKR) || 0) - (parseFloat(data.Advance_Amount_PKR) || 0)),
     File_Status: data.File_Status || 'Not Delivered',
     File_Delivery_Image: data.File_Delivery_Image || data.deliveryImage || '',
     Status: data.Status || 'Sold',
@@ -462,6 +465,8 @@ async function createCommissionRecord(sale) {
     total_price: totalPrice,
     commission_percent: commissionPercent,
     commission_amount: commissionAmount,
+    paid_amount: 0,
+    remaining_amount: commissionAmount,
     status: 'pending',
     created_at: new Date().toISOString(),
   });
@@ -525,7 +530,9 @@ async function sellProperty(data) {
     throw new Error(`${type} ${number} is not available for sale`);
   }
 
-  const totalAmount = parseFloat(data.Total_Amount_PKR) || 0;
+  const totalAmount = parseFloat(data.Deal_Amount_PKR ?? data.Total_Amount_PKR) || 0;
+  const expectedAmount = parseFloat(data.Expected_Amount_PKR) || totalAmount;
+  const discountAmount = Math.max(0, expectedAmount - totalAmount);
   const advanceAmount = parseFloat(data.Advance_Amount_PKR) || 0;
   const useInstallment = !!data.useInstallment;
   const totalInstallments = useInstallment ? (parseInt(data.Total_Installments) || 1) : 0;
@@ -546,6 +553,9 @@ async function sellProperty(data) {
     CNIC: data.CNIC || '',
     Phone_Number: data.Phone_Number || '',
     Sell_Date: data.Sell_Date || new Date().toISOString().split('T')[0],
+    Expected_Amount_PKR: expectedAmount,
+    Deal_Amount_PKR: totalAmount,
+    Discount_Amount_PKR: discountAmount,
     Total_Amount_PKR: totalAmount,
     Advance_Amount_PKR: advanceAmount,
     Total_Installments: totalInstallments,

@@ -64,6 +64,8 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
     agentSummary[agent] = {
       count: 0,
       commission: 0,
+      paid: 0,
+      remaining: 0,
       email: '',
       phone: a.Phone_Number || '',
       isActive: String(a.Status || 'Active') === 'Active',
@@ -71,9 +73,18 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
   }
   for (const s of townFiltered) {
     const agent = normalizeAgentName(s.Agent_Name);
-    if (!agentSummary[agent]) agentSummary[agent] = { count: 0, commission: 0, email: '', phone: '', isActive: true };
+    if (!agentSummary[agent]) agentSummary[agent] = { count: 0, commission: 0, paid: 0, remaining: 0, email: '', phone: '', isActive: true };
     agentSummary[agent].count++;
     agentSummary[agent].commission += parseFloat(s.Commission_Amount) || 0;
+  }
+  for (const c of commissions) {
+    const agent = normalizeAgentName(c.agent_name || c.Agent_Name);
+    if (!agentSummary[agent]) agentSummary[agent] = { count: 0, commission: 0, paid: 0, remaining: 0, email: '', phone: '', isActive: true };
+    const total = parseFloat(c.Commission_Amount || c.commission_amount) || 0;
+    const paid = parseFloat(c.Paid_Amount || c.paid_amount) || 0;
+    const remaining = parseFloat(c.Remaining_Amount || c.remaining_amount);
+    agentSummary[agent].paid += paid;
+    agentSummary[agent].remaining += Number.isFinite(remaining) ? remaining : Math.max(0, total - paid);
   }
 
   return (
@@ -136,7 +147,10 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
                   {data.count} sale{data.count !== 1 ? 's' : ''}{data.email ? ` • ${data.email}` : ''}
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 800, color: data.commission > 0 ? 'var(--accent-red)' : 'var(--text-muted)', marginTop: 4 }}>
-                  {data.commission > 0 ? fmt(data.commission) : 'PKR 0'}
+                  Earned: {data.commission > 0 ? fmt(data.commission) : 'PKR 0'}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: data.remaining > 0 ? '#b45309' : '#0f766e', marginTop: 2 }}>
+                  Paid {fmt(data.paid || 0)} | Remaining {fmt(data.remaining || 0)}
                 </div>
                 {pending && (
                   <button
@@ -144,9 +158,16 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
                     style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
                     onClick={async (e) => {
                       e.stopPropagation();
-                      const r = await window.api.markCommissionPaid(pending.id || pending.Commission_ID);
+                      const total = parseFloat(pending.Commission_Amount || pending.commission_amount) || 0;
+                      const paid = parseFloat(pending.Paid_Amount || pending.paid_amount) || 0;
+                      const remaining = parseFloat(pending.Remaining_Amount || pending.remaining_amount) || Math.max(0, total - paid);
+                      const entered = window.prompt(`Commission remaining: ${fmt(remaining)}\nEnter amount to pay now:`, String(remaining));
+                      if (entered === null) return;
+                      const amount = parseFloat(entered) || 0;
+                      if (amount <= 0) return showToast?.('Enter valid commission amount', 'error');
+                      const r = await window.api.markCommissionPaid({ commissionId: pending.id || pending.Commission_ID, amount });
                       if (r?.error) showToast?.(r.error, 'error');
-                      else { showToast?.('Commission paid'); loadData(); }
+                      else { showToast?.('Commission payment saved'); loadData(); }
                     }}
                   >
                     Give Commission

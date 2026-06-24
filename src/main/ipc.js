@@ -889,31 +889,22 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertObjectPayload(data, 'salary payload');
       if (isAccountantScoped()) data.townName = scopedTown(data.townName, true);
-      const { recordSalaryPayment, getSalaryRecords } = require('./db/globals');
-      
-      // Check for duplicate monthly salary payment
-      const existing = await getSalaryRecords(data.townName);
-      if (Array.isArray(existing)) {
-        const isDuplicate = existing.some(r => 
-          String(r.Name).trim().toLowerCase() === String(data.employeeName).trim().toLowerCase() &&
-          String(r.Month).trim().toLowerCase() === String(data.month).trim().toLowerCase()
-        );
-        if (isDuplicate) {
-          return { error: `Salary already paid to ${data.employeeName} for the month of ${data.month}` };
-        }
-      }
+      const { recordSalaryPayment } = require('./db/globals');
 
       return await syncOnline(() => recordSalaryPayment(data), () => onlineDb.insert('salary_payments', {
         Payment_ID: onlineDb.generateId(),
         Employee_Name: data.employeeName,
         Town_Name: data.townName,
         Amount: parseFloat(data.amount) || 0,
+        Salary_Amount: parseFloat(data.salaryAmount || data.baseSalary) || 0,
+        Salary_Paid_Amount: Math.max(0, (parseFloat(data.amount) || 0) - (parseFloat(data.newAdvanceGiven) || 0)),
         Month: data.month,
         Payment_Date: new Date().toISOString().split('T')[0],
         Notes: data.note || '',
         Recorded_By: 'Accountant',
         Advance_Deduction: parseFloat(data.advanceDeduction) || 0,
         New_Advance_Given: parseFloat(data.newAdvanceGiven) || 0,
+        Is_Advance_Salary: data.isAdvanceSalary ? 'Yes' : 'No',
       }));
     } catch(e) { return { error: e.message }; }
   });
@@ -1950,36 +1941,59 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           status: String(c.Status || c.status || 'pending').toLowerCase(),
         }))
         .filter((c) => !isAccountantScoped() || String(c.Town_Name || c.town_name || '') === requireAccountantTown())
-        .filter((c) => !filter?.status || c.status === String(filter.status).toLowerCase());
+        .filter((c) => {
+          if (!filter?.status) return true;
+          const wanted = String(filter.status).toLowerCase();
+          if (wanted === 'pending') return c.status === 'pending' || c.status === 'partial';
+          return c.status === wanted;
+        });
       return { data };
     }
     catch (e) { return { error: e.message }; }
   });
-  ipcMain.handle('mark-commission-paid', async (_, commissionId) => {
+  ipcMain.handle('mark-commission-paid', async (_, payload) => {
     try {
+      const commissionId = typeof payload === 'object' ? payload.commissionId : payload;
+      const requestedAmount = typeof payload === 'object' ? parseFloat(payload.amount) || 0 : 0;
       if (!isNonEmpty(commissionId)) throw new Error('Commission ID is required');
-      const { readExcelFile, updateExcelRow, getGlobalsPath } = require('./db/core');
+      const { readExcelFile, updateExcelRow, getGlobalsPath, ensureSheetColumns } = require('./db/core');
       const commissionPath = path.join(getGlobalsPath(), 'Commissions.xlsx');
+      await ensureSheetColumns(commissionPath, 'Data', ['Paid_Amount','Remaining_Amount','Last_Paid_Date']);
       const rows = await readExcelFile(commissionPath, 'Data');
       const row = (rows || []).find((c) => String(c.Commission_ID || c.id) === String(commissionId));
       if (row) assertTownAccess(row.Town_Name || row.town_name);
       if (!row?._rowNumber) throw new Error('Commission record not found locally');
       const paidDate = new Date().toISOString().split('T')[0];
+      const totalCommission = parseFloat(row.Commission_Amount || row.commission_amount) || 0;
+      const paidBefore = parseFloat(row.Paid_Amount || row.paid_amount) || 0;
+      const remainingBefore = Math.max(0, totalCommission - paidBefore);
+      const payAmount = requestedAmount > 0 ? requestedAmount : remainingBefore;
+      if (payAmount <= 0) throw new Error('Commission is already fully paid');
+      if (payAmount > remainingBefore) throw new Error(`Payment exceeds remaining commission. Remaining: PKR ${remainingBefore.toLocaleString()}`);
+      const paidAfter = paidBefore + payAmount;
+      const remainingAfter = Math.max(0, totalCommission - paidAfter);
       const localPayload = {
         Commission_ID: row.Commission_ID || commissionId,
         Sale_ID: row.Sale_ID || '',
         Town_Name: row.Town_Name || '',
         Agent_Name: row.Agent_Name || row.agent_name || '',
         Plot_Shop_Number: row.Plot_Shop_Number || '',
-        Amount: row.Commission_Amount || row.commission_amount || 0,
+        Amount: payAmount,
+        Commission_Amount: totalCommission,
+        Paid_Before: paidBefore,
+        Paid_After: paidAfter,
+        Remaining_After: remainingAfter,
         Paid_Date: paidDate,
         Paid_By: 'Accountant',
       };
       return await syncOnline(
         async () => {
           await updateExcelRow(commissionPath, 'Data', row._rowNumber, {
-            Status: 'paid',
+            Status: remainingAfter <= 0 ? 'paid' : 'partial',
             Paid_Date: paidDate,
+            Last_Paid_Date: paidDate,
+            Paid_Amount: paidAfter,
+            Remaining_Amount: remainingAfter,
           });
           const receipt = await businessExtras.recordCommissionReceipt(localPayload);
           await addDailyEntry({
@@ -1996,7 +2010,13 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           return { success: true, receipt, commission: localPayload };
         },
         async (localResult) => {
-          await onlineDb.markCommissionPaid(commissionId);
+          if (remainingAfter <= 0) await onlineDb.markCommissionPaid(commissionId);
+          else await onlineDb.updateWhere('commissions', { id: commissionId }, {
+            status: 'partial',
+            paid_amount: paidAfter,
+            remaining_amount: remainingAfter,
+            paid_at: paidDate,
+          });
           const receipt = localResult?.receipt || {};
           await onlineDb.insert('commission_receipts', {
             ...receipt,

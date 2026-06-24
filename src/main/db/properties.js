@@ -37,7 +37,7 @@ async function upsertCommissionForSaleLocal(sale) {
   if (amount <= 0 || !agent) return;
 
   const commissionPath = path.join(getGlobalsPath(), 'Commissions.xlsx');
-  await ensureSheetColumns(commissionPath, 'Data', ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Status','Paid_Date','Created_At']);
+  await ensureSheetColumns(commissionPath, 'Data', ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Paid_Amount','Remaining_Amount','Status','Paid_Date','Last_Paid_Date','Created_At']);
   const rows = await readExcelFile(commissionPath, 'Data');
   const saleId = sale.Sale_ID || `${sale.Type}|${sale.Plot_Shop_Number}|${sale.Town_Name}`;
   const exists = rows.some((r) => String(r.Sale_ID || r.Commission_ID || '') === String(saleId));
@@ -51,15 +51,18 @@ async function upsertCommissionForSaleLocal(sale) {
     Agent_Name: agent,
     Agent_Email: '',
     Commission_Amount: amount,
+    Paid_Amount: 0,
+    Remaining_Amount: amount,
     Status: 'pending',
     Paid_Date: '',
+    Last_Paid_Date: '',
     Created_At: sale.Sell_Date || new Date().toISOString().split('T')[0],
   });
 }
 
 const PLOT_COLUMNS = [
   'Plot_Number','Town_Name','Plot_Size','Plot_Marla','Length_Ft','Width_Ft','Area_Sqft','Per_Marla_Price','Total_Price','Owner_Name','Customer_Name','CNIC',
-  'Phone_Number','Sell_Date','Total_Amount_PKR','Advance_Amount_PKR',
+  'Phone_Number','Sell_Date','Expected_Amount_PKR','Deal_Amount_PKR','Discount_Amount_PKR','Total_Amount_PKR','Advance_Amount_PKR',
   'Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount',
   'Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount',
   'Expense_Total','Profit_Loss','Installment_Status','Resell_Status',
@@ -69,7 +72,7 @@ const PLOT_COLUMNS = [
 
 const SHOP_COLUMNS = [
   'Shop_Number','Town_Name','Shop_Size','Shop_Marla','Length_Ft','Width_Ft','Area_Sqft','Road_Type','Road_Key','Per_Marla_Price','Total_Price','Owner_Name','Customer_Name','CNIC',
-  'Phone_Number','Sell_Date','Total_Amount_PKR','Advance_Amount_PKR',
+  'Phone_Number','Sell_Date','Expected_Amount_PKR','Deal_Amount_PKR','Discount_Amount_PKR','Total_Amount_PKR','Advance_Amount_PKR',
   'Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount',
   'Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount',
   'Expense_Total','Profit_Loss','Installment_Status','Resell_Status',
@@ -276,7 +279,9 @@ async function sellProperty(data) {
   }
   
   // Calculate installment
-  const totalAmount = parseFloat(data.Total_Amount_PKR) || 0;
+  const totalAmount = parseFloat(data.Deal_Amount_PKR ?? data.Total_Amount_PKR) || 0;
+  const expectedAmount = parseFloat(data.Expected_Amount_PKR) || totalAmount;
+  const discountAmount = Math.max(0, expectedAmount - totalAmount);
   const advanceAmount = parseFloat(data.Advance_Amount_PKR) || 0;
   const useInstallment = !!data.useInstallment;
   
@@ -299,6 +304,9 @@ async function sellProperty(data) {
     CNIC: data.CNIC || '',
     Phone_Number: data.Phone_Number || '',
     Sell_Date: data.Sell_Date || new Date().toISOString().split('T')[0],
+    Expected_Amount_PKR: expectedAmount,
+    Deal_Amount_PKR: totalAmount,
+    Discount_Amount_PKR: discountAmount,
     Total_Amount_PKR: totalAmount,
     Advance_Amount_PKR: advanceAmount,
     Total_Installments: totalInstallments,
@@ -323,7 +331,7 @@ async function sellProperty(data) {
   await updatePropertyFile(type, number, townName, updates);
 
   // Add to All_Sales.xlsx
-  await ensureSheetColumns(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', ['Received_Amount','Remaining_Amount','Sale_Type','Payment_Method','Cheque_Number','Cheque_Bank','Cheque_Image','Transaction_ID','Transfer_Bank','Transfer_Image']);
+  await ensureSheetColumns(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', ['Received_Amount','Remaining_Amount','Sale_Type','Expected_Amount_PKR','Deal_Amount_PKR','Discount_Amount_PKR','Payment_Method','Cheque_Number','Cheque_Bank','Cheque_Image','Transaction_ID','Transfer_Bank','Transfer_Image']);
   const saleId = generateId();
   const saleData = {
     Sale_ID: saleId,
@@ -334,6 +342,9 @@ async function sellProperty(data) {
     CNIC: data.CNIC,
     Phone_Number: data.Phone_Number,
     Sell_Date: updates.Sell_Date,
+    Expected_Amount_PKR: expectedAmount,
+    Deal_Amount_PKR: totalAmount,
+    Discount_Amount_PKR: discountAmount,
     Total_Amount_PKR: totalAmount,
     Advance_Amount_PKR: advanceAmount,
     Total_Installments: totalInstallments,

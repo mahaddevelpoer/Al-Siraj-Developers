@@ -56,7 +56,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     Sell_Date: new Date().toISOString().split('T')[0],
     townName: lockedTownName || '', type: 'Plot', number: '', Owner_Name: '',
     Customer_Name: '', CNIC: '', Receipt_Number: '', Phone_Number: '',
-    Total_Amount_PKR: '', Advance_Amount_PKR: '', 
+    Expected_Amount_PKR: '', Total_Amount_PKR: '', Advance_Amount_PKR: '',
     Total_Installments: '12', Total_Time_Period: '1', Period_Unit: 'Years',
     Agent_Name: '', Commission_Rate: '', Expense_Total: '0',
   });
@@ -290,7 +290,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     async function fetchProp() {
       if (!form.townName || !form.number || !form.type) {
         setPropertyDetails(null);
-        setForm(f => ({ ...f, Total_Amount_PKR: '' }));
+        setForm(f => ({ ...f, Expected_Amount_PKR: '', Total_Amount_PKR: '' }));
         return;
       }
       if (window.api) {
@@ -301,11 +301,15 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         if (res && !res.error && res.Status !== 'Sold' && res.Status !== 'Resold') {
            setPropertyDetails(res);
            if (res.Total_Price) {
-             setForm(f => ({ ...f, Total_Amount_PKR: String(res.Total_Price) }));
+             setForm(f => ({
+               ...f,
+               Expected_Amount_PKR: String(res.Total_Price),
+               Total_Amount_PKR: f.Total_Amount_PKR || String(res.Total_Price),
+             }));
            }
         } else {
            setPropertyDetails(null);
-           setForm(f => ({ ...f, Total_Amount_PKR: '' }));
+           setForm(f => ({ ...f, Expected_Amount_PKR: '', Total_Amount_PKR: '' }));
         }
       }
     }
@@ -314,6 +318,8 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
   }, [form.townName, form.number, form.type]);
 
   const totalAmount = parseFloat(form.Total_Amount_PKR) || 0;
+  const expectedAmount = parseFloat(form.Expected_Amount_PKR) || totalAmount;
+  const dealDifference = expectedAmount - totalAmount;
   const advanceAmount = parseFloat(form.Advance_Amount_PKR) || 0;
   const remaining = Math.max(0, totalAmount - advanceAmount);
   const advanceOverLimit = totalAmount > 0 && advanceAmount > totalAmount;
@@ -425,7 +431,20 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
       title: 'Financial Details',
       fields: (
         <div className="form-grid">
-          <div className="form-group"><label>Total Amount (PKR) *</label><input type="number" placeholder="Total price" value={form.Total_Amount_PKR} onChange={u('Total_Amount_PKR')} required readOnly style={{ backgroundColor: 'var(--bg-secondary)', cursor: 'not-allowed' }} /></div>
+          <div className="form-group">
+            <label>Expected Amount (PKR)</label>
+            <input type="number" value={form.Expected_Amount_PKR} readOnly style={{ backgroundColor: 'var(--bg-secondary)', cursor: 'not-allowed', fontWeight: 800 }} />
+            <div className="field-helper-text">Auto calculated from property price/size.</div>
+          </div>
+          <div className="form-group">
+            <label>Final Deal Amount (PKR) *</label>
+            <input type="number" placeholder="Final negotiated price" value={form.Total_Amount_PKR} onChange={u('Total_Amount_PKR')} required />
+            {dealDifference !== 0 && (
+              <div className="field-helper-text" style={{ color: dealDifference > 0 ? '#b45309' : '#0f766e', fontWeight: 800 }}>
+                {dealDifference > 0 ? 'Discount' : 'Above expected'}: PKR {Math.abs(dealDifference).toLocaleString()}
+              </div>
+            )}
+          </div>
           <div className="form-group">
             <label>Advance Amount (PKR)</label>
             <input
@@ -680,6 +699,9 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
       const data = {
         type: form.type, number: form.number, townName: form.townName, ...form,
         Receipt_Number: effectiveReceipt,
+        Expected_Amount_PKR: expectedAmount,
+        Deal_Amount_PKR: totalAmount,
+        Discount_Amount_PKR: dealDifference > 0 ? dealDifference : 0,
         useInstallment, 
         monthlyInstallment, 
         companyIncome, 
@@ -825,7 +847,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
       Sell_Date: new Date().toISOString().split('T')[0], 
       townName: lockedTownName || '', type: 'Plot', number: '', Owner_Name: '', 
       Customer_Name: '', CNIC: '', Receipt_Number: '', Phone_Number: '', 
-      Total_Amount_PKR: '', Advance_Amount_PKR: '', 
+    Expected_Amount_PKR: '', Total_Amount_PKR: '', Advance_Amount_PKR: '',
       Total_Installments: '12', Total_Time_Period: '1', Period_Unit: 'Years', 
       Agent_Name: '', Commission_Rate: '', Expense_Total: '0' 
     });

@@ -73,7 +73,7 @@ async function upsertCommissionForSaleLocal(sale) {
   if (amount <= 0 || !agent) return;
 
   const commissionPath = path.join(getGlobalsPath(), 'Commissions.xlsx');
-  await ensureSheetColumns(commissionPath, 'Data', ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Status','Paid_Date','Created_At']);
+  await ensureSheetColumns(commissionPath, 'Data', ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Paid_Amount','Remaining_Amount','Status','Paid_Date','Last_Paid_Date','Created_At']);
   const rows = await readExcelFile(commissionPath, 'Data');
   const saleId = sale.Sale_ID || `${sale.Type}|${sale.Plot_Shop_Number}|${sale.Town_Name}`;
   if (rows.some((r) => String(r.Sale_ID || r.Commission_ID || '') === String(saleId))) return;
@@ -86,8 +86,11 @@ async function upsertCommissionForSaleLocal(sale) {
     Agent_Name: agent,
     Agent_Email: '',
     Commission_Amount: amount,
+    Paid_Amount: 0,
+    Remaining_Amount: amount,
     Status: 'pending',
     Paid_Date: '',
+    Last_Paid_Date: '',
     Created_At: sale.Sell_Date || new Date().toISOString().split('T')[0],
   });
 }
@@ -518,11 +521,39 @@ async function getResellHistory() {
 }
 
 async function recordSalaryPayment(data) {
-  const { employeeName, amount, month, townName, type, note, designation, advanceDeduction, newAdvanceGiven } = data;
+  const { employeeName, amount, month, townName, type, note, designation, advanceDeduction, newAdvanceGiven, salaryAmount, isAdvanceSalary } = data;
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
   const seq = String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0') + String(now.getSeconds()).padStart(2,'0');
   const receiptNumber = `SAL-${dateStr.replace(/-/g,'')}-${seq}`;
+  const recordsPath = path.join(getGlobalsPath(), 'Salary_Records.xlsx');
+  await ensureSheetColumns(recordsPath, 'Data', [
+    'Receipt_Number','Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By',
+    'Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After',
+    'Salary_Remaining_After','Is_Advance_Salary'
+  ]);
+  const previousRows = await readExcelFile(recordsPath, 'Data').catch(() => []);
+  const cleanName = String(employeeName || '').trim().toLowerCase();
+  const cleanMonth = String(month || '').trim().toLowerCase();
+  const fixedSalary = parseFloat(salaryAmount ?? data.baseSalary ?? amount) || 0;
+  const cashPaid = parseFloat(amount) || 0;
+  const declaredAdvance = parseFloat(newAdvanceGiven) || 0;
+  const salaryCash = Math.max(0, cashPaid - declaredAdvance);
+  const alreadyPaid = previousRows
+    .filter((r) =>
+      String(r.Name || '').trim().toLowerCase() === cleanName &&
+      String(r.Month || '').trim().toLowerCase() === cleanMonth
+    )
+    .reduce((sum, r) => {
+      const storedSalaryPart = parseFloat(r.Salary_Paid_Amount);
+      if (Number.isFinite(storedSalaryPart)) return sum + storedSalaryPart;
+      return sum + Math.max(0, (parseFloat(r.Amount) || 0) - (parseFloat(r.New_Advance_Given) || 0));
+    }, 0);
+  const remainingBefore = Math.max(0, fixedSalary - alreadyPaid);
+  const salaryPart = Math.min(salaryCash, remainingBefore || salaryCash);
+  const extraAdvance = declaredAdvance + Math.max(0, salaryCash - remainingBefore);
+  const paidAfter = Math.min(fixedSalary, alreadyPaid + salaryPart);
+  const remainingAfter = Math.max(0, fixedSalary - paidAfter);
 
   const salaryData = {
     Receipt_Number: receiptNumber,
@@ -531,14 +562,20 @@ async function recordSalaryPayment(data) {
     Type: type || 'Employee',
     Name: employeeName || '',
     Designation: designation || '',
-    Amount: parseFloat(amount) || 0,
+    Amount: cashPaid,
     Town_Name: townName || '',
     Note: note || '',
     Paid_By: 'CEO',
     Advance_Deduction: parseFloat(advanceDeduction) || 0,
-    New_Advance_Given: parseFloat(newAdvanceGiven) || 0,
+    New_Advance_Given: extraAdvance,
+    Salary_Amount: fixedSalary,
+    Salary_Paid_Amount: salaryPart,
+    Salary_Paid_Before: alreadyPaid,
+    Salary_Paid_After: paidAfter,
+    Salary_Remaining_After: remainingAfter,
+    Is_Advance_Salary: isAdvanceSalary || extraAdvance > 0 ? 'Yes' : 'No',
   };
-  await appendToExcel(path.join(getGlobalsPath(), 'Salary_Records.xlsx'), 'Data', salaryData);
+  await appendToExcel(recordsPath, 'Data', salaryData);
 
   // Also record as town expense
   const { appendToExcel: appendExp } = require('./core');
@@ -546,8 +583,8 @@ async function recordSalaryPayment(data) {
     Expense_ID: generateId(),
     Town_Name: townName || '',
     Expense_Name: `${type || 'Employee'} Salary: ${employeeName || ''}`,
-    Amount_PKR: parseFloat(amount) || 0,
-    Description: note || `Salary for ${month || ''}`,
+    Amount_PKR: cashPaid,
+    Description: note || `${extraAdvance > 0 ? 'Salary/advance' : 'Salary'} for ${month || ''}`,
     Category: 'Salary',
     Date: dateStr,
     Added_By: 'CEO',
@@ -557,11 +594,11 @@ async function recordSalaryPayment(data) {
     sourceType: 'salary_payment',
     sourceId: receiptNumber,
     direction: 'expense',
-    amount: salaryData.Amount,
+    amount: cashPaid,
     townName,
     date: dateStr,
     partyName: employeeName || '',
-    description: `${type || 'Employee'} salary ${month || ''}`,
+    description: `${type || 'Employee'} ${extraAdvance > 0 ? 'salary/advance' : 'salary'} ${month || ''}`,
     receiptNumber,
     createdBy: 'CEO',
   });
