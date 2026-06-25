@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS public.money_ledger (
   source_id TEXT,
   direction TEXT CHECK (direction IN ('income','expense')),
   amount NUMERIC DEFAULT 0,
+  debit_account TEXT,
+  credit_account TEXT,
   party_name TEXT,
   description TEXT,
   receipt_number TEXT,

@@ -1,7 +1,7 @@
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const FCM_AUDIENCE = "https://oauth2.googleapis.com/token";
 const CEO_TOPIC = "ceo-alerts";
-const PUSHABLE_TABLES = new Set(["appeals"]);
+const PUSHABLE_TABLES = new Set(["appeals", "daily_entries"]);
 const MAX_RECORD_AGE_MS = 5 * 60 * 1000;
 let cachedAccessToken = "";
 let cachedAccessTokenExpiresAt = 0;
@@ -136,6 +136,21 @@ function buildSafeMessage(payload: PushPayload) {
     };
   }
 
+  if (table === "daily_entries") {
+    const town = String(record.Town_Name || record.town_name || "").trim();
+    const type = prettyText(record.Type || record.type || "entry");
+    const amount = String(record.Amount || record.amount || "").trim();
+    return {
+      title: "Daily entry approval",
+      body: `${type}${amount ? ` - PKR ${amount}` : ""}${town ? ` - ${town}` : ""}`,
+      data: {
+        ...data,
+        route: "entries",
+        town_name: town,
+      },
+    };
+  }
+
   if (table === "all_sales") {
     return {
       title: event === "UPDATE" ? "Sale updated" : "Property sold",
@@ -194,6 +209,11 @@ function shouldSkipPush(payload: PushPayload) {
 
   if (table === "appeals" && String(record.status || "pending").toLowerCase() !== "pending") {
     return "appeal_not_pending";
+  }
+
+  if (table === "daily_entries") {
+    const reviewStatus = String(record.review_status || record.Review_Status || "approved").toLowerCase();
+    if (reviewStatus !== "pending") return "daily_entry_not_pending";
   }
 
   if (event === "UPDATE" && unchangedPushState(table, record, oldRecord)) {

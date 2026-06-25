@@ -2029,18 +2029,21 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
     final data = _filter == 'pending'
         ? await query
               .or('review_status.eq.pending,review_status.is.null')
-              .order('date', ascending: false)
               .limit(80)
         : await query
               .eq('review_status', _filter)
-              .order('date', ascending: false)
               .limit(80);
-    final rows = List<Map<String, dynamic>>.from(data);
-    return rows
+    final rows = List<Map<String, dynamic>>.from(data)
         .where(
           (row) => reviewStatusOf(row) == _filter,
         )
         .toList();
+    rows.sort((a, b) {
+      final bDate = '${rowVal(b, 'Date') ?? rowVal(b, 'created_at') ?? ''}';
+      final aDate = '${rowVal(a, 'Date') ?? rowVal(a, 'created_at') ?? ''}';
+      return bDate.compareTo(aDate);
+    });
+    return rows;
   }
 
   Future<void> _refresh() async {

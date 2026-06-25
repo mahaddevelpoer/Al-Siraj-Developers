@@ -251,7 +251,7 @@ async function performFullSync(reportProgress = () => {}) {
     const COLLECTION_PAY_COLS = ['Payment_ID','Sale_ID','Sale_Code','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes'];
     await overwriteExcelFile(path.join(globalsPath, 'Collection_Payments.xlsx'), 'Data', COLLECTION_PAY_COLS, scoped(collectionPayments).map((r) => mapGenericFromCloud(COLLECTION_PAY_COLS, r)));
 
-    const MONEY_LEDGER_COLS = ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'];
+    const MONEY_LEDGER_COLS = ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Debit_Account','Credit_Account','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'];
     await overwriteExcelFile(path.join(globalsPath, 'Money_Ledger.xlsx'), 'Data', MONEY_LEDGER_COLS, scoped(moneyLedger).map((r) => mapGenericFromCloud(MONEY_LEDGER_COLS, r)));
 
     const SUMMARY_COLS = ['Town_Name','Total_Received','Total_Expenses','Cash_Balance','Pending_Collection','Investor_Balance','Updated_At'];

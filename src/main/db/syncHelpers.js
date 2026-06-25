@@ -135,7 +135,7 @@ const TABLE_COLUMNS = {
   commission_receipts: ['Receipt_ID','Commission_ID','Sale_ID','Town_Name','Agent_Name','Plot_Shop_Number','Amount','Paid_Date','Receipt_Number','Paid_By'],
   collection_payments: ['Payment_ID','Sale_ID','Sale_Code','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes'],
   receipt_archive: ['Receipt_ID','Receipt_Number','Receipt_Type','Town_Name','Entity_ID','Entity_Name','Amount','Receipt_Date','Payload_JSON','Created_At'],
-  money_ledger: ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'],
+  money_ledger: ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Debit_Account','Credit_Account','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'],
   town_financial_summary: ['Town_Name','Total_Received','Total_Expenses','Cash_Balance','Pending_Collection','Investor_Balance','Updated_At'],
 };
 

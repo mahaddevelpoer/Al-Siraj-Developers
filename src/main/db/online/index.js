@@ -309,6 +309,13 @@ async function recordMoneyEvent(data) {
   const sourceType = data.sourceType || data.Source_Type || 'manual';
   const sourceId = data.sourceId || data.Source_ID || uuid();
   const direction = String(data.direction || data.Direction || '').toLowerCase() === 'expense' ? 'expense' : 'income';
+  const sourceAccount = String(sourceType || 'general')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+  const debitAccount = data.debitAccount || data.Debit_Account || (direction === 'income' ? 'Cash / Bank' : sourceAccount);
+  const creditAccount = data.creditAccount || data.Credit_Account || (direction === 'income' ? sourceAccount : 'Cash / Bank');
   return await insert('money_ledger', {
     Ledger_ID: data.ledgerId || data.Ledger_ID || `${sourceType}-${sourceId}-${direction}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120),
     Town_Name: data.townName || data.Town_Name || '',
@@ -317,6 +324,8 @@ async function recordMoneyEvent(data) {
     Source_ID: sourceId,
     Direction: direction,
     Amount: amount,
+    Debit_Account: debitAccount,
+    Credit_Account: creditAccount,
     Party_Name: data.partyName || data.Party_Name || '',
     Description: data.description || data.Description || '',
     Receipt_Number: data.receiptNumber || data.Receipt_Number || '',

@@ -16,7 +16,7 @@ const FILE_NAME = 'Money_Ledger.xlsx';
 const SUMMARY_FILE_NAME = 'Town_Financial_Summary.xlsx';
 const COLUMNS = [
   'Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount',
-  'Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'
+  'Debit_Account','Credit_Account','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'
 ];
 const SUMMARY_COLUMNS = [
   'Town_Name','Total_Received','Total_Expenses','Cash_Balance',
@@ -81,6 +81,39 @@ function normalizeDirection(direction) {
   return String(direction || '').toLowerCase() === 'expense' ? 'expense' : 'income';
 }
 
+function titleAccount(value) {
+  return String(value || 'general')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function accountForSource(sourceType, direction) {
+  const source = String(sourceType || 'general').toLowerCase();
+  if (source.includes('sale') || source.includes('collection') || source.includes('installment')) return 'Property Revenue';
+  if (source.includes('investor')) return direction === 'income' ? 'Investor Capital' : 'Investor Withdrawal';
+  if (source.includes('salary')) return 'Salary Expense';
+  if (source.includes('commission')) return 'Commission Expense';
+  if (source.includes('construction')) return 'Construction Expense';
+  if (source.includes('ceo')) return 'CEO Expense';
+  if (source.includes('expense')) return 'Operating Expense';
+  if (source.includes('daily')) return direction === 'income' ? 'Daily Income' : 'Daily Expense';
+  return titleAccount(sourceType);
+}
+
+function debitCreditFor({ direction, sourceType, debitAccount, creditAccount }) {
+  if (debitAccount || creditAccount) {
+    return {
+      debit: debitAccount || (direction === 'income' ? 'Cash / Bank' : accountForSource(sourceType, direction)),
+      credit: creditAccount || (direction === 'income' ? accountForSource(sourceType, direction) : 'Cash / Bank'),
+    };
+  }
+  return direction === 'income'
+    ? { debit: 'Cash / Bank', credit: accountForSource(sourceType, direction) }
+    : { debit: accountForSource(sourceType, direction), credit: 'Cash / Bank' };
+}
+
 function sourceKey(row) {
   return [
     String(row.Source_Type || '').trim().toLowerCase(),
@@ -104,6 +137,12 @@ async function recordMoneyEvent(data) {
   const sourceType = data.sourceType || data.Source_Type || 'manual';
   const sourceId = data.sourceId || data.Source_ID || generateId();
   const direction = normalizeDirection(data.direction || data.Direction);
+  const accounts = debitCreditFor({
+    direction,
+    sourceType,
+    debitAccount: data.debitAccount || data.Debit_Account,
+    creditAccount: data.creditAccount || data.Credit_Account,
+  });
   const fp = await ensureMoneyLedgerFile();
   const existing = await readExcelFile(fp, 'Data');
   const key = `${String(sourceType).trim().toLowerCase()}|${String(sourceId).trim()}|${direction}`;
@@ -118,6 +157,8 @@ async function recordMoneyEvent(data) {
     Source_ID: sourceId,
     Direction: direction,
     Amount: amount,
+    Debit_Account: accounts.debit,
+    Credit_Account: accounts.credit,
     Party_Name: data.partyName || data.Party_Name || '',
     Description: data.description || data.Description || '',
     Receipt_Number: data.receiptNumber || data.Receipt_Number || '',

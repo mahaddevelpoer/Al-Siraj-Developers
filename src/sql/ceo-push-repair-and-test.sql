@@ -142,14 +142,23 @@ CREATE TRIGGER appeals_ceo_mobile_push
 AFTER INSERT ON public.appeals
 FOR EACH ROW EXECUTE FUNCTION public.notify_ceo_mobile_push();
 
--- Keep push appeal-only. App-open realtime can still listen to these tables,
--- but Android lock-screen FCM should not flood for old synced rows.
+-- Keep push approval-only. App-open realtime can still listen to business
+-- tables, but Android lock-screen FCM must not flood for old synced rows.
 DROP TRIGGER IF EXISTS notifications_ceo_mobile_push ON public.notifications;
 DROP TRIGGER IF EXISTS daily_entries_ceo_mobile_push ON public.daily_entries;
 DROP TRIGGER IF EXISTS all_sales_ceo_mobile_push ON public.all_sales;
 DROP TRIGGER IF EXISTS properties_ceo_mobile_push ON public.properties;
 DROP TRIGGER IF EXISTS installments_ceo_mobile_push ON public.installments;
 DROP TRIGGER IF EXISTS expenses_ceo_mobile_push ON public.expenses;
+
+ALTER TABLE public.daily_entries
+  ADD COLUMN IF NOT EXISTS review_status VARCHAR(20) DEFAULT 'pending';
+
+CREATE TRIGGER daily_entries_ceo_mobile_push
+AFTER INSERT ON public.daily_entries
+FOR EACH ROW
+WHEN (COALESCE(NEW.review_status, 'approved') = 'pending')
+EXECUTE FUNCTION public.notify_ceo_mobile_push();
 
 CREATE OR REPLACE FUNCTION public.test_ceo_push_appeal()
 RETURNS JSONB
@@ -159,8 +168,20 @@ SET search_path = public
 AS $$
 DECLARE
   new_id UUID;
+  requester_id UUID;
 BEGIN
+  SELECT id INTO requester_id
+  FROM public.users
+  WHERE role IN ('accountant', 'ceo')
+  ORDER BY CASE WHEN role = 'accountant' THEN 1 ELSE 2 END, created_at DESC
+  LIMIT 1;
+
+  IF requester_id IS NULL THEN
+    RAISE EXCEPTION 'No public.users accountant/ceo profile found for push test';
+  END IF;
+
   INSERT INTO public.appeals (
+    requested_by_user_id,
     requested_by_role,
     appeal_type,
     entity_type,
@@ -172,6 +193,7 @@ BEGIN
     created_at
   )
   VALUES (
+    requester_id,
     'accountant',
     'push_test',
     'push_test',
@@ -210,6 +232,19 @@ BEGIN
       AND tablename = 'appeals'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.appeals;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'daily_entries'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.daily_entries;
   END IF;
 END $$;
 
