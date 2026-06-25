@@ -303,19 +303,52 @@ async function getAllInstallments() {
   return await getAll('installments');
 }
 
+function titleAccount(value) {
+  return String(value || 'general')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function accountForSource(sourceType, direction) {
+  const source = String(sourceType || 'general').toLowerCase();
+  if (source.includes('sale') || source.includes('collection') || source.includes('installment')) return 'Property Revenue';
+  if (source.includes('investor')) return direction === 'income' ? 'Investor Capital' : 'Investor Withdrawal';
+  if (source.includes('salary_advance')) return 'Employee Advance Receivable';
+  if (source.includes('salary')) return 'Salary Expense';
+  if (source.includes('commission')) return 'Commission Expense';
+  if (source.includes('construction')) return 'Construction Expense';
+  if (source.includes('ceo')) return 'CEO Expense';
+  if (source.includes('expense')) return 'Operating Expense';
+  if (source.includes('daily')) return direction === 'income' ? 'Daily Income' : 'Daily Expense';
+  return titleAccount(sourceType);
+}
+
+function debitCreditFor({ direction, sourceType, debitAccount, creditAccount }) {
+  if (debitAccount || creditAccount) {
+    return {
+      debit: debitAccount || (direction === 'income' ? 'Cash / Bank' : accountForSource(sourceType, direction)),
+      credit: creditAccount || (direction === 'income' ? accountForSource(sourceType, direction) : 'Cash / Bank'),
+    };
+  }
+  return direction === 'income'
+    ? { debit: 'Cash / Bank', credit: accountForSource(sourceType, direction) }
+    : { debit: accountForSource(sourceType, direction), credit: 'Cash / Bank' };
+}
+
 async function recordMoneyEvent(data) {
   const amount = parseFloat(data?.amount ?? data?.Amount) || 0;
   if (amount <= 0) return { skipped: true, reason: 'amount_zero' };
   const sourceType = data.sourceType || data.Source_Type || 'manual';
   const sourceId = data.sourceId || data.Source_ID || uuid();
   const direction = String(data.direction || data.Direction || '').toLowerCase() === 'expense' ? 'expense' : 'income';
-  const sourceAccount = String(sourceType || 'general')
-    .replace(/_/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (ch) => ch.toUpperCase());
-  const debitAccount = data.debitAccount || data.Debit_Account || (direction === 'income' ? 'Cash / Bank' : sourceAccount);
-  const creditAccount = data.creditAccount || data.Credit_Account || (direction === 'income' ? sourceAccount : 'Cash / Bank');
+  const accounts = debitCreditFor({
+    direction,
+    sourceType,
+    debitAccount: data.debitAccount || data.Debit_Account,
+    creditAccount: data.creditAccount || data.Credit_Account,
+  });
   return await insert('money_ledger', {
     Ledger_ID: data.ledgerId || data.Ledger_ID || `${sourceType}-${sourceId}-${direction}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120),
     Town_Name: data.townName || data.Town_Name || '',
@@ -324,8 +357,8 @@ async function recordMoneyEvent(data) {
     Source_ID: sourceId,
     Direction: direction,
     Amount: amount,
-    Debit_Account: debitAccount,
-    Credit_Account: creditAccount,
+    Debit_Account: accounts.debit,
+    Credit_Account: accounts.credit,
     Party_Name: data.partyName || data.Party_Name || '',
     Description: data.description || data.Description || '',
     Receipt_Number: data.receiptNumber || data.Receipt_Number || '',
