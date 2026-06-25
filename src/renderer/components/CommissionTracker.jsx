@@ -9,6 +9,9 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
   const [search, setSearch] = useState('');
   const [agentFilter, setAgentFilter] = useState('all');
   const [selectedAgent, setSelectedAgent] = useState('all');
+  const [payTarget, setPayTarget] = useState(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [paying, setPaying] = useState(false);
 
   useEffect(() => { loadData(); }, [townName, refreshKey]);
 
@@ -35,6 +38,39 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
   const fmt = (n) => `PKR ${(n || 0).toLocaleString()}`;
+  const getCommissionTotals = (row) => {
+    const total = parseFloat(row?.Commission_Amount || row?.commission_amount) || 0;
+    const paid = parseFloat(row?.Paid_Amount || row?.paid_amount) || 0;
+    const rawRemaining = parseFloat(row?.Remaining_Amount || row?.remaining_amount);
+    return { total, paid, remaining: Number.isFinite(rawRemaining) ? rawRemaining : Math.max(0, total - paid) };
+  };
+  const openPayModal = (row) => {
+    const { remaining } = getCommissionTotals(row);
+    setPayTarget(row);
+    setPayAmount(String(remaining || ''));
+  };
+  const closePayModal = () => {
+    setPayTarget(null);
+    setPayAmount('');
+    setPaying(false);
+  };
+  const submitCommissionPayment = async () => {
+    if (!payTarget) return;
+    const { remaining } = getCommissionTotals(payTarget);
+    const amount = parseFloat(payAmount) || 0;
+    if (amount <= 0) return showToast?.('Enter valid commission amount', 'error');
+    if (amount > remaining) return showToast?.(`Payment exceeds remaining commission: ${fmt(remaining)}`, 'error');
+    setPaying(true);
+    const r = await window.api.markCommissionPaid({ commissionId: payTarget.id || payTarget.Commission_ID, amount });
+    if (r?.error) {
+      showToast?.(r.error, 'error');
+      setPaying(false);
+      return;
+    }
+    showToast?.('Commission payment saved');
+    closePayModal();
+    loadData();
+  };
 
   const normalizeAgentName = (name) => String(name || '').trim() || 'No Agent';
   const registeredAgentNames = registeredAgents
@@ -105,6 +141,43 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
 
   return (
     <div>
+      {payTarget && (
+        <div className="commission-pay-backdrop" onClick={closePayModal}>
+          <div className="commission-pay-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="commission-pay-head">
+              <div>
+                <div className="commission-pay-kicker">Agent commission payment</div>
+                <h3>{normalizeAgentName(payTarget.agent_name || payTarget.Agent_Name)}</h3>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={closePayModal} disabled={paying}>Close</button>
+            </div>
+            {(() => {
+              const { total, paid, remaining } = getCommissionTotals(payTarget);
+              return (
+                <>
+                  <div className="commission-pay-grid">
+                    <div><span>Earned</span><strong>{fmt(total)}</strong></div>
+                    <div><span>Paid</span><strong className="text-green">{fmt(paid)}</strong></div>
+                    <div><span>Remaining</span><strong className={remaining > 0 ? 'text-red' : 'text-green'}>{fmt(remaining)}</strong></div>
+                  </div>
+                  <div className="form-group" style={{ marginTop: 14 }}>
+                    <label>Pay amount now</label>
+                    <input type="number" min="1" max={remaining || undefined} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} autoFocus />
+                    <div className="field-helper-text">This creates commission receipt, expense daily entry, and debit/credit money ledger row.</div>
+                  </div>
+                  <div className="commission-pay-actions">
+                    <button className="btn btn-ghost" onClick={() => setPayAmount(String(remaining || ''))} disabled={paying}>Full Remaining</button>
+                    <button className="btn btn-primary" onClick={submitCommissionPayment} disabled={paying || remaining <= 0}>
+                      {paying ? 'Saving...' : 'Save Payment'}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
       {/* Summary Stats */}
       <div className="stat-cards mb-6" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
         <div className="stat-card">
@@ -204,16 +277,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
                     style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
                     onClick={async (e) => {
                       e.stopPropagation();
-                      const total = parseFloat(pending.Commission_Amount || pending.commission_amount) || 0;
-                      const paid = parseFloat(pending.Paid_Amount || pending.paid_amount) || 0;
-                      const remaining = parseFloat(pending.Remaining_Amount || pending.remaining_amount) || Math.max(0, total - paid);
-                      const entered = window.prompt(`Commission remaining: ${fmt(remaining)}\nEnter amount to pay now:`, String(remaining));
-                      if (entered === null) return;
-                      const amount = parseFloat(entered) || 0;
-                      if (amount <= 0) return showToast?.('Enter valid commission amount', 'error');
-                      const r = await window.api.markCommissionPaid({ commissionId: pending.id || pending.Commission_ID, amount });
-                      if (r?.error) showToast?.(r.error, 'error');
-                      else { showToast?.('Commission payment saved'); loadData(); }
+                      openPayModal(pending);
                     }}
                   >
                     Give Commission
@@ -257,13 +321,16 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
             <div>
               <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6 }}>Commission Rows</div>
               {selectedAgentCommissions.slice(0, 6).map((c) => {
-                const total = parseFloat(c.Commission_Amount || c.commission_amount) || 0;
-                const paid = parseFloat(c.Paid_Amount || c.paid_amount) || 0;
-                const remaining = parseFloat(c.Remaining_Amount || c.remaining_amount) || Math.max(0, total - paid);
+                const { total, paid, remaining } = getCommissionTotals(c);
                 return (
-                  <div key={c.Commission_ID || c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '7px 0', borderTop: '1px solid var(--border-color)', fontSize: 12 }}>
-                    <span>{c.Plot_Shop_Number || c.Sale_ID || 'Commission'}</span>
-                    <b>{fmt(paid)} paid / {fmt(remaining)} left</b>
+                  <div key={c.Commission_ID || c.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid var(--border-color)', fontSize: 12 }}>
+                    <div>
+                      <span style={{ fontWeight: 800 }}>{c.Plot_Shop_Number || c.Sale_ID || 'Commission'}</span>
+                      <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>{fmt(paid)} paid / {fmt(remaining)} left</div>
+                    </div>
+                    {remaining > 0 && (
+                      <button className="btn btn-primary btn-sm" onClick={() => openPayModal(c)}>Pay</button>
+                    )}
                   </div>
                 );
               })}
