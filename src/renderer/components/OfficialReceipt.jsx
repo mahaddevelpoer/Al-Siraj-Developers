@@ -844,6 +844,19 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                   )}
 
                   {/* Amount boxes */}
+                  {(() => {
+                    const expectedAmount = parseFloat(data?.expectedAmount || data?.Expected_Amount_PKR) || 0;
+                    const finalAmount = parseFloat(data?.totalAmount || data?.Total_Amount_PKR) || 0;
+                    const discountAmount = parseFloat(data?.discountAmount || data?.Discount_Amount_PKR) || Math.max(0, expectedAmount - finalAmount);
+                    if (expectedAmount <= 0 && discountAmount <= 0) return null;
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: printSize === 'thermal' ? '1fr' : 'repeat(3, 1fr)', gap: printSize === 'thermal' ? 4 : 10, marginBottom: printSize === 'thermal' ? 6 : 10, fontSize: printSize === 'thermal' ? 8 : 11 }}>
+                        <div><strong>{lang === 'en' ? 'Expected Price:' : 'Expected:'}</strong> {fmtPkr(expectedAmount || finalAmount)}</div>
+                        <div><strong>{lang === 'en' ? 'Final Deal:' : 'Deal:'}</strong> {fmtPkr(finalAmount)}</div>
+                        <div><strong>{lang === 'en' ? 'Discount:' : 'Discount:'}</strong> {fmtPkr(discountAmount)}</div>
+                      </div>
+                    );
+                  })()}
                   <div style={{ display: 'grid', gridTemplateColumns: printSize === 'thermal' ? '1fr 1fr' : 'repeat(3, 1fr)', gap: printSize === 'thermal' ? 6 : 15, marginBottom: printSize === 'thermal' ? 6 : 15 }}>
                     <div style={{ border: printSize === 'thermal' ? '1px dashed black' : '1px solid black', padding: '6px', textAlign: 'center' }}>
                       <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 8 : 11 }}>{lang === 'en' ? 'TOTAL' : 'کل زرپع'}</div>

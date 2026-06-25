@@ -324,9 +324,21 @@ export default function PrintReceipt({ saleData, townName, onClose }) {
                 fontSize: printSize === 'thermal' ? 9 : 12,
               }}>
                 <div>
-                  <span style={{ color: '#555' }}>Total Selling Price:</span>
+                  <span style={{ color: '#555' }}>Final Deal Price:</span>
                   <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 9 : undefined }}>{fmtPkr(saleData?.Total_Amount_PKR)}</div>
                 </div>
+                {(parseFloat(saleData?.Expected_Amount_PKR) || 0) > 0 && (
+                  <div>
+                    <span style={{ color: '#555' }}>Expected Price:</span>
+                    <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 9 : undefined }}>{fmtPkr(saleData?.Expected_Amount_PKR)}</div>
+                  </div>
+                )}
+                {(parseFloat(saleData?.Discount_Amount_PKR) || 0) > 0 && (
+                  <div>
+                    <span style={{ color: '#555' }}>Negotiated Discount:</span>
+                    <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 9 : undefined, color: '#b45309' }}>{fmtPkr(saleData?.Discount_Amount_PKR)}</div>
+                  </div>
+                )}
                 <div>
                   <span style={{ color: '#555' }}>Advance Paid:</span>
                   <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 9 : undefined, color: '#16a34a' }}>{fmtPkr(saleData?.Advance_Amount_PKR)}</div>
