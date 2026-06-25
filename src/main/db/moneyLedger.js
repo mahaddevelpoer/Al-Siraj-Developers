@@ -403,15 +403,18 @@ async function backfillMoneyLedger() {
   }
 
   for (const s of salaries || []) {
+    const cashDisbursed = toMoney(s.Cash_Disbursed_Amount || s.Amount);
+    const salaryApplied = toMoney(s.Salary_Paid_Amount || s.Amount);
+    const advanceGiven = toMoney(s.New_Advance_Given);
     await recordMoneyEvent({
       sourceType: 'salary_payment',
       sourceId: s.Receipt_Number,
       direction: 'expense',
-      amount: s.Amount,
+      amount: cashDisbursed,
       townName: s.Town_Name,
       date: s.Date,
       partyName: s.Name,
-      description: `${s.Type || 'Employee'} salary`,
+      description: `${s.Type || 'Employee'} salary cash paid. Salary applied PKR ${Math.round(salaryApplied).toLocaleString()}${advanceGiven > 0 ? `, advance PKR ${Math.round(advanceGiven).toLocaleString()}` : ''}`,
       receiptNumber: s.Receipt_Number,
     });
   }
