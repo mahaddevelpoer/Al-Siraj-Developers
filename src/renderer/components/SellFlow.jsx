@@ -438,7 +438,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
           </div>
           <div className="form-group">
             <label>Final Deal Amount (PKR) *</label>
-            <input type="number" placeholder="Final negotiated price" value={form.Total_Amount_PKR} onChange={u('Total_Amount_PKR')} required />
+            <input type="number" min="1" placeholder="Final negotiated price" value={form.Total_Amount_PKR} onChange={u('Total_Amount_PKR')} required />
             {dealDifference !== 0 && (
               <div className="field-helper-text" style={{ color: dealDifference > 0 ? '#b45309' : '#0f766e', fontWeight: 800 }}>
                 {dealDifference > 0 ? 'Discount' : 'Above expected'}: PKR {Math.abs(dealDifference).toLocaleString()}
@@ -472,8 +472,16 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
           <div className="form-group full">
             <div className="sale-money-strip">
               <div>
-                <span>Total Price</span>
+                <span>Expected Price</span>
+                <strong>PKR {expectedAmount.toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Final Deal</span>
                 <strong>PKR {totalAmount.toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>{dealDifference >= 0 ? 'Discount' : 'Premium'}</span>
+                <strong className={dealDifference >= 0 ? 'text-red' : 'text-green'}>PKR {Math.abs(dealDifference).toLocaleString()}</strong>
               </div>
               <div>
                 <span>Received Now</span>
@@ -665,7 +673,9 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
           <div className="review-row"><span className="review-label">CNIC</span><span className="review-value">{form.CNIC}</span></div>
           <div className="review-row"><span className="review-label">Phone</span><span className="review-value">{form.Phone_Number}</span></div>
           <div className="review-row"><span className="review-label">Receipt #</span><span className="review-value">{form.Receipt_Number || '—'}</span></div>
-          <div className="review-row"><span className="review-label">Total Amount</span><span className="review-value">PKR {totalAmount.toLocaleString()}</span></div>
+          <div className="review-row"><span className="review-label">Expected Price</span><span className="review-value">PKR {expectedAmount.toLocaleString()}</span></div>
+          <div className="review-row"><span className="review-label">Final Deal Amount</span><span className="review-value">PKR {totalAmount.toLocaleString()}</span></div>
+          <div className="review-row"><span className="review-label">{dealDifference >= 0 ? 'Negotiated Discount' : 'Above Expected Premium'}</span><span className={dealDifference >= 0 ? 'review-value text-red' : 'review-value text-green'}>PKR {Math.abs(dealDifference).toLocaleString()}</span></div>
           <div className="review-row"><span className="review-label">Advance</span><span className="review-value">PKR {advanceAmount.toLocaleString()}</span></div>
           <div className="review-row"><span className="review-label">Remaining Balance</span><span className="review-value">PKR {remaining.toLocaleString()}</span></div>
           <div className="review-row"><span className="review-label">Payment Mode</span><span className="review-value">{useInstallment ? `Custom Installments (${totalInstallments} payments over ${totalTimePeriod} ${periodUnit})` : 'Lump Sum'}</span></div>
@@ -689,6 +699,12 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
   const handleSell = async () => {
     if (!form.townName || !form.number || !form.Customer_Name || !form.CNIC || !form.Receipt_Number || !form.Phone_Number || !form.Owner_Name) {
       showToast('Please fill all required fields', 'error'); return;
+    }
+    if (totalAmount <= 0) {
+      showToast('Final deal amount must be greater than zero', 'error'); return;
+    }
+    if (advanceAmount < 0) {
+      showToast('Advance amount cannot be negative', 'error'); return;
     }
     if (advanceOverLimit) {
       showToast('Advance amount cannot be greater than total amount', 'error'); return;

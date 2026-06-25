@@ -284,6 +284,9 @@ async function sellProperty(data) {
   const discountAmount = Math.max(0, expectedAmount - totalAmount);
   const advanceAmount = parseFloat(data.Advance_Amount_PKR) || 0;
   const useInstallment = !!data.useInstallment;
+  if (totalAmount <= 0) throw new Error('Final deal amount must be greater than zero');
+  if (advanceAmount < 0) throw new Error('Advance amount cannot be negative');
+  if (advanceAmount > totalAmount) throw new Error('Advance amount cannot be greater than final deal amount');
   
   const totalInstallments = useInstallment ? (parseInt(data.Total_Installments) || 1) : 0;
   const totalPeriodMonths = useInstallment ? (parseInt(data.Total_Period_Months) || 1) : 0;
