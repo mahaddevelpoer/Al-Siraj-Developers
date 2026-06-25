@@ -301,7 +301,7 @@ function TownOverview({ town, refreshKey = 0 }) {
             <div style={{ fontWeight: 900, marginBottom: 8 }}>Employee Ledger</div>
             {(report?.employeeLedgers || []).slice(0, 4).map((row) => (
               <div key={row.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
-                <span>{row.name}</span><b>{fmtPkr(row.paid)} paid / {fmtPkr(row.remaining)} left</b>
+                <span>{row.name}</span><b>{fmtPkr(row.cashDisbursed ?? row.paid)} cash / {fmtPkr(row.remaining)} left</b>
               </div>
             ))}
             {!reportLoading && !(report?.employeeLedgers || []).length && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No employee salary rows.</div>}
@@ -323,6 +323,18 @@ function TownOverview({ town, refreshKey = 0 }) {
               </div>
             ))}
             {!reportLoading && !(report?.customerLedgers || []).length && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No sales in selected range.</div>}
+          </div>
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>Debit / Credit</div>
+            {(report?.accountLedgers || []).slice(0, 4).map((row, idx) => (
+              <div key={`${row.debit}-${row.credit}-${idx}`} style={{ padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                  <span>{row.debit}</span><b>{fmtPkr(row.amount)}</b>
+                </div>
+                <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>Credit: {row.credit}</div>
+              </div>
+            ))}
+            {!reportLoading && !(report?.accountLedgers || []).length && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No debit/credit rows.</div>}
           </div>
         </div>
       </div>
