@@ -93,6 +93,7 @@ function accountForSource(sourceType, direction) {
   const source = String(sourceType || 'general').toLowerCase();
   if (source.includes('sale') || source.includes('collection') || source.includes('installment')) return 'Property Revenue';
   if (source.includes('investor')) return direction === 'income' ? 'Investor Capital' : 'Investor Withdrawal';
+  if (source.includes('salary_advance')) return 'Employee Advance Receivable';
   if (source.includes('salary')) return 'Salary Expense';
   if (source.includes('commission')) return 'Commission Expense';
   if (source.includes('construction')) return 'Construction Expense';
@@ -406,17 +407,35 @@ async function backfillMoneyLedger() {
     const cashDisbursed = toMoney(s.Cash_Disbursed_Amount || s.Amount);
     const salaryApplied = toMoney(s.Salary_Paid_Amount || s.Amount);
     const advanceGiven = toMoney(s.New_Advance_Given);
-    await recordMoneyEvent({
-      sourceType: 'salary_payment',
-      sourceId: s.Receipt_Number,
-      direction: 'expense',
-      amount: cashDisbursed,
-      townName: s.Town_Name,
-      date: s.Date,
-      partyName: s.Name,
-      description: `${s.Type || 'Employee'} salary cash paid. Salary applied PKR ${Math.round(salaryApplied).toLocaleString()}${advanceGiven > 0 ? `, advance PKR ${Math.round(advanceGiven).toLocaleString()}` : ''}`,
-      receiptNumber: s.Receipt_Number,
-    });
+    const salaryPart = Math.max(0, Math.min(cashDisbursed, salaryApplied || cashDisbursed - advanceGiven));
+    if (salaryPart > 0) {
+      await recordMoneyEvent({
+        sourceType: 'salary_payment',
+        sourceId: `${s.Receipt_Number}:salary`,
+        direction: 'expense',
+        amount: salaryPart,
+        townName: s.Town_Name,
+        date: s.Date,
+        partyName: s.Name,
+        description: `${s.Type || 'Employee'} salary applied. Cash paid PKR ${Math.round(cashDisbursed).toLocaleString()}`,
+        receiptNumber: s.Receipt_Number,
+      });
+    }
+    if (advanceGiven > 0) {
+      await recordMoneyEvent({
+        sourceType: 'salary_advance',
+        sourceId: `${s.Receipt_Number}:advance`,
+        direction: 'expense',
+        amount: advanceGiven,
+        townName: s.Town_Name,
+        date: s.Date,
+        partyName: s.Name,
+        description: `${s.Type || 'Employee'} advance salary`,
+        receiptNumber: s.Receipt_Number,
+        debitAccount: 'Employee Advance Receivable',
+        creditAccount: 'Cash / Bank',
+      });
+    }
   }
 
   for (const t of investorTx || []) {

@@ -947,23 +947,62 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (isAccountantScoped()) data.townName = scopedTown(data.townName, true);
       const { recordSalaryPayment } = require('./db/globals');
 
-      return await syncOnline(() => recordSalaryPayment(data), () => onlineDb.insert('salary_payments', {
-        Payment_ID: onlineDb.generateId(),
-        Employee_Name: data.employeeName,
-        Town_Name: data.townName,
-        Amount: parseFloat(data.cashDisbursedAmount ?? data.amount) || 0,
-        Salary_Amount: parseFloat(data.salaryAmount || data.baseSalary) || 0,
-        Salary_Gross_Amount: parseFloat(data.salaryGrossAmount ?? data.amount) || 0,
-        Cash_Disbursed_Amount: parseFloat(data.cashDisbursedAmount ?? data.amount) || 0,
-        Salary_Paid_Amount: parseFloat(data.salaryAppliedAmount) || Math.max(0, (parseFloat(data.amount) || 0) - (parseFloat(data.newAdvanceGiven) || 0)),
-        Month: data.month,
-        Payment_Date: new Date().toISOString().split('T')[0],
-        Notes: data.note || '',
-        Recorded_By: 'Accountant',
-        Advance_Deduction: parseFloat(data.advanceDeduction) || 0,
-        New_Advance_Given: parseFloat(data.newAdvanceGiven) || 0,
-        Is_Advance_Salary: data.isAdvanceSalary ? 'Yes' : 'No',
-      }));
+      return await syncOnline(() => recordSalaryPayment(data), async (localResult) => {
+        const receiptNumber = localResult?.Receipt_Number || `SAL-${Date.now()}`;
+        const cashDisbursed = parseFloat(localResult?.Cash_Disbursed_Amount ?? data.cashDisbursedAmount ?? data.amount) || 0;
+        const salaryApplied = parseFloat(localResult?.Salary_Paid_Amount ?? data.salaryAppliedAmount) || Math.max(0, (parseFloat(data.amount) || 0) - (parseFloat(data.newAdvanceGiven) || 0));
+        const advanceGiven = parseFloat(localResult?.New_Advance_Given ?? data.newAdvanceGiven) || 0;
+        await onlineDb.insert('salary_payments', {
+          Payment_ID: onlineDb.generateId(),
+          Receipt_Number: receiptNumber,
+          Employee_Name: data.employeeName,
+          Town_Name: data.townName,
+          Amount: cashDisbursed,
+          Salary_Amount: parseFloat(data.salaryAmount || data.baseSalary) || 0,
+          Salary_Gross_Amount: parseFloat(data.salaryGrossAmount ?? data.amount) || 0,
+          Cash_Disbursed_Amount: cashDisbursed,
+          Salary_Paid_Amount: salaryApplied,
+          Month: data.month,
+          Payment_Date: localResult?.Date || new Date().toISOString().split('T')[0],
+          Notes: data.note || '',
+          Recorded_By: 'Accountant',
+          Advance_Deduction: parseFloat(data.advanceDeduction) || 0,
+          New_Advance_Given: advanceGiven,
+          Is_Advance_Salary: advanceGiven > 0 || data.isAdvanceSalary ? 'Yes' : 'No',
+        });
+        if (salaryApplied > 0) {
+          await onlineDb.recordMoneyEvent({
+            sourceType: 'salary_payment',
+            sourceId: `${receiptNumber}:salary`,
+            direction: 'expense',
+            amount: salaryApplied,
+            townName: data.townName,
+            date: localResult?.Date,
+            partyName: data.employeeName,
+            description: `${data.type || 'Employee'} salary applied ${data.month || ''}`,
+            receiptNumber,
+            debitAccount: 'Salary Expense',
+            creditAccount: 'Cash / Bank',
+            createdBy: 'Accountant',
+          });
+        }
+        if (advanceGiven > 0) {
+          await onlineDb.recordMoneyEvent({
+            sourceType: 'salary_advance',
+            sourceId: `${receiptNumber}:advance`,
+            direction: 'expense',
+            amount: advanceGiven,
+            townName: data.townName,
+            date: localResult?.Date,
+            partyName: data.employeeName,
+            description: `${data.type || 'Employee'} advance salary ${data.month || ''}`,
+            receiptNumber,
+            debitAccount: 'Employee Advance Receivable',
+            creditAccount: 'Cash / Bank',
+            createdBy: 'Accountant',
+          });
+        }
+      });
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('getSalaryRecords', async (_, params) => {

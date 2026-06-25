@@ -595,18 +595,36 @@ async function recordSalaryPayment(data) {
     Added_By: 'CEO',
   };
   await appendToExcel(path.join(getGlobalsPath(), 'All_Expenses.xlsx'), 'Data', expData);
-  await recordMoneyEvent({
-    sourceType: 'salary_payment',
-    sourceId: receiptNumber,
-    direction: 'expense',
-    amount: cashPaid,
-    townName,
-    date: dateStr,
-    partyName: employeeName || '',
-    description: `${type || 'Employee'} ${extraAdvance > 0 ? 'salary/advance' : 'salary'} ${month || ''}`,
-    receiptNumber,
-    createdBy: 'CEO',
-  });
+  if (salaryPart > 0) {
+    await recordMoneyEvent({
+      sourceType: 'salary_payment',
+      sourceId: `${receiptNumber}:salary`,
+      direction: 'expense',
+      amount: salaryPart,
+      townName,
+      date: dateStr,
+      partyName: employeeName || '',
+      description: `${type || 'Employee'} salary applied ${month || ''}`,
+      receiptNumber,
+      createdBy: 'CEO',
+    });
+  }
+  if (extraAdvance > 0) {
+    await recordMoneyEvent({
+      sourceType: 'salary_advance',
+      sourceId: `${receiptNumber}:advance`,
+      direction: 'expense',
+      amount: extraAdvance,
+      townName,
+      date: dateStr,
+      partyName: employeeName || '',
+      description: `${type || 'Employee'} advance salary ${month || ''}`,
+      receiptNumber,
+      debitAccount: 'Employee Advance Receivable',
+      creditAccount: 'Cash / Bank',
+      createdBy: 'CEO',
+    });
+  }
 
   // Update town financials
   const { updateTownFinancials } = require('./properties');
