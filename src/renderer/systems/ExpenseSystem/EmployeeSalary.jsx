@@ -537,7 +537,11 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
         String(r.Name || '').trim().toLowerCase() === String(employee.name || '').trim().toLowerCase() &&
         String(r.Month || '').trim().toLowerCase() === String(month || '').trim().toLowerCase()
       )
-      .reduce((sum, r) => sum + (parseFloat(r.Amount) || 0), 0);
+      .reduce((sum, r) => {
+        const salaryPart = parseFloat(r.Salary_Paid_Amount);
+        if (Number.isFinite(salaryPart)) return sum + salaryPart;
+        return sum + Math.max(0, (parseFloat(r.Amount) || 0) - (parseFloat(r.New_Advance_Given) || 0));
+      }, 0);
     setMonthPaid(paid);
     setPaymentAmount(prev => prev || String(Math.max(0, (parseFloat(baseSalary) || 0) - paid)));
   };
@@ -1012,7 +1016,8 @@ function SalaryHistoryList({ townName, showToast, onViewReceipt }) {
             <th style={{ padding: 12 }}>Name</th>
             <th style={{ padding: 12 }}>Designation</th>
             <th style={{ padding: 12 }}>Month</th>
-            <th style={{ padding: 12, textAlign: 'right' }}>Amount</th>
+            <th style={{ padding: 12, textAlign: 'right' }}>Salary Applied</th>
+            <th style={{ padding: 12, textAlign: 'right' }}>Cash Paid</th>
             <th style={{ padding: 12 }}>Note</th>
             <th style={{ padding: 12, textAlign: 'center' }}>Action</th>
           </tr>
@@ -1025,8 +1030,11 @@ function SalaryHistoryList({ townName, showToast, onViewReceipt }) {
               <td style={{ padding: 12, fontWeight: 700 }}>{rec.Name || rec.employeeName}</td>
               <td style={{ padding: 12 }}>{rec.Designation || rec.designation || 'Employee'}</td>
               <td style={{ padding: 12 }}>{rec.Month || rec.month}</td>
+              <td style={{ padding: 12, textAlign: 'right', fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
+                PKR {(parseFloat(rec.Salary_Paid_Amount) || Math.max(0, (parseFloat(rec.Amount) || parseFloat(rec.amount) || 0) - (parseFloat(rec.New_Advance_Given) || 0))).toLocaleString()}
+              </td>
               <td style={{ padding: 12, textAlign: 'right', fontWeight: 800, color: '#059669', fontFamily: 'monospace' }}>
-                PKR {(parseFloat(rec.Amount) || parseFloat(rec.amount) || 0).toLocaleString()}
+                PKR {(parseFloat(rec.Cash_Disbursed_Amount) || parseFloat(rec.Amount) || parseFloat(rec.amount) || 0).toLocaleString()}
               </td>
               <td style={{ padding: 12, color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.Note || rec.note || '-'}</td>
               <td style={{ padding: 12, textAlign: 'center' }}>
@@ -1211,7 +1219,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
       const salaryPart = parseFloat(row.Salary_Paid_Amount);
       return sum + (Number.isFinite(salaryPart) ? salaryPart : Math.max(0, (parseFloat(row.Amount) || 0) - (parseFloat(row.New_Advance_Given) || 0)));
     }, 0);
-    const disbursed = empRows.reduce((sum, row) => sum + (parseFloat(row.Amount) || 0), 0);
+    const disbursed = empRows.reduce((sum, row) => sum + (parseFloat(row.Cash_Disbursed_Amount) || parseFloat(row.Amount) || 0), 0);
     const advances = empRows.reduce((sum, row) => sum + (parseFloat(row.New_Advance_Given) || 0), 0);
     const latest = [...empRows].sort((a, b) => new Date(b.Date || b.date || 0) - new Date(a.Date || a.date || 0))[0];
     const monthlySalary = parseFloat(latest?.Salary_Amount || emp.baseSalary) || 0;
