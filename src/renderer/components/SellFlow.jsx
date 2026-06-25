@@ -1050,7 +1050,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
   };
 
   return (
-    <div>
+    <div className="sell-flow-shell">
       {saleReceiptData && (
         <OfficialReceipt
           data={saleReceiptData}
@@ -1270,12 +1270,45 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         </div>
       )}
 
-      <div className="steps-indicator">
-        {steps.map((_, i) => <div key={i} className={`step-dot ${i === step ? 'active' : i < step ? 'done' : ''}`} />)}
+      <div className="sell-flow-hero">
+        <div>
+          <div className="sell-flow-eyebrow">Property selling workspace</div>
+          <h2>{form.townName || lockedTownName || 'Select town'} sale desk</h2>
+          <p>Prepare buyer details, negotiated price, payment mode, commission and receipt from one controlled flow.</p>
+        </div>
+        <div className="sell-flow-hero-grid">
+          <div>
+            <span>Property</span>
+            <strong>{form.type} {form.number || '-'}</strong>
+          </div>
+          <div>
+            <span>Final Deal</span>
+            <strong>PKR {totalAmount.toLocaleString()}</strong>
+          </div>
+          <div>
+            <span>Pending</span>
+            <strong className={remaining > 0 ? 'text-red' : 'text-green'}>PKR {remaining.toLocaleString()}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="sell-step-rail">
+        {steps.map((item, i) => (
+          <div key={item.title} className={`sell-step-pill ${i === step ? 'active' : i < step ? 'done' : ''}`}>
+            <span>{i + 1}</span>
+            <strong>{item.title}</strong>
+          </div>
+        ))}
       </div>
       
-      <div className="form-container">
-        <div className="form-title" style={{ fontSize: 15 }}>Step {step + 1} of {steps.length}: {steps[step].title}</div>
+      <div className="form-container sell-flow-card">
+        <div className="sell-flow-card-head">
+          <div>
+            <div className="form-title" style={{ fontSize: 15 }}>Step {step + 1} of {steps.length}: {steps[step].title}</div>
+            <div className="sell-flow-card-subtitle">Complete this section, then continue to the next controlled checkpoint.</div>
+          </div>
+          <div className="sell-flow-card-badge">{useInstallment ? 'Installment sale' : 'Lump sum sale'}</div>
+        </div>
         
         {/* Dynamic Property Info Card at the top of Basic Info / Financials if property is found */}
         {propertyDetails && step <= 2 && (

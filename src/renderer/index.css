@@ -5496,6 +5496,163 @@ select:focus,
   font-size: 12px;
 }
 
+.sell-flow-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.sell-flow-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 18px;
+  align-items: stretch;
+  padding: 22px;
+  border: 1px solid rgba(15, 42, 76, 0.10);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,246,255,0.88)),
+    #ffffff;
+  box-shadow: 0 18px 42px rgba(15, 42, 76, 0.08);
+}
+
+.sell-flow-eyebrow {
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sell-flow-hero h2 {
+  margin: 6px 0 8px;
+  color: #0f172a;
+  font-size: clamp(22px, 2vw, 30px);
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.sell-flow-hero p {
+  max-width: 68ch;
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.sell-flow-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sell-flow-hero-grid div {
+  display: grid;
+  align-content: center;
+  min-height: 88px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 42, 76, 0.10);
+  background: #ffffff;
+}
+
+.sell-flow-hero-grid span,
+.sell-flow-card-subtitle {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.sell-flow-hero-grid strong {
+  margin-top: 4px;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.sell-step-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sell-step-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 42, 76, 0.10);
+  background: #ffffff;
+  color: #475569;
+  box-shadow: 0 10px 22px rgba(15, 42, 76, 0.05);
+}
+
+.sell-step-pill span {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.sell-step-pill strong {
+  min-width: 0;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sell-step-pill.active {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: linear-gradient(135deg, #eff6ff, #ffffff);
+  color: #1d4ed8;
+}
+
+.sell-step-pill.active span {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.sell-step-pill.done span {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.sell-flow-card {
+  border-radius: 18px !important;
+  border: 1px solid rgba(15, 42, 76, 0.10) !important;
+  box-shadow: 0 18px 42px rgba(15, 42, 76, 0.07) !important;
+}
+
+.sell-flow-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid rgba(15, 42, 76, 0.08);
+}
+
+.sell-flow-card-badge {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .sale-property-card {
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(14, 165, 233, 0.06));
   border: 1px solid rgba(37, 99, 235, 0.28);
@@ -5557,6 +5714,17 @@ select:focus,
 }
 
 @media (max-width: 760px) {
+  .sell-flow-hero,
+  .sell-flow-card-head {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .sell-flow-hero-grid,
+  .sell-step-rail {
+    grid-template-columns: 1fr;
+  }
+
   .sale-property-card {
     align-items: flex-start;
     flex-direction: column;
