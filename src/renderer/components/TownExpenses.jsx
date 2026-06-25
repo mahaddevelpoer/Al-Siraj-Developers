@@ -62,6 +62,26 @@ export default function TownExpenses({ townName, showToast }) {
     };
   };
 
+  const getEmployeeLedgerRows = (employee) => {
+    const name = String(employee?.Employee_Name || '').trim().toLowerCase();
+    if (!name) return [];
+    return salaryRecords
+      .filter((row) => String(row.Name || row.Employee_Name || '').trim().toLowerCase() === name)
+      .sort((a, b) => String(b.Date || '').localeCompare(String(a.Date || '')));
+  };
+
+  const getEmployeeLedgerTotals = (rows) => rows.reduce((totals, row) => {
+    const cash = parseFloat(row.Cash_Disbursed_Amount || row.Amount) || 0;
+    const salaryApplied = parseFloat(row.Salary_Paid_Amount || row.Amount) || 0;
+    const advance = parseFloat(row.New_Advance_Given) || 0;
+    return {
+      cash: totals.cash + cash,
+      salaryApplied: totals.salaryApplied + salaryApplied,
+      advance: totals.advance + advance,
+      rows: totals.rows + 1,
+    };
+  }, { cash: 0, salaryApplied: 0, advance: 0, rows: 0 });
+
   const handleGiveSalary = async (type) => {
     const name = type === 'Employee' ? selectedEmployee?.Employee_Name : ceoName;
     const designation = type === 'Employee' ? 'Staff' : 'CEO';
@@ -227,6 +247,38 @@ export default function TownExpenses({ townName, showToast }) {
                     ) : null;
                   })()}
                 </div>
+                {(() => {
+                  const rows = getEmployeeLedgerRows(selectedEmployee);
+                  const totals = getEmployeeLedgerTotals(rows);
+                  return (
+                    <div className="form-group full">
+                      <div className="employee-ledger-panel">
+                        <div className="employee-ledger-head">
+                          <div>
+                            <div className="employee-ledger-kicker">Individual employee ledger</div>
+                            <strong>{selectedEmployee.Employee_Name}</strong>
+                          </div>
+                          <span>{totals.rows} payment{totals.rows === 1 ? '' : 's'}</span>
+                        </div>
+                        <div className="employee-ledger-stats">
+                          <div><span>Cash Paid</span><b>PKR {totals.cash.toLocaleString()}</b></div>
+                          <div><span>Salary Applied</span><b>PKR {totals.salaryApplied.toLocaleString()}</b></div>
+                          <div><span>Advance Given</span><b>PKR {totals.advance.toLocaleString()}</b></div>
+                        </div>
+                        <div className="employee-ledger-list">
+                          {rows.slice(0, 5).map((row) => (
+                            <div key={row.Receipt_Number || `${row.Date}-${row.Amount}`}>
+                              <span>{row.Date || '-'} | {row.Month || '-'}</span>
+                              <b>Cash PKR {Number(row.Cash_Disbursed_Amount || row.Amount || 0).toLocaleString()}</b>
+                              <small>Salary PKR {Number(row.Salary_Paid_Amount || row.Amount || 0).toLocaleString()} {Number(row.New_Advance_Given || 0) > 0 ? `| Advance PKR ${Number(row.New_Advance_Given || 0).toLocaleString()}` : ''}</small>
+                            </div>
+                          ))}
+                          {!rows.length && <div className="employee-ledger-empty">No salary payments yet for this employee.</div>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="form-group">
                   <label>Month *</label>
                   <input value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} placeholder="e.g. June 2026" />

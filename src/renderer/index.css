@@ -5735,6 +5735,103 @@ select:focus,
   flex-wrap: wrap;
 }
 
+.employee-ledger-panel {
+  border: 1px solid rgba(15, 42, 76, 0.10);
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.employee-ledger-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.employee-ledger-kicker {
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.employee-ledger-head strong {
+  display: block;
+  margin-top: 3px;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.employee-ledger-head span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.employee-ledger-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.employee-ledger-stats div {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.employee-ledger-stats span,
+.employee-ledger-list span {
+  display: block;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.employee-ledger-stats b {
+  display: block;
+  margin-top: 4px;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.employee-ledger-list {
+  display: grid;
+  gap: 8px;
+}
+
+.employee-ledger-list div {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 8px;
+}
+
+.employee-ledger-list b {
+  display: block;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+  margin-top: 2px;
+}
+
+.employee-ledger-list small,
+.employee-ledger-empty {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .sale-property-card {
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(14, 165, 233, 0.06));
   border: 1px solid rgba(37, 99, 235, 0.28);
@@ -5804,12 +5901,14 @@ select:focus,
 
   .sell-flow-hero-grid,
   .sell-step-rail,
-  .commission-pay-grid {
+  .commission-pay-grid,
+  .employee-ledger-stats {
     grid-template-columns: 1fr;
   }
 
   .commission-pay-head,
-  .commission-pay-actions {
+  .commission-pay-actions,
+  .employee-ledger-head {
     align-items: stretch;
     flex-direction: column;
   }
