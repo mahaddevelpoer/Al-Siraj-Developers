@@ -355,8 +355,11 @@ async function getConstructionPayments(townName) {
 
 async function recordCommissionReceipt(data) {
   const fp = await ensureFile('commissionReceipts');
+  const receiptId = data.Receipt_ID || generateId();
+  const existing = (await rows('commissionReceipts')).find((r) => String(r.Receipt_ID || '') === String(receiptId));
+  if (existing) return existing;
   const row = {
-    Receipt_ID: data.Receipt_ID || generateId(),
+    Receipt_ID: receiptId,
     Commission_ID: data.Commission_ID || '',
     Sale_ID: data.Sale_ID || '',
     Town_Name: data.Town_Name || '',

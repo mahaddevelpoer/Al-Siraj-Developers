@@ -2030,7 +2030,13 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (payAmount > remainingBefore) throw new Error(`Payment exceeds remaining commission. Remaining: PKR ${remainingBefore.toLocaleString()}`);
       const paidAfter = paidBefore + payAmount;
       const remainingAfter = Math.max(0, totalCommission - paidAfter);
+      const commissionKey = String(row.Commission_ID || commissionId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 36) || 'COMMISSION';
+      const paymentKey = `${commissionKey}-${String(paidAfter).replace(/[^0-9]/g, '')}-${paidDate.replace(/-/g, '')}`;
+      const receiptId = `COMREC-${paymentKey}`;
+      const receiptNumber = `COM-${paidDate.replace(/-/g, '')}-${paymentKey.slice(-10)}`;
       const localPayload = {
+        Receipt_ID: receiptId,
+        Receipt_Number: receiptNumber,
         Commission_ID: row.Commission_ID || commissionId,
         Sale_ID: row.Sale_ID || '',
         Town_Name: row.Town_Name || '',
