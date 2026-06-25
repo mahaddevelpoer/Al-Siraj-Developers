@@ -11,6 +11,7 @@ export default function TownExpenses({ townName, showToast }) {
   const [note, setNote] = useState('');
   const [ceoName, setCeoName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [salaryRecords, setSalaryRecords] = useState([]);
   
   // Receipt Modal State
   const [showReceipt, setShowReceipt] = useState(false);
@@ -18,10 +19,15 @@ export default function TownExpenses({ townName, showToast }) {
 
   useEffect(() => {
     loadEmployees();
+    loadSalaryRecords();
     const now = new Date();
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     setSelectedMonth(`${months[now.getMonth()]} ${now.getFullYear()}`);
   }, []);
+
+  useEffect(() => {
+    if (selectedEmployee?.Salary && !salaryAmount) setSalaryAmount(String(selectedEmployee.Salary));
+  }, [selectedEmployee]);
 
   const loadEmployees = async () => {
     if (!window.api) return;
@@ -29,6 +35,31 @@ export default function TownExpenses({ townName, showToast }) {
     if (Array.isArray(res)) {
       setEmployees(res.filter(e => e.Status === 'Active'));
     }
+  };
+
+  const loadSalaryRecords = async () => {
+    if (!window.api?.getSalaryRecords) return;
+    const rows = await window.api.getSalaryRecords({ townName });
+    if (Array.isArray(rows)) setSalaryRecords(rows);
+  };
+
+  const getEmployeeSalarySnapshot = (employee, month) => {
+    const fixedSalary = parseFloat(employee?.Salary || employee?.Base_Salary || 0) || 0;
+    const paid = salaryRecords
+      .filter((row) =>
+        String(row.Name || row.Employee_Name || '').trim().toLowerCase() === String(employee?.Employee_Name || '').trim().toLowerCase() &&
+        String(row.Month || '').trim().toLowerCase() === String(month || '').trim().toLowerCase()
+      )
+      .reduce((sum, row) => {
+        const applied = parseFloat(row.Salary_Paid_Amount);
+        if (Number.isFinite(applied)) return sum + applied;
+        return sum + Math.max(0, (parseFloat(row.Amount) || 0) - (parseFloat(row.New_Advance_Given) || 0));
+      }, 0);
+    return {
+      fixedSalary,
+      paid,
+      remaining: Math.max(0, fixedSalary - paid),
+    };
   };
 
   const handleGiveSalary = async (type) => {
@@ -43,6 +74,34 @@ export default function TownExpenses({ townName, showToast }) {
 
     setLoading(true);
     try {
+      let salaryPayload = {};
+      let advanceGiven = 0;
+      let salaryApplied = amount;
+      let fixedSalary = amount;
+      let remainingBefore = amount;
+      if (type === 'Employee') {
+        const snapshot = getEmployeeSalarySnapshot(selectedEmployee, selectedMonth);
+        fixedSalary = snapshot.fixedSalary || amount;
+        remainingBefore = snapshot.fixedSalary ? snapshot.remaining : amount;
+        if (snapshot.fixedSalary && amount > snapshot.remaining) {
+          advanceGiven = amount - snapshot.remaining;
+          const ok = window.confirm(`${name} ki ${selectedMonth} salary me PKR ${snapshot.remaining.toLocaleString()} remaining hai. Extra PKR ${advanceGiven.toLocaleString()} ko advance salary record karna hai?`);
+          if (!ok) {
+            setLoading(false);
+            return;
+          }
+        }
+        salaryApplied = snapshot.fixedSalary ? Math.min(amount, snapshot.remaining) : amount;
+        salaryPayload = {
+          salaryAmount: fixedSalary,
+          baseSalary: fixedSalary,
+          salaryGrossAmount: amount,
+          cashDisbursedAmount: amount,
+          salaryAppliedAmount: salaryApplied,
+          newAdvanceGiven: advanceGiven,
+          isAdvanceSalary: advanceGiven > 0,
+        };
+      }
       const data = {
         employeeName: name,
         designation,
@@ -50,7 +109,8 @@ export default function TownExpenses({ townName, showToast }) {
         month: selectedMonth,
         townName,
         type,
-        note
+        note,
+        ...salaryPayload,
       };
       
       const res = await window.api.recordSalaryPayment(data);
@@ -64,10 +124,15 @@ export default function TownExpenses({ townName, showToast }) {
           designation,
           month: selectedMonth,
           amount,
+          baseSalary: fixedSalary,
+          salaryAppliedAmount: salaryApplied,
+          newAdvanceGiven: advanceGiven,
+          salaryRemainingBefore: remainingBefore,
           townName,
           note
         });
         setShowReceipt(true);
+        await loadSalaryRecords();
         // Clear form
         setSalaryAmount('');
         setNote('');
@@ -151,6 +216,16 @@ export default function TownExpenses({ townName, showToast }) {
               <div className="form-grid" style={{ background: 'white', padding: 20, borderRadius: 14, border: '1px solid var(--border-color)' }}>
                 <div className="form-group full">
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-blue)', marginBottom: 10 }}>Selected: {selectedEmployee.Employee_Name}</div>
+                  {(() => {
+                    const snapshot = getEmployeeSalarySnapshot(selectedEmployee, selectedMonth);
+                    return snapshot.fixedSalary > 0 ? (
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)' }}>
+                        <span>Fixed salary: <b style={{ color: 'var(--text-primary)' }}>PKR {snapshot.fixedSalary.toLocaleString()}</b></span>
+                        <span>Paid this month: <b style={{ color: '#047857' }}>PKR {snapshot.paid.toLocaleString()}</b></span>
+                        <span>Remaining: <b style={{ color: snapshot.remaining > 0 ? '#b45309' : '#047857' }}>PKR {snapshot.remaining.toLocaleString()}</b></span>
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
                 <div className="form-group">
                   <label>Month *</label>

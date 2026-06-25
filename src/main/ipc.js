@@ -772,7 +772,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertObjectPayload(data, 'employee payload');
       if (!isNonEmpty(data.Employee_Name)) throw new Error('Employee_Name is required');
       if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
-      return await syncOnline(() => addEmployee(data), () => onlineDb.insert('employees', { Employee_ID: onlineDb.generateId(), Employee_Name: data.Employee_Name, CNIC: data.CNIC||'', Phone: data.Phone||'', Role: data.Role||'', Town_Name: data.Town_Name||'', Salary: parseFloat(data.Salary)||0 }));
+      return await syncOnline(() => addEmployee(data), () => onlineDb.insert('employees', { Employee_ID: onlineDb.generateId(), Employee_Name: data.Employee_Name, CNIC: data.CNIC||'', Phone: data.Phone || data.Phone_Number || '', Role: data.Role||'', Town_Name: data.Town_Name||'', Salary: parseFloat(data.Salary)||0 }));
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-employees', async () => { try { const rows = await dataLayer.read(() => getEmployees(), () => onlineDb.getAll('employees')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });

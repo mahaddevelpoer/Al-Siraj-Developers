@@ -211,7 +211,7 @@ async function initializeDatabase(dbPath) {
 
     { name: 'Notifications_Log.xlsx', columns: ['Notification_ID','Type','Message','Plot_Shop_Number','Town_Name','Customer_Name','Due_Date','Created_Date','Status','Dismissed'] },
     { name: 'Profit_Loss_Report.xlsx', columns: ['Report_ID','Town_Name','Total_Income','Total_Expenses','CEO_Expenses','CEO_Salary','Commissions','Net_Profit_Loss','Report_Date'] },
-    { name: 'Employees.xlsx', columns: ['Employee_ID','Employee_Name','CNIC','Phone_Number','Date_Added','Status'] },
+    { name: 'Employees.xlsx', columns: ['Employee_ID','Employee_Name','CNIC','Phone_Number','Salary','Date_Added','Status'] },
   ];
 
   for (const gf of globalFiles) {

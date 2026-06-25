@@ -352,8 +352,10 @@ async function extendInstallmentDate(data) {
 }
 
 async function addEmployee(data) {
-  const empData = { Employee_ID: generateId(), Employee_Name: data.Employee_Name || '', CNIC: data.CNIC || '', Phone_Number: data.Phone_Number || '', Date_Added: new Date().toISOString().split('T')[0], Status: 'Active' };
-  await appendToExcel(path.join(getGlobalsPath(), 'Employees.xlsx'), 'Data', empData);
+  const empData = { Employee_ID: generateId(), Employee_Name: data.Employee_Name || '', CNIC: data.CNIC || '', Phone_Number: data.Phone_Number || data.Phone || '', Salary: parseFloat(data.Salary) || 0, Date_Added: new Date().toISOString().split('T')[0], Status: 'Active' };
+  const filePath = path.join(getGlobalsPath(), 'Employees.xlsx');
+  await ensureSheetColumns(filePath, 'Data', ['Salary']);
+  await appendToExcel(filePath, 'Data', empData);
   return empData;
 }
 
