@@ -179,17 +179,20 @@ async function performFullSync(reportProgress = () => {}) {
     reportProgress(30, 'Writing global files...');
     const globalsPath = getGlobalsPath();
 
-    const COMM_COLS = ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Status','Paid_Date','Created_At'];
+    const COMM_COLS = ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Paid_Amount','Remaining_Amount','Status','Paid_Date','Last_Paid_Date','Created_At'];
     const mappedCommissions = scoped(commissions).map(c => ({
       Commission_ID: c.id,
       Sale_ID: c.sale_id,
       Town_Name: c.town_name,
-      Plot_Shop_Number: c.plot_shop_number,
+      Plot_Shop_Number: c.plot_shop_number || c.property_number,
       Agent_Name: c.agent_name,
       Agent_Email: c.agent_email,
       Commission_Amount: c.commission_amount,
+      Paid_Amount: c.paid_amount || 0,
+      Remaining_Amount: c.remaining_amount || Math.max(0, (parseFloat(c.commission_amount) || 0) - (parseFloat(c.paid_amount) || 0)),
       Status: c.status,
-      Paid_Date: c.paid_date,
+      Paid_Date: c.paid_date || c.paid_at,
+      Last_Paid_Date: c.last_paid_at,
       Created_At: c.created_at
     }));
     await overwriteExcelFile(path.join(globalsPath, 'Commissions.xlsx'), 'Data', COMM_COLS, mappedCommissions);

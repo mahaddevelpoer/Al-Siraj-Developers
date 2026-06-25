@@ -27,15 +27,19 @@ ADD COLUMN IF NOT EXISTS property_category VARCHAR(20) DEFAULT 'Residential';
 CREATE TABLE IF NOT EXISTS commissions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id UUID REFERENCES users(id) NOT NULL,
+  agent_name VARCHAR(255),
   sale_id UUID,
   town_name VARCHAR(255),
   property_number VARCHAR(100),
   total_price NUMERIC,
   commission_percent NUMERIC,
   commission_amount NUMERIC,
+  paid_amount NUMERIC DEFAULT 0,
+  remaining_amount NUMERIC DEFAULT 0,
   status VARCHAR(20) DEFAULT 'pending',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  paid_at TIMESTAMP WITH TIME ZONE
+  paid_at TIMESTAMP WITH TIME ZONE,
+  last_paid_at TIMESTAMP WITH TIME ZONE
 );
 
 -- Agent property access (verify exists)
