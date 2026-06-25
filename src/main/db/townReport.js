@@ -156,6 +156,59 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
       item.payments += 1;
     },
   );
+  const buildSalaryRollup = (rows, keyFn, labelKey = 'group') => groupBy(
+    rows,
+    keyFn,
+    (label) => ({
+      [labelKey]: label,
+      people: new Set(),
+      salaryByPerson: new Map(),
+      salaryApplied: 0,
+      cashDisbursed: 0,
+      salaryAmount: 0,
+      advance: 0,
+      advanceDeducted: 0,
+      remaining: 0,
+      payments: 0,
+    }),
+    (item, row) => {
+      const person = clean(row.Name);
+      if (person) item.people.add(person);
+      const salaryApplied = money(row.Salary_Paid_Amount || row.Amount);
+      const cashDisbursed = money(row.Cash_Disbursed_Amount || row.Amount);
+      item.salaryApplied += salaryApplied;
+      item.cashDisbursed += cashDisbursed;
+      const salary = money(row.Salary_Amount);
+      if (person && salary > 0) item.salaryByPerson.set(person, Math.max(item.salaryByPerson.get(person) || 0, salary));
+      else item.salaryAmount += salary;
+      item.advance += money(row.New_Advance_Given || (clean(row.Is_Advance_Salary).toLowerCase() === 'yes' ? row.Amount : 0));
+      item.advanceDeducted += money(row.Advance_Deduction);
+      item.remaining += money(row.Salary_Remaining_After);
+      item.payments += 1;
+    },
+  ).map((row) => {
+    const { salaryByPerson, ...publicRow } = row;
+    return {
+      ...publicRow,
+      people: row.people.size,
+      salaryAmount: row.salaryAmount + Array.from(salaryByPerson.values()).reduce((sum, value) => sum + value, 0),
+    };
+  });
+  const employeeGroupLedgers = buildSalaryRollup(
+    salaries,
+    (row) => row.Type || row.Designation || 'Employees',
+  );
+  const employeeOverall = employeeGroupLedgers.reduce((total, row) => ({
+    group: 'All Employees',
+    people: total.people + row.people,
+    salaryApplied: total.salaryApplied + row.salaryApplied,
+    cashDisbursed: total.cashDisbursed + row.cashDisbursed,
+    salaryAmount: total.salaryAmount + row.salaryAmount,
+    advance: total.advance + row.advance,
+    advanceDeducted: total.advanceDeducted + row.advanceDeducted,
+    remaining: total.remaining + row.remaining,
+    payments: total.payments + row.payments,
+  }), { group: 'All Employees', people: 0, salaryApplied: 0, cashDisbursed: 0, salaryAmount: 0, advance: 0, advanceDeducted: 0, remaining: 0, payments: 0 });
 
   const commissions = commissionRows.filter((row) => sameTown(row, town));
   const commissionReceipts = commissionReceiptRows
@@ -178,6 +231,16 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
       receiptsInRange: receipts.length,
     };
   });
+  const agentGroupLedgers = [{
+    group: 'Sales Agents',
+    agents: agentLedgers.filter((row) => clean(row.name) && row.name !== 'Unknown').length,
+    earned: agentLedgers.reduce((sum, row) => sum + row.earned, 0),
+    paid: agentLedgers.reduce((sum, row) => sum + row.paid, 0),
+    paidInRange: agentLedgers.reduce((sum, row) => sum + row.paidInRange, 0),
+    remaining: agentLedgers.reduce((sum, row) => sum + row.remaining, 0),
+    receiptsInRange: agentLedgers.reduce((sum, row) => sum + row.receiptsInRange, 0),
+  }];
+  const agentOverall = { ...agentGroupLedgers[0], group: 'All Agents' };
 
   const investorTx = investorTxRows
     .filter((row) => sameTown(row, town))
@@ -243,7 +306,11 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     accountLedgers,
     customerLedgers,
     employeeLedgers,
+    employeeGroupLedgers,
+    employeeOverall,
     agentLedgers,
+    agentGroupLedgers,
+    agentOverall,
     investorLedgers,
     constructionLedgers,
   };
@@ -307,7 +374,11 @@ async function exportTownLedgerReport(params) {
   addSheet('Debit Credit', report.accountLedgers);
   addSheet('Customers', report.customerLedgers);
   addSheet('Employees', report.employeeLedgers);
+  addSheet('Employee Groups', report.employeeGroupLedgers);
+  addSheet('Employee Overall', [report.employeeOverall]);
   addSheet('Agents', report.agentLedgers);
+  addSheet('Agent Groups', report.agentGroupLedgers);
+  addSheet('Agent Overall', [report.agentOverall]);
   addSheet('Investors', report.investorLedgers);
   addSheet('Construction', report.constructionLedgers);
   await workbook.xlsx.writeFile(excelPath);
@@ -327,7 +398,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
 <h2>Debit / Credit Summary</h2>${htmlTable([{key:'debit',label:'Debit Account'},{key:'credit',label:'Credit Account'},{key:'amount',label:'Amount'},{key:'rows',label:'Rows'}], report.accountLedgers.map((r)=>({...r,amount:pkr(r.amount)})))}
 <h2>Customer Receivables</h2>${htmlTable([{key:'date',label:'Date'},{key:'property',label:'Property'},{key:'customer',label:'Customer'},{key:'dealAmount',label:'Deal'},{key:'received',label:'Received'},{key:'remaining',label:'Remaining'}], report.customerLedgers.map((r)=>({...r,dealAmount:pkr(r.dealAmount),received:pkr(r.received),remaining:pkr(r.remaining)})))}
 <h2>Employee Ledger</h2>${htmlTable([{key:'name',label:'Employee'},{key:'salaryAmount',label:'Salary'},{key:'salaryApplied',label:'Salary Applied'},{key:'cashDisbursed',label:'Cash Disbursed'},{key:'remaining',label:'Salary Remaining'},{key:'advance',label:'New Advance'},{key:'advanceDeducted',label:'Advance Deducted'}], report.employeeLedgers.map((r)=>({...r,salaryAmount:pkr(r.salaryAmount),salaryApplied:pkr(r.salaryApplied),cashDisbursed:pkr(r.cashDisbursed),remaining:pkr(r.remaining),advance:pkr(r.advance),advanceDeducted:pkr(r.advanceDeducted)})))}
+<h2>Employee Group / Overall</h2>${htmlTable([{key:'group',label:'Group'},{key:'people',label:'People'},{key:'salaryApplied',label:'Salary Applied'},{key:'cashDisbursed',label:'Cash Disbursed'},{key:'remaining',label:'Remaining'},{key:'advance',label:'Advance'}], [...report.employeeGroupLedgers, report.employeeOverall].map((r)=>({...r,salaryApplied:pkr(r.salaryApplied),cashDisbursed:pkr(r.cashDisbursed),remaining:pkr(r.remaining),advance:pkr(r.advance)})))}
 <h2>Agent Commission Ledger</h2>${htmlTable([{key:'name',label:'Agent'},{key:'earned',label:'Earned'},{key:'paid',label:'Paid Total'},{key:'paidInRange',label:'Paid In Range'},{key:'remaining',label:'Remaining'}], report.agentLedgers.map((r)=>({...r,earned:pkr(r.earned),paid:pkr(r.paid),paidInRange:pkr(r.paidInRange),remaining:pkr(r.remaining)})))}
+<h2>Agent Group / Overall</h2>${htmlTable([{key:'group',label:'Group'},{key:'agents',label:'Agents'},{key:'earned',label:'Earned'},{key:'paid',label:'Paid'},{key:'paidInRange',label:'Paid In Range'},{key:'remaining',label:'Remaining'}], [...report.agentGroupLedgers, report.agentOverall].map((r)=>({...r,earned:pkr(r.earned),paid:pkr(r.paid),paidInRange:pkr(r.paidInRange),remaining:pkr(r.remaining)})))}
 <h2>Investor Ledger</h2>${htmlTable([{key:'name',label:'Investor'},{key:'credit',label:'Credit'},{key:'debit',label:'Debit'},{key:'balance',label:'Balance'}], report.investorLedgers.map((r)=>({...r,credit:pkr(r.credit),debit:pkr(r.debit),balance:pkr(r.balance)})))}
 <h2>Construction Ledger</h2>${htmlTable([{key:'category',label:'Category'},{key:'constructor',label:'Constructor'},{key:'dealAmount',label:'Deal'},{key:'paid',label:'Paid'},{key:'remaining',label:'Remaining'},{key:'status',label:'Status'}], report.constructionLedgers.map((r)=>({...r,dealAmount:pkr(r.dealAmount),paid:pkr(r.paid),remaining:pkr(r.remaining)})))}
 </body></html>`;

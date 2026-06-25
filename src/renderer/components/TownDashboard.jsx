@@ -299,6 +299,11 @@ function TownOverview({ town, refreshKey = 0 }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
             <div style={{ fontWeight: 900, marginBottom: 8 }}>Employee Ledger</div>
+            {report?.employeeOverall && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '0 0 8px', color: 'var(--text-primary)' }}>
+                <span>Overall</span><b>{fmtPkr(report.employeeOverall.cashDisbursed)} cash / {fmtPkr(report.employeeOverall.remaining)} left</b>
+              </div>
+            )}
             {(report?.employeeLedgers || []).slice(0, 4).map((row) => (
               <div key={row.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
                 <span>{row.name}</span><b>{fmtPkr(row.cashDisbursed ?? row.paid)} cash / {fmtPkr(row.remaining)} left</b>
@@ -308,6 +313,11 @@ function TownOverview({ town, refreshKey = 0 }) {
           </div>
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
             <div style={{ fontWeight: 900, marginBottom: 8 }}>Agent Commission Ledger</div>
+            {report?.agentOverall && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '0 0 8px', color: 'var(--text-primary)' }}>
+                <span>Overall</span><b>{fmtPkr(report.agentOverall.paid)} paid / {fmtPkr(report.agentOverall.remaining)} left</b>
+              </div>
+            )}
             {(report?.agentLedgers || []).slice(0, 4).map((row) => (
               <div key={row.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
                 <span>{row.name}</span><b>{fmtPkr(row.paid)} paid / {fmtPkr(row.remaining)} left</b>
