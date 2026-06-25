@@ -546,7 +546,8 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
   const remainingSalary = Math.max(0, numericBaseSalary - monthPaid);
   const numericPaymentAmount = parseFloat(paymentAmount) || 0;
   const advanceFromOverpay = Math.max(0, numericPaymentAmount - remainingSalary);
-  const netAmount = numericPaymentAmount - advanceDeduction;
+  const salaryAppliedAmount = Math.min(numericPaymentAmount, remainingSalary || numericPaymentAmount);
+  const netAmount = Math.max(0, numericPaymentAmount - advanceDeduction);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -572,6 +573,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
 
       // Record new advance
       const advAmt = parseFloat(advanceAmount) || 0;
+      const actualCashDisbursed = netAmount + advAmt;
       if (advAmt > 0 && advanceType !== 'none') {
         const monthlyDed = advanceType === 'single'
           ? advAmt
@@ -589,7 +591,10 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
       const res = await window.api.recordSalaryPayment({
         employeeName: employee.name,
         designation: employee.designation,
-        amount: numericPaymentAmount + advAmt,
+        amount: actualCashDisbursed,
+        salaryGrossAmount: numericPaymentAmount,
+        salaryAppliedAmount,
+        cashDisbursedAmount: actualCashDisbursed,
         salaryAmount: numericBaseSalary,
         month,
         townName,
@@ -611,15 +616,17 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
           employeePhone: employee.phone,
           employeeCNIC: employee.cnic,
           month,
-          amount: numericPaymentAmount + advAmt,
+          amount: actualCashDisbursed,
           baseSalary: numericBaseSalary,
+          salaryGrossAmount: numericPaymentAmount,
+          salaryAppliedAmount,
           advanceDeduction,
           newAdvanceGiven: advAmt + advanceFromOverpay,
           netAmount,
-        totalDisbursed: numericPaymentAmount + advAmt,
+        totalDisbursed: actualCashDisbursed,
           paidBefore: monthPaid,
-          paidAfter: Math.min(numericBaseSalary, monthPaid + numericPaymentAmount),
-          remainingAfter: Math.max(0, numericBaseSalary - monthPaid - numericPaymentAmount),
+          paidAfter: Math.min(numericBaseSalary, monthPaid + salaryAppliedAmount),
+          remainingAfter: Math.max(0, numericBaseSalary - monthPaid - salaryAppliedAmount),
           townName,
           note,
           advanceType: advAmt > 0 ? advanceType : null,

@@ -529,16 +529,17 @@ async function recordSalaryPayment(data) {
   const recordsPath = path.join(getGlobalsPath(), 'Salary_Records.xlsx');
   await ensureSheetColumns(recordsPath, 'Data', [
     'Receipt_Number','Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By',
-    'Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After',
+    'Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After',
     'Salary_Remaining_After','Is_Advance_Salary'
   ]);
   const previousRows = await readExcelFile(recordsPath, 'Data').catch(() => []);
   const cleanName = String(employeeName || '').trim().toLowerCase();
   const cleanMonth = String(month || '').trim().toLowerCase();
   const fixedSalary = parseFloat(salaryAmount ?? data.baseSalary ?? amount) || 0;
-  const cashPaid = parseFloat(amount) || 0;
+  const cashPaid = parseFloat(data.cashDisbursedAmount ?? amount) || 0;
+  const grossSalaryPayment = parseFloat(data.salaryGrossAmount ?? amount) || 0;
+  const salaryAppliedAmount = parseFloat(data.salaryAppliedAmount ?? Math.max(0, grossSalaryPayment - (parseFloat(newAdvanceGiven) || 0))) || 0;
   const declaredAdvance = parseFloat(newAdvanceGiven) || 0;
-  const salaryCash = Math.max(0, cashPaid - declaredAdvance);
   const alreadyPaid = previousRows
     .filter((r) =>
       String(r.Name || '').trim().toLowerCase() === cleanName &&
@@ -550,8 +551,8 @@ async function recordSalaryPayment(data) {
       return sum + Math.max(0, (parseFloat(r.Amount) || 0) - (parseFloat(r.New_Advance_Given) || 0));
     }, 0);
   const remainingBefore = Math.max(0, fixedSalary - alreadyPaid);
-  const salaryPart = Math.min(salaryCash, remainingBefore || salaryCash);
-  const extraAdvance = declaredAdvance + Math.max(0, salaryCash - remainingBefore);
+  const salaryPart = Math.min(salaryAppliedAmount, remainingBefore || salaryAppliedAmount);
+  const extraAdvance = declaredAdvance + Math.max(0, salaryAppliedAmount - remainingBefore);
   const paidAfter = Math.min(fixedSalary, alreadyPaid + salaryPart);
   const remainingAfter = Math.max(0, fixedSalary - paidAfter);
 
@@ -569,6 +570,8 @@ async function recordSalaryPayment(data) {
     Advance_Deduction: parseFloat(advanceDeduction) || 0,
     New_Advance_Given: extraAdvance,
     Salary_Amount: fixedSalary,
+    Salary_Gross_Amount: grossSalaryPayment,
+    Cash_Disbursed_Amount: cashPaid,
     Salary_Paid_Amount: salaryPart,
     Salary_Paid_Before: alreadyPaid,
     Salary_Paid_After: paidAfter,

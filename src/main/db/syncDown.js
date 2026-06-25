@@ -223,7 +223,7 @@ async function performFullSync(reportProgress = () => {}) {
     const mappedAdvances = scoped(advanceSalaries).map((a, idx) => mapAdvanceFromCloud(a, idx));
     await overwriteExcelFile(path.join(globalsPath, 'Advance_Salaries.xlsx'), 'Advance_Salaries', ADV_COLS, mappedAdvances);
 
-    const SALREC_COLS = ['Receipt_Number','Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By'];
+    const SALREC_COLS = ['Receipt_Number','Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By','Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After','Salary_Remaining_After','Is_Advance_Salary'];
     const mappedSalaryRecords = scoped(salaryPayments).map(mapSalaryRecordFromCloud);
     await overwriteExcelFile(path.join(globalsPath, 'Salary_Records.xlsx'), 'Data', SALREC_COLS, mappedSalaryRecords);
 

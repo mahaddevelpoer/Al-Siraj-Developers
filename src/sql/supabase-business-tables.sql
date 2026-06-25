@@ -210,7 +210,17 @@ CREATE TABLE IF NOT EXISTS public.salary_records (
   Amount NUMERIC DEFAULT 0,
   Town_Name VARCHAR(255),
   Note TEXT,
-  Paid_By VARCHAR(255)
+  Paid_By VARCHAR(255),
+  Advance_Deduction NUMERIC DEFAULT 0,
+  New_Advance_Given NUMERIC DEFAULT 0,
+  Salary_Amount NUMERIC DEFAULT 0,
+  Salary_Gross_Amount NUMERIC DEFAULT 0,
+  Cash_Disbursed_Amount NUMERIC DEFAULT 0,
+  Salary_Paid_Amount NUMERIC DEFAULT 0,
+  Salary_Paid_Before NUMERIC DEFAULT 0,
+  Salary_Paid_After NUMERIC DEFAULT 0,
+  Salary_Remaining_After NUMERIC DEFAULT 0,
+  Is_Advance_Salary VARCHAR(10) DEFAULT 'No'
 );
 
 -- ═══════════════════════════════════════════════════════════════

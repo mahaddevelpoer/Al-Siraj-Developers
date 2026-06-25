@@ -123,7 +123,7 @@ const TABLE_COLUMNS = {
   resell_history: ['Resell_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Original_Customer', 'Original_Sell_Date', 'Original_Amount', 'Resell_Amount', 'Refund_Amount', 'Resell_Date', 'Receipt_Number', 'Agent_Name', 'Profit_Loss'],
   employees_v2: ['Employee_ID', 'Employee_Name', 'CNIC', 'Phone', 'Town_Name', 'Role', 'Salary', 'Status'],
   advance_salaries: ['Advance_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Date', 'Month', 'Status', 'Notes'],
-  salary_payments: ['Payment_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Month', 'Payment_Date', 'Payment_Method', 'Notes', 'Recorded_By'],
+  salary_payments: ['Payment_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Month', 'Payment_Date', 'Payment_Method', 'Notes', 'Recorded_By','Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After','Salary_Remaining_After','Is_Advance_Salary'],
   daily_entries: ['Entry_ID', 'Town_Name', 'Date', 'Type', 'Category', 'Amount', 'Description', 'Reference', 'Created_By', 'Review_Status'],
   properties: ['Property_Type', 'Property_Number', 'Town_Name', 'Property_Size', 'Marla', 'Length_Ft', 'Width_Ft', 'Area_Sqft', 'Per_Marla_Price', 'Road_Type', 'Road_Key', 'Total_Price', 'Owner_Name', 'Property_Category', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Expense_Total', 'Profit_Loss', 'Installment_Status', 'Resell_Status', 'Resell_Amount', 'Receipt_Number', 'File_Status', 'File_Delivery_Image', 'Status'],
   town_agents: ['Agent_ID','Town_Name','Agent_Name','Phone_Number','CNIC','Address','Notes','Status','Created_At'],
@@ -454,6 +454,16 @@ function mapSalaryRecordToCloud(sp) {
     Payment_Method: String(r.Payment_Method || 'Cash'),
     Notes: String(r.Note || r.Notes || ''),
     Recorded_By: String(r.Paid_By || r.Recorded_By || ''),
+    Advance_Deduction: parseFloat(r.Advance_Deduction) || 0,
+    New_Advance_Given: parseFloat(r.New_Advance_Given) || 0,
+    Salary_Amount: parseFloat(r.Salary_Amount) || 0,
+    Salary_Gross_Amount: parseFloat(r.Salary_Gross_Amount) || 0,
+    Cash_Disbursed_Amount: parseFloat(r.Cash_Disbursed_Amount || r.Amount) || 0,
+    Salary_Paid_Amount: parseFloat(r.Salary_Paid_Amount) || 0,
+    Salary_Paid_Before: parseFloat(r.Salary_Paid_Before) || 0,
+    Salary_Paid_After: parseFloat(r.Salary_Paid_After) || 0,
+    Salary_Remaining_After: parseFloat(r.Salary_Remaining_After) || 0,
+    Is_Advance_Salary: String(r.Is_Advance_Salary || 'No'),
   };
 }
 
@@ -469,6 +479,16 @@ function mapSalaryRecordFromCloud(sp) {
     Town_Name: getRowVal(sp, 'Town_Name') || '',
     Note: getRowVal(sp, 'Notes') || getRowVal(sp, 'Note') || '',
     Paid_By: getRowVal(sp, 'Recorded_By') || getRowVal(sp, 'Paid_By') || '',
+    Advance_Deduction: parseFloat(getRowVal(sp, 'Advance_Deduction')) || 0,
+    New_Advance_Given: parseFloat(getRowVal(sp, 'New_Advance_Given')) || 0,
+    Salary_Amount: parseFloat(getRowVal(sp, 'Salary_Amount')) || 0,
+    Salary_Gross_Amount: parseFloat(getRowVal(sp, 'Salary_Gross_Amount')) || 0,
+    Cash_Disbursed_Amount: parseFloat(getRowVal(sp, 'Cash_Disbursed_Amount') || getRowVal(sp, 'Amount')) || 0,
+    Salary_Paid_Amount: parseFloat(getRowVal(sp, 'Salary_Paid_Amount')) || 0,
+    Salary_Paid_Before: parseFloat(getRowVal(sp, 'Salary_Paid_Before')) || 0,
+    Salary_Paid_After: parseFloat(getRowVal(sp, 'Salary_Paid_After')) || 0,
+    Salary_Remaining_After: parseFloat(getRowVal(sp, 'Salary_Remaining_After')) || 0,
+    Is_Advance_Salary: getRowVal(sp, 'Is_Advance_Salary') || 'No',
   };
 }
 
