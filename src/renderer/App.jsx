@@ -320,6 +320,28 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
+    if (!window.api?.onSyncToCloudProgress) return undefined;
+    let hideTimer = null;
+    window.api.onSyncToCloudProgress((percent, msg) => {
+      if (hideTimer) clearTimeout(hideTimer);
+      setCloudRefresh({
+        visible: true,
+        percent: percent || 0,
+        msg: msg || 'Uploading local changes to database...',
+      });
+      if ((percent || 0) >= 100) {
+        hideTimer = setTimeout(() => {
+          setCloudRefresh((current) => ({ ...current, visible: false }));
+        }, 1800);
+      }
+    });
+    return () => {
+      if (hideTimer) clearTimeout(hideTimer);
+      window.api?.removeSyncToCloudProgress?.();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!window.api?.onCloudDataRefreshed) return undefined;
     window.api.onCloudDataRefreshed((data) => {
       setDataRefreshKey((k) => k + 1);

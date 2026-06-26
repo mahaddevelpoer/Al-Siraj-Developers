@@ -101,12 +101,22 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const signIn = async (email, password) => {
+  const signIn = async (email, password, role = '') => {
     try {
-      const { data, error } = await auth.signInWithPassword({
+      if (role === 'accountant' && window.api?.localAccountantLogin) {
+        const local = await window.api.localAccountantLogin({ email, password });
+        if (local?.success && local.profile) {
+          const fakeUser = { ...(local.user || { id: local.profile.id, email: local.profile.email }), local_offline: true };
+          setUser(fakeUser);
+          setUserProfile(local.profile);
+          setUserRole('accountant');
+          return { success: true, user: fakeUser, profile: local.profile, localOffline: true };
+        }
+      }
+      const { data, error } = await withTimeout(auth.signInWithPassword({
         email,
         password,
-      });
+      }), 8000, 'Online login');
 
       if (error) throw error;
 
@@ -119,7 +129,7 @@ export function AuthProvider({ children }) {
   const signOut = async () => {
     try {
       const { error } = await auth.signOut();
-      if (error) throw error;
+      if (error && user?.local_offline !== true) throw error;
       setUser(null);
       setUserRole(null);
       setUserProfile(null);

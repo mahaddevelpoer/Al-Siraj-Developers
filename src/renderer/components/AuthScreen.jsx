@@ -105,9 +105,25 @@ export default function AuthScreen({ onLogin }) {
     setLoading(true);
     setError('');
     try {
-      const result = await signIn(loginEmail, loginPassword);
+      const result = await signIn(loginEmail, loginPassword, selectedRole);
       if (!result.success) {
         throw new Error(result.error || 'Invalid email or password');
+      }
+
+      if (selectedRole === 'accountant' && result.localOffline && result.profile) {
+        const profile = result.profile;
+        if (window.api?.configureFileSyncContext) {
+          await window.api.configureFileSyncContext({
+            role: 'accountant',
+            userId: profile.id,
+            accountantTown: profile.town_name || profile.town_id || '',
+          }).catch(() => {});
+        }
+        onLogin('accountant', {
+          townName: profile.town_name || profile.town_id || '',
+          offline: true,
+        });
+        return;
       }
 
       let { data: profile } = await supabase
@@ -465,6 +481,16 @@ export default function AuthScreen({ onLogin }) {
                   <button type="submit" className="auth-submit-btn" disabled={loading}>
                     {loading ? <span className="auth-spinner" /> : 'Sign In'}
                   </button>
+                  {selectedRole === 'accountant' && (
+                    <button
+                      type="button"
+                      className="auth-link-btn"
+                      style={{ alignSelf: 'center', marginTop: 4 }}
+                      onClick={() => window.api?.openLocalAccountantsFile?.()}
+                    >
+                      Open Offline Login File
+                    </button>
+                  )}
                 </form>
               </div>
             )}

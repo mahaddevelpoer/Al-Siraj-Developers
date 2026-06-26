@@ -464,8 +464,17 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
             {acSuccess ? (
               <div style={{ textAlign: 'center', padding: '24px 0' }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>Accountant Created!</div>
-                <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>They can now sign in with their credentials.</div>
-                <button onClick={() => setShowCreateAccountant(false)} className="btn btn-primary btn-sm">Done</button>
+                <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>They can now sign in with these credentials online or offline on this PC.</div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <button onClick={() => setShowCreateAccountant(false)} className="btn btn-primary btn-sm">Done</button>
+                  <button
+                    type="button"
+                    onClick={() => window.api?.openLocalAccountantsFile?.()}
+                    className="btn btn-ghost btn-sm"
+                  >
+                    Open Offline Login File
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={async (e) => {

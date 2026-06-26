@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('api', {
   getEmployees: () => ipcRenderer.invoke('get-employees'),
   deleteEmployee: (id) => ipcRenderer.invoke('delete-employee', id),
   getDashboardStats: () => ipcRenderer.invoke('get-dashboard-stats'),
+  localAccountantLogin: (params) => ipcRenderer.invoke('local-accountant-login', params),
+  getLocalAccountantsFile: () => ipcRenderer.invoke('get-local-accountants-file'),
+  openLocalAccountantsFile: () => ipcRenderer.invoke('open-local-accountants-file'),
   getNotifications: () => ipcRenderer.invoke('get-notifications'),
   dismissNotification: (id) => ipcRenderer.invoke('dismiss-notification', id),
   triggerBackup: () => ipcRenderer.invoke('trigger-backup'),
@@ -143,6 +146,7 @@ contextBridge.exposeInMainWorld('api', {
   configureFileSyncContext: (context) => ipcRenderer.invoke('configure-file-sync-context', context),
   syncFromCloud: () => ipcRenderer.invoke('sync-from-cloud'),
   syncToCloud: () => ipcRenderer.invoke('sync-to-cloud'),
+  generateDailyTownReceipts: (date) => ipcRenderer.invoke('generate-daily-town-receipts', date),
   onSyncProgress: (callback) => {
     try { ipcRenderer.removeAllListeners('sync-progress'); } catch {}
     ipcRenderer.on('sync-progress', (_, data) => callback(data.percent, data.msg));

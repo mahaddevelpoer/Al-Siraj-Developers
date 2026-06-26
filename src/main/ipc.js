@@ -16,6 +16,7 @@ const onlineDb = require('./db/online');
 const storage = require('./db/storage');
 const businessExtras = require('./db/businessExtras');
 const townMapDb = require('./db/townMap');
+const accountantAuth = require('./db/accountantAuth');
 const pendingSync = require('./db/pendingSync');
 const { buildTownLedgerReport, exportTownLedgerReport } = require('./db/townReport');
 
@@ -27,6 +28,8 @@ let _periodicCloudDownloadTimer = null;
 let _periodicCloudSyncTimer = null;
 let _cloudSyncInFlight = false;
 let _cloudDownloadInFlight = false;
+let _dailyReceiptTimer = null;
+let _lastDailyReceiptDate = '';
 
 function getActiveWindow() {
   return typeof _windowGetter === 'function' ? _windowGetter() : _windowGetter;
@@ -161,6 +164,88 @@ function startPeriodicCloudSync(intervalMs = 120000) {
     if (role !== 'ceo' && role !== 'accountant') return;
     scheduleQueuedCloudSync(100);
   }, intervalMs);
+}
+
+async function generateDailyTownReceiptBundle(date = new Date().toISOString().slice(0, 10), eventSender = null) {
+  const towns = await getTowns();
+  const townRows = Array.isArray(towns) ? towns.filter((t) => t?.Town_Name) : [];
+  const generated = [];
+  const failed = [];
+  const sendProgress = (percent, msg) => {
+    const payload = { percent, msg };
+    try {
+      if (eventSender && !eventSender.isDestroyed()) eventSender.send('sync-progress-to-cloud', payload);
+    } catch (_) {}
+    const win = getActiveWindow();
+    try {
+      if (win && !win.isDestroyed()) win.webContents.send('sync-progress-to-cloud', payload);
+    } catch (_) {}
+  };
+  if (!townRows.length) return { success: true, date, generated, failed, message: 'No towns found' };
+  for (let i = 0; i < townRows.length; i += 1) {
+    const townName = townRows[i].Town_Name;
+    sendProgress(Math.round((i / townRows.length) * 80), `Creating daily receipt: ${townName}`);
+    try {
+      const exported = await exportTownLedgerReport({ townName, fromDate: date, toDate: date });
+      let pdfPath = exported.pdfPath || '';
+      if (!pdfPath && exported.htmlPath) {
+        try { pdfPath = await renderHtmlReportToPdf(exported.htmlPath); } catch (_) {}
+      }
+      generated.push({
+        townName,
+        pdfPath: pdfPath || exported.htmlPath,
+        excelPath: exported.excelPath,
+        summary: exported.report?.summary || {},
+      });
+    } catch (e) {
+      failed.push({ townName, error: e.message || 'Receipt generation failed' });
+    }
+  }
+  const notificationId = `DAILY-${date.replace(/-/g, '')}-${Date.now()}`;
+  const message = failed.length
+    ? `${generated.length} town daily receipts ready. ${failed.map((f) => `${f.townName} not online/wake him`).join(', ')}`
+    : `${generated.length} town daily receipts ready for ${date}`;
+  const notification = {
+    Notification_ID: notificationId,
+    Type: 'Daily Ledger Receipt',
+    Message: message,
+    Plot_Shop_Number: '',
+    Town_Name: 'All Towns',
+    Customer_Name: JSON.stringify({ date, generated, failed }),
+    Due_Date: date,
+    Created_Date: date,
+    Status: 'Active',
+    Dismissed: 'No',
+  };
+  try {
+    await onlineDb.insert('notifications', notification);
+  } catch (e) {
+    await pendingSync.addPendingSync({
+      operation: 'upsert',
+      tableName: 'notifications',
+      clientWriteId: notificationId,
+      payload: notification,
+      error: e.message || '',
+    }).catch(() => {});
+    sendSyncWarning('Daily receipt cloud notification queued: ' + (e.message || 'offline'));
+  }
+  if (generated.length) storage.queueAllLocalFiles();
+  sendProgress(100, 'Daily town receipts complete');
+  return { success: true, date, generated, failed, notification };
+}
+
+function startDailyReceiptScheduler() {
+  if (_dailyReceiptTimer) clearInterval(_dailyReceiptTimer);
+  _dailyReceiptTimer = setInterval(() => {
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    if (_lastDailyReceiptDate === date) return;
+    if (now.getHours() < 20) return;
+    _lastDailyReceiptDate = date;
+    generateDailyTownReceiptBundle(date).catch((e) => {
+      sendSyncWarning('Daily receipt generation failed: ' + (e.message || 'Unknown'));
+    });
+  }, 5 * 60 * 1000);
 }
 
 function withTimeout(promise, ms, label) {
@@ -838,6 +923,43 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   // Dashboard
   ipcMain.handle('get-dashboard-stats', async () => { try { return await dataLayer.read(() => getDashboardStats(), () => onlineDb.getDashboardStats()); } catch(e) { return { error: e.message }; } });
 
+  ipcMain.handle('local-accountant-login', async (_, { email, password } = {}) => {
+    try {
+      const profile = accountantAuth.login(dbPath, email, password);
+      storage.setSyncContext({
+        role: 'accountant',
+        userId: profile.id,
+        accountantTown: profile.town_name,
+      });
+      scheduleQueuedCloudSync(1000);
+      scheduleCloudDownload(1200);
+      startPeriodicCloudSync(120000);
+      startPeriodicCloudDownload(120000);
+      return { success: true, user: { id: profile.id, email: profile.email }, profile };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('get-local-accountants-file', async () => {
+    try {
+      const filePath = accountantAuth.ensureFile(dbPath);
+      return { success: true, filePath, accounts: accountantAuth.list(dbPath) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('open-local-accountants-file', async () => {
+    try {
+      const filePath = accountantAuth.ensureFile(dbPath);
+      await shell.openPath(filePath);
+      return { success: true, filePath };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
   // Notifications
   ipcMain.handle('get-notifications', async () => { try { const rows = await dataLayer.read(() => getNotifications(), () => onlineDb.getAll('notifications')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
   ipcMain.handle('dismiss-notification', async (_, id) => {
@@ -861,6 +983,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         scheduleCloudDownload(900);
         startPeriodicCloudSync(120000);
         startPeriodicCloudDownload(120000);
+        startDailyReceiptScheduler();
         databaseSync = { scheduled: true, background: true };
       }
       return { success: true, context: storage.getSyncContext(), fileSync, databaseSync };
@@ -912,6 +1035,14 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       await pendingSync.markAllPendingSynced();
       return { success: true, ...result };
     } catch(e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('generate-daily-town-receipts', async (event, date) => {
+    try {
+      return await generateDailyTownReceiptBundle(date || new Date().toISOString().slice(0, 10), event.sender);
+    } catch (e) {
+      return { error: e.message };
+    }
   });
 
   // Auto Receipt Number
@@ -1597,7 +1728,14 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
             })
             .eq('id', existingProfile.id);
           if (updateError) throw updateError;
-          return { success: true, userId: existingProfile.id, townName: assignedTown, existing: true };
+          accountantAuth.upsertAccountant(dbPath, {
+            id: existingProfile.id,
+            full_name: fullName,
+            email: cleanEmail,
+            password,
+            town_name: assignedTown,
+          });
+          return { success: true, userId: existingProfile.id, townName: assignedTown, existing: true, offlineLogin: true };
         }
         throw authError;
       }
@@ -1615,7 +1753,14 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         .from('users')
         .upsert([profilePayload], { onConflict: 'id' });
       if (profileError) throw profileError;
-      return { success: true, userId: authData.user.id, townName: assignedTown };
+      accountantAuth.upsertAccountant(dbPath, {
+        id: authData.user.id,
+        full_name: fullName,
+        email: cleanEmail,
+        password,
+        town_name: assignedTown,
+      });
+      return { success: true, userId: authData.user.id, townName: assignedTown, offlineLogin: true };
     } catch (e) {
       return { error: e.message };
     }
