@@ -17,6 +17,7 @@ const defaultStyle = {
   plot: { stroke: '#0f172a', strokeWidth: 2 },
   shop: { stroke: '#4c1d95', strokeWidth: 2 },
   road: { stroke: '#64748b' },
+  boundary: { stroke: '#f8fafc', strokeWidth: 5 },
   label: { fill: '#111827' },
 };
 
@@ -64,7 +65,7 @@ function createShape(type, count) {
     id: makeId(),
     type,
     status: 'available',
-    label: `${type === 'shop' ? 'Shop' : type === 'road' ? 'Road' : type === 'label' ? 'Label' : 'Plot'} ${count}`,
+    label: `${type === 'shop' ? 'Shop' : type === 'road' ? 'Road' : type === 'boundary' ? 'Boundary' : type === 'label' ? 'Label' : 'Plot'} ${count}`,
     propertyType: '',
     propertyNumber: '',
     style: defaultStyle[type] || {},
@@ -72,6 +73,9 @@ function createShape(type, count) {
   };
   if (type === 'road') {
     return { ...base, geometry: { kind: 'line', x1: 180, y1: 360, x2: 760, y2: 360, strokeWidth: 24 } };
+  }
+  if (type === 'boundary') {
+    return { ...base, geometry: { kind: 'polyline', points: [], strokeWidth: 5 }, status: 'boundary' };
   }
   if (type === 'label') {
     return { ...base, geometry: { kind: 'text', x: 360, y: 180, fontSize: 30 } };
@@ -100,6 +104,8 @@ function SvgMapCanvas({
   setZoom,
   mode = 'overview',
   variant = 'full',
+  drawingBoundaryId = null,
+  onAddBoundaryPoint,
 }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
@@ -151,11 +157,11 @@ function SvgMapCanvas({
       onMouseUp={stopDrag}
       onMouseLeave={stopDrag}
     >
-      <div className="town-map-world-hud">
+      {variant !== 'hero' && <div className="town-map-world-hud">
         <span>Zoom {Math.round(zoom * 100)}%</span>
         <span>X {Math.round(-pan.x / zoom)}</span>
         <span>Y {Math.round(-pan.y / zoom)}</span>
-      </div>
+      </div>}
       <svg
         ref={svgRef}
         className="town-map-svg"
@@ -175,6 +181,10 @@ function SvgMapCanvas({
         }}
         onMouseDown={(e) => {
           if (e.target === svgRef.current) {
+            if (drawingBoundaryId && mode === 'designer') {
+              onAddBoundaryPoint?.(drawingBoundaryId, point(e));
+              return;
+            }
             const v = viewPoint(e);
             panRef.current = {
               start: { x: v.x, y: v.y },
@@ -205,6 +215,7 @@ function SvgMapCanvas({
           })}
           <circle cx="0" cy="0" r="5" fill="#60a5fa" />
           {shapes.map((shape) => {
+            if (shape.type === 'viewport') return null;
             const property = propertiesByKey.get(propertyKey(shape.propertyType, shape.propertyNumber));
             const status = shapeDisplayStatus(shape, property);
             const selected = selectedId === shape.id;
@@ -238,6 +249,35 @@ function SvgMapCanvas({
                     strokeLinecap="round"
                   />
                   {selected && <line x1={toNumber(g.x1)} y1={toNumber(g.y1)} x2={toNumber(g.x2, 300)} y2={toNumber(g.y2, 300)} stroke="#60a5fa" strokeWidth={toNumber(g.strokeWidth, 20) + 8} opacity="0.26" strokeLinecap="round" />}
+                </g>
+              );
+            }
+
+            if (shape.type === 'boundary') {
+              const points = Array.isArray(shape.geometry?.points) ? shape.geometry.points : [];
+              const pointText = points.map((p) => `${toNumber(p.x)},${toNumber(p.y)}`).join(' ');
+              return (
+                <g key={shape.id} {...common} className="town-map-shape">
+                  <title>{shape.label}</title>
+                  <polyline
+                    points={pointText}
+                    fill="none"
+                    stroke={selected ? '#60a5fa' : (shape.style?.stroke || '#f8fafc')}
+                    strokeWidth={selected ? toNumber(shape.geometry?.strokeWidth, 5) + 2 : toNumber(shape.geometry?.strokeWidth, 5)}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  {points.map((p, idx) => (
+                    <circle
+                      key={`${shape.id}-p-${idx}`}
+                      cx={toNumber(p.x)}
+                      cy={toNumber(p.y)}
+                      r={selected ? 7 : 4}
+                      fill={idx === points.length - 1 && drawingBoundaryId === shape.id ? '#22c55e' : '#f8fafc'}
+                      stroke="#020617"
+                      strokeWidth="2"
+                    />
+                  ))}
                 </g>
               );
             }
@@ -311,6 +351,7 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState(variant === 'hero' ? 0.82 : 1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [drawingBoundaryId, setDrawingBoundaryId] = useState(null);
 
   useEffect(() => {
     load();
@@ -343,7 +384,16 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
         window.api.getAllShops?.(townName),
       ]);
       if (saved?.error) throw new Error(saved.error);
-      setShapes(Array.isArray(saved) ? saved : []);
+      const savedShapes = Array.isArray(saved) ? saved : [];
+      setShapes(savedShapes);
+      const viewport = savedShapes.find((shape) => shape.type === 'viewport');
+      if (viewport && variant === 'hero') {
+        setZoom(toNumber(viewport.geometry?.zoom, 0.82));
+        setPan({
+          x: toNumber(viewport.geometry?.panX, 0),
+          y: toNumber(viewport.geometry?.panY, 0),
+        });
+      }
       setProperties([
         ...(Array.isArray(plots) ? plots.map((p) => ({ ...p, Property_Type: 'Plot', Property_Number: p.Property_Number || p.Plot_Number })) : []),
         ...(Array.isArray(shops) ? shops.map((s) => ({ ...s, Property_Type: 'Shop', Property_Number: s.Property_Number || s.Shop_Number })) : []),
@@ -372,6 +422,16 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
       if (shape.type === 'road') {
         return { ...shape, geometry: { ...shape.geometry, x1: toNumber(g.x1) + dx, y1: toNumber(g.y1) + dy, x2: toNumber(g.x2) + dx, y2: toNumber(g.y2) + dy } };
       }
+      if (shape.type === 'boundary') {
+        const points = Array.isArray(g.points) ? g.points : [];
+        return {
+          ...shape,
+          geometry: {
+            ...shape.geometry,
+            points: points.map((p) => ({ x: toNumber(p.x) + dx, y: toNumber(p.y) + dy })),
+          },
+        };
+      }
       return { ...shape, geometry: { ...shape.geometry, x: toNumber(g.x) + dx, y: toNumber(g.y) + dy } };
     }));
   }
@@ -392,6 +452,8 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
       sortOrder: shapes.length + 1,
       geometry: selected.type === 'road'
         ? { ...selected.geometry, x1: toNumber(selected.geometry?.x1) + 24, y1: toNumber(selected.geometry?.y1) + 24, x2: toNumber(selected.geometry?.x2) + 24, y2: toNumber(selected.geometry?.y2) + 24 }
+        : selected.type === 'boundary'
+          ? { ...selected.geometry, points: (selected.geometry?.points || []).map((p) => ({ x: toNumber(p.x) + 24, y: toNumber(p.y) + 24 })) }
         : { ...selected.geometry, x: toNumber(selected.geometry?.x) + 24, y: toNumber(selected.geometry?.y) + 24 },
     };
     setShapes((current) => [...current, copy]);
@@ -412,6 +474,53 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
   }
 
   const selectedProperty = selected ? propertiesByKey.get(propertyKey(selected.propertyType, selected.propertyNumber)) : null;
+  const visibleCount = visibleShapes.filter((shape) => shape.type !== 'viewport').length;
+
+  function addBoundary() {
+    const shape = createShape('boundary', shapes.length + 1);
+    setShapes((current) => [...current, shape]);
+    setSelectedId(shape.id);
+    setDrawingBoundaryId(shape.id);
+    setMode('designer');
+  }
+
+  function addBoundaryPoint(id, pointValue) {
+    setShapes((current) => current.map((shape) => {
+      if (shape.id !== id) return shape;
+      const currentPoints = Array.isArray(shape.geometry?.points) ? shape.geometry.points : [];
+      return {
+        ...shape,
+        geometry: {
+          ...(shape.geometry || {}),
+          points: [...currentPoints, { x: Math.round(pointValue.x), y: Math.round(pointValue.y) }],
+        },
+      };
+    }));
+  }
+
+  function saveOverviewView() {
+    const viewport = {
+      id: `viewport-${townName}`,
+      type: 'viewport',
+      label: 'Overview View',
+      status: 'system',
+      propertyType: '',
+      propertyNumber: '',
+      style: {},
+      sortOrder: -1,
+      geometry: {
+        kind: 'viewport',
+        zoom,
+        panX: pan.x,
+        panY: pan.y,
+      },
+    };
+    setShapes((current) => {
+      const without = current.filter((shape) => shape.type !== 'viewport');
+      return [viewport, ...without];
+    });
+    showToast?.('Overview map angle saved. Click Save Map to keep it permanently.');
+  }
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -429,7 +538,7 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
         </div>
       </div>}
 
-      <div className={`town-map-toolbar ${variant === 'hero' ? 'town-map-toolbar--overlay' : ''}`}>
+      {variant !== 'hero' && <div className="town-map-toolbar">
         <div className="town-map-search">
           <SearchIcon size={14}/>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search plot, shop, road..." />
@@ -442,15 +551,18 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
         <button className="btn btn-ghost" onClick={() => setZoom((z) => Math.max(0.15, z - 0.15))}>-</button>
         <button className="btn btn-ghost" onClick={() => setZoom((z) => Math.min(6, z + 0.15))}>+</button>
         <button className="btn btn-ghost" onClick={() => { setZoom(variant === 'hero' ? 0.82 : 1); setPan({ x: 0, y: 0 }); }}>Reset</button>
-      </div>
+      </div>}
 
       {mode === 'designer' && !readOnly && (
         <div className="town-map-designer-bar">
           <button className="btn btn-secondary" onClick={() => addShape('plot')}><PlusIcon size={13}/> Plot</button>
           <button className="btn btn-secondary" onClick={() => addShape('shop')}><PlusIcon size={13}/> Shop</button>
           <button className="btn btn-secondary" onClick={() => addShape('road')}><PlusIcon size={13}/> Road</button>
+          <button className={`btn ${drawingBoundaryId ? 'btn-primary' : 'btn-secondary'}`} onClick={addBoundary}><PlusIcon size={13}/> Draw Boundary</button>
+          {drawingBoundaryId && <button className="btn btn-ghost" onClick={() => setDrawingBoundaryId(null)}>Finish Boundary</button>}
           <button className="btn btn-secondary" onClick={() => addShape('label')}><PlusIcon size={13}/> Label</button>
           <button className="btn btn-ghost" disabled={!selected} onClick={duplicateSelected}>Duplicate</button>
+          <button className="btn btn-ghost" onClick={saveOverviewView}>Set Overview View</button>
           <button className="btn btn-danger" disabled={!selected} onClick={() => { setShapes((rows) => rows.filter((s) => s.id !== selected.id)); setSelectedId(null); }}><TrashIcon size={13}/> Delete</button>
           <button className="btn btn-primary" disabled={saving} onClick={save}><SaveIcon size={13}/> {saving ? 'Saving...' : 'Save Map'}</button>
         </div>
@@ -458,7 +570,7 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
 
       <div className={`town-map-layout ${variant === 'hero' ? 'town-map-layout--hero' : ''}`}>
         <div className="town-map-main-card">
-          {shapes.length === 0 ? (
+          {visibleCount === 0 ? (
             <div className="town-map-empty">
               <h3>No town map yet</h3>
               <p>Open Designer and add plots, shops, roads and labels for this town.</p>
@@ -477,14 +589,16 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
               setZoom={setZoom}
               mode={mode}
               variant={variant}
+              drawingBoundaryId={drawingBoundaryId}
+              onAddBoundaryPoint={addBoundaryPoint}
             />
           )}
-          <div className="town-map-legend">
+          {variant !== 'hero' && <div className="town-map-legend">
             <span><i className="available" /> Available</span>
             <span><i className="reserved" /> Reserved</span>
             <span><i className="sold" /> Sold</span>
             <span><i className="road" /> Road</span>
-          </div>
+          </div>}
         </div>
 
         {variant !== 'hero' && <aside className="town-map-side">
@@ -496,6 +610,7 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
                 <option value="plot">Plot</option>
                 <option value="shop">Shop</option>
                 <option value="road">Road</option>
+                <option value="boundary">Boundary</option>
                 <option value="label">Label</option>
               </select></label>
               <label>Status<select value={selected.status} onChange={(e) => updateSelected({ status: e.target.value })} disabled={mode !== 'designer'}>
@@ -503,7 +618,7 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
                 <option value="reserved">Reserved</option>
                 <option value="sold">Sold</option>
               </select></label>
-              {selected.type !== 'road' && selected.type !== 'label' && (
+              {selected.type !== 'road' && selected.type !== 'boundary' && selected.type !== 'label' && (
                 <label>Linked Property<select
                   value={selected.propertyType && selected.propertyNumber ? propertyKey(selected.propertyType, selected.propertyNumber) : ''}
                   onChange={(e) => {
@@ -525,6 +640,19 @@ export default function TownMap({ townName, showToast, variant = 'full', initial
                   {['x1', 'y1', 'x2', 'y2', 'strokeWidth'].map((k) => (
                     <label key={k}>{k}<input type="number" value={selected.geometry?.[k] ?? ''} onChange={(e) => updateGeometry({ [k]: Number(e.target.value) })} disabled={mode !== 'designer'} /></label>
                   ))}
+                </div>
+              ) : selected.type === 'boundary' ? (
+                <div className="town-map-field-grid">
+                  <label>Line Width<input type="number" value={selected.geometry?.strokeWidth ?? 5} onChange={(e) => updateGeometry({ strokeWidth: Number(e.target.value) })} disabled={mode !== 'designer'} /></label>
+                  <button type="button" className="btn btn-secondary" onClick={() => setDrawingBoundaryId(selected.id)} disabled={mode !== 'designer'}>
+                    Add More Points
+                  </button>
+                  <button type="button" className="btn btn-ghost" onClick={() => updateGeometry({ points: (selected.geometry?.points || []).slice(0, -1) })} disabled={mode !== 'designer'}>
+                    Undo Last Point
+                  </button>
+                  <div className="town-map-help" style={{ gridColumn: '1 / -1', marginTop: 0 }}>
+                    Click on the black map to add boundary points. Finish Boundary stops drawing.
+                  </div>
                 </div>
               ) : selected.type === 'label' ? (
                 <div className="town-map-field-grid">
