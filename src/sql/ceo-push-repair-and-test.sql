@@ -47,6 +47,7 @@ ON CONFLICT (id) DO UPDATE SET
     WHEN public.ceo_push_config.webhook_secret IS NULL
       OR public.ceo_push_config.webhook_secret = ''
       OR public.ceo_push_config.webhook_secret = 'REPLACE_WITH_CEO_PUSH_WEBHOOK_SECRET'
+      OR public.ceo_push_config.webhook_secret = 'REPLACE_WITH_REAL_SECRET'
     THEN EXCLUDED.webhook_secret
     ELSE public.ceo_push_config.webhook_secret
   END,
@@ -153,12 +154,6 @@ DROP TRIGGER IF EXISTS expenses_ceo_mobile_push ON public.expenses;
 
 ALTER TABLE public.daily_entries
   ADD COLUMN IF NOT EXISTS review_status VARCHAR(20) DEFAULT 'pending';
-
-CREATE TRIGGER daily_entries_ceo_mobile_push
-AFTER INSERT ON public.daily_entries
-FOR EACH ROW
-WHEN (COALESCE(NEW.review_status, 'approved') = 'pending')
-EXECUTE FUNCTION public.notify_ceo_mobile_push();
 
 CREATE OR REPLACE FUNCTION public.test_ceo_push_appeal()
 RETURNS JSONB

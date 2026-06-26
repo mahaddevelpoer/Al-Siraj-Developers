@@ -2026,13 +2026,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   Future<List<Map<String, dynamic>>> _load() async {
     await Future<void>.delayed(const Duration(milliseconds: 500));
     final query = supabase.from('daily_entries').select('*');
-    final data = _filter == 'pending'
-        ? await query
-              .or('review_status.eq.pending,review_status.is.null')
-              .limit(80)
-        : await query
-              .eq('review_status', _filter)
-              .limit(80);
+    final data = await query.eq('review_status', _filter).limit(80);
     final rows = List<Map<String, dynamic>>.from(data)
         .where(
           (row) => reviewStatusOf(row) == _filter,
@@ -3858,7 +3852,7 @@ String reviewStatusOf(Map<String, dynamic> row) {
       row['status'] ??
       row['Status'];
   final text = '${raw ?? ''}'.trim().toLowerCase();
-  if (text.isEmpty || text == 'null') return 'pending';
+  if (text.isEmpty || text == 'null') return 'approved';
   return normalizeStatus(raw);
 }
 

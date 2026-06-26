@@ -70,11 +70,16 @@ END $$;
 -- Supabase Storage is backup/file data, not schema. Keep buckets, delete files.
 DELETE FROM storage.objects
 WHERE bucket_id IN (
+  'zameenkhata-files',
   'zameen-khata',
   'receipts',
   'property-files',
   'property_images',
   'property-images'
+)
+AND (
+  bucket_id <> 'zameenkhata-files'
+  OR name LIKE 'zameen-khata/%'
 );
 
 NOTIFY pgrst, 'reload schema';

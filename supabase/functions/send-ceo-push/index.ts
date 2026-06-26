@@ -1,7 +1,9 @@
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const FCM_AUDIENCE = "https://oauth2.googleapis.com/token";
 const CEO_TOPIC = "ceo-alerts";
-const PUSHABLE_TABLES = new Set(["appeals", "daily_entries"]);
+// Lock-screen FCM must stay approval-only. Daily ledger and business rows are
+// fetched in-app/realtime, but only fresh appeal rows should wake the CEO phone.
+const PUSHABLE_TABLES = new Set(["appeals"]);
 const MAX_RECORD_AGE_MS = 5 * 60 * 1000;
 let cachedAccessToken = "";
 let cachedAccessTokenExpiresAt = 0;
@@ -27,7 +29,10 @@ Deno.serve(async (req) => {
   const configuredSecret = Deno.env.get("CEO_PUSH_WEBHOOK_SECRET");
   if (configuredSecret) {
     const providedSecret = req.headers.get("x-ceo-push-secret");
-    if (providedSecret !== configuredSecret) {
+    const authHeader = req.headers.get("authorization") || "";
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
+    const hasSupabaseBearer = anonKey && authHeader === `Bearer ${anonKey}`;
+    if (providedSecret !== configuredSecret && !hasSupabaseBearer) {
       return json({ error: "Unauthorized" }, 401);
     }
   }
@@ -211,11 +216,6 @@ function shouldSkipPush(payload: PushPayload) {
     return "appeal_not_pending";
   }
 
-  if (table === "daily_entries") {
-    const reviewStatus = String(record.review_status || record.Review_Status || "approved").toLowerCase();
-    if (reviewStatus !== "pending") return "daily_entry_not_pending";
-  }
-
   if (event === "UPDATE" && unchangedPushState(table, record, oldRecord)) {
     return "unchanged_push_state";
   }
@@ -224,10 +224,6 @@ function shouldSkipPush(payload: PushPayload) {
   if (recordTime && Date.now() - recordTime.getTime() > MAX_RECORD_AGE_MS) {
     return "old_record_or_sync_backfill";
   }
-  if (isPastBusinessDate(record)) {
-    return "old_business_date";
-  }
-
   return "";
 }
 
