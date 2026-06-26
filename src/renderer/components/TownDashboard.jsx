@@ -223,6 +223,15 @@ function TownOverview({ town, refreshKey = 0 }) {
 
   return (
     <div>
+      <div className="town-overview-world-map">
+        <TownMap
+          townName={townData.Town_Name}
+          showToast={() => {}}
+          variant="hero"
+          initialMode="overview"
+          readOnly
+        />
+      </div>
       {/* Row 1 — 4 KPI Cards with progress bars */}
       <div className="ui-kpi-grid-4">
         <KPICard Icon={PlotIcon} label="Total Plots" value={actualPlots}

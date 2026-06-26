@@ -11,6 +11,7 @@ import {
 
 const VIEW_W = 1200;
 const VIEW_H = 800;
+const GRID_EXTENT = 6000;
 
 const defaultStyle = {
   plot: { stroke: '#0f172a', strokeWidth: 2 },
@@ -41,10 +42,10 @@ function shapeDisplayStatus(shape, property) {
 
 function fillFor(status, type) {
   if (type === 'road') return 'none';
-  if (type === 'label') return '#111827';
+  if (type === 'label') return '#e5e7eb';
   if (status === 'sold') return '#ef4444';
   if (status === 'reserved') return '#f59e0b';
-  return type === 'shop' ? '#dbeafe' : '#dcfce7';
+  return type === 'shop' ? '#38bdf8' : '#22c55e';
 }
 
 function strokeFor(shape, status) {
@@ -96,7 +97,9 @@ function SvgMapCanvas({
   zoom,
   pan,
   setPan,
+  setZoom,
   mode = 'overview',
+  variant = 'full',
 }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
@@ -105,9 +108,20 @@ function SvgMapCanvas({
   const point = (event) => {
     const svg = svgRef.current;
     const rect = svg.getBoundingClientRect();
+    const viewX = ((event.clientX - rect.left) / rect.width) * VIEW_W;
+    const viewY = ((event.clientY - rect.top) / rect.height) * VIEW_H;
     return {
-      x: ((event.clientX - rect.left) / rect.width) * VIEW_W / zoom - pan.x / zoom,
-      y: ((event.clientY - rect.top) / rect.height) * VIEW_H / zoom - pan.y / zoom,
+      x: (viewX - pan.x) / zoom,
+      y: (viewY - pan.y) / zoom,
+    };
+  };
+
+  const viewPoint = (event) => {
+    const svg = svgRef.current;
+    const rect = svg.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * VIEW_W,
+      y: ((event.clientY - rect.top) / rect.height) * VIEW_H,
     };
   };
 
@@ -117,9 +131,10 @@ function SvgMapCanvas({
       const { id, start, original } = dragRef.current;
       onMoveShape(id, p.x - start.x, p.y - start.y, original);
     } else if (panRef.current) {
+      const v = viewPoint(event);
       setPan({
-        x: panRef.current.origin.x + (event.clientX - panRef.current.start.x),
-        y: panRef.current.origin.y + (event.clientY - panRef.current.start.y),
+        x: panRef.current.origin.x + (v.x - panRef.current.start.x),
+        y: panRef.current.origin.y + (v.y - panRef.current.start.y),
       });
     }
   };
@@ -131,33 +146,64 @@ function SvgMapCanvas({
 
   return (
     <div
-      className="town-map-canvas-wrap"
+      className={`town-map-canvas-wrap ${variant === 'hero' ? 'town-map-canvas-wrap--hero' : ''}`}
       onMouseMove={onMouseMove}
       onMouseUp={stopDrag}
       onMouseLeave={stopDrag}
     >
+      <div className="town-map-world-hud">
+        <span>Zoom {Math.round(zoom * 100)}%</span>
+        <span>X {Math.round(-pan.x / zoom)}</span>
+        <span>Y {Math.round(-pan.y / zoom)}</span>
+      </div>
       <svg
         ref={svgRef}
         className="town-map-svg"
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+        onWheel={(event) => {
+          if (!setZoom) return;
+          event.preventDefault();
+          const before = point(event);
+          const factor = event.deltaY > 0 ? 0.88 : 1.14;
+          const nextZoom = Math.max(0.15, Math.min(6, zoom * factor));
+          const v = viewPoint(event);
+          setZoom(nextZoom);
+          setPan({
+            x: v.x - before.x * nextZoom,
+            y: v.y - before.y * nextZoom,
+          });
+        }}
         onMouseDown={(e) => {
           if (e.target === svgRef.current) {
+            const v = viewPoint(e);
             panRef.current = {
-              start: { x: e.clientX, y: e.clientY },
+              start: { x: v.x, y: v.y },
               origin: { ...pan },
             };
             onSelect?.(null);
           }
         }}
       >
-        <g transform={`translate(${pan.x / zoom} ${pan.y / zoom}) scale(${zoom})`}>
-          <rect x="0" y="0" width={VIEW_W} height={VIEW_H} fill="#f8fafc" />
-          {[...Array(24)].map((_, i) => (
-            <line key={`v-${i}`} x1={i * 50} y1="0" x2={i * 50} y2={VIEW_H} stroke="#e5e7eb" strokeWidth="1" />
-          ))}
-          {[...Array(16)].map((_, i) => (
-            <line key={`h-${i}`} x1="0" y1={i * 50} x2={VIEW_W} y2={i * 50} stroke="#e5e7eb" strokeWidth="1" />
-          ))}
+        <rect x="0" y="0" width={VIEW_W} height={VIEW_H} fill="#050816" />
+        <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+          <rect x={-GRID_EXTENT} y={-GRID_EXTENT} width={GRID_EXTENT * 2} height={GRID_EXTENT * 2} fill="#050816" />
+          {[...Array((GRID_EXTENT * 2) / 50 + 1)].map((_, i) => {
+            const x = -GRID_EXTENT + i * 50;
+            return <line key={`v-${i}`} x1={x} y1={-GRID_EXTENT} x2={x} y2={GRID_EXTENT} stroke={x === 0 ? '#475569' : '#172033'} strokeWidth={x === 0 ? 2 : 1} />;
+          })}
+          {[...Array((GRID_EXTENT * 2) / 50 + 1)].map((_, i) => {
+            const y = -GRID_EXTENT + i * 50;
+            return <line key={`h-${i}`} x1={-GRID_EXTENT} y1={y} x2={GRID_EXTENT} y2={y} stroke={y === 0 ? '#475569' : '#172033'} strokeWidth={y === 0 ? 2 : 1} />;
+          })}
+          {[...Array((GRID_EXTENT * 2) / 250 + 1)].map((_, i) => {
+            const x = -GRID_EXTENT + i * 250;
+            return <line key={`major-v-${i}`} x1={x} y1={-GRID_EXTENT} x2={x} y2={GRID_EXTENT} stroke="#243045" strokeWidth="1.5" />;
+          })}
+          {[...Array((GRID_EXTENT * 2) / 250 + 1)].map((_, i) => {
+            const y = -GRID_EXTENT + i * 250;
+            return <line key={`major-h-${i}`} x1={-GRID_EXTENT} y1={y} x2={GRID_EXTENT} y2={y} stroke="#243045" strokeWidth="1.5" />;
+          })}
+          <circle cx="0" cy="0" r="5" fill="#60a5fa" />
           {shapes.map((shape) => {
             const property = propertiesByKey.get(propertyKey(shape.propertyType, shape.propertyNumber));
             const status = shapeDisplayStatus(shape, property);
@@ -180,7 +226,7 @@ function SvgMapCanvas({
             if (shape.type === 'road') {
               const g = shape.geometry || {};
               return (
-                <g key={shape.id} {...common}>
+                <g key={shape.id} {...common} className="town-map-shape">
                   <title>{shape.label}</title>
                   <line
                     x1={toNumber(g.x1)}
@@ -191,7 +237,7 @@ function SvgMapCanvas({
                     strokeWidth={toNumber(g.strokeWidth, 20)}
                     strokeLinecap="round"
                   />
-                  {selected && <line x1={toNumber(g.x1)} y1={toNumber(g.y1)} x2={toNumber(g.x2, 300)} y2={toNumber(g.y2, 300)} stroke="#2563eb" strokeWidth={toNumber(g.strokeWidth, 20) + 8} opacity="0.24" strokeLinecap="round" />}
+                  {selected && <line x1={toNumber(g.x1)} y1={toNumber(g.y1)} x2={toNumber(g.x2, 300)} y2={toNumber(g.y2, 300)} stroke="#60a5fa" strokeWidth={toNumber(g.strokeWidth, 20) + 8} opacity="0.26" strokeLinecap="round" />}
                 </g>
               );
             }
@@ -206,7 +252,7 @@ function SvgMapCanvas({
                   y={toNumber(g.y)}
                   fontSize={toNumber(g.fontSize, 24)}
                   fontWeight="800"
-                  fill={shape.style?.fill || '#111827'}
+                  fill={shape.style?.fill || '#e5e7eb'}
                 >
                   {shape.label}
                 </text>
@@ -215,7 +261,7 @@ function SvgMapCanvas({
 
             const g = shape.geometry || {};
             return (
-              <g key={shape.id} {...common}>
+              <g key={shape.id} {...common} className="town-map-shape">
                 <title>{shape.label}</title>
                 <rect
                   x={toNumber(g.x)}
@@ -224,8 +270,10 @@ function SvgMapCanvas({
                   height={toNumber(g.height, 70)}
                   rx="8"
                   fill={fillFor(status, shape.type)}
-                  stroke={selected ? '#2563eb' : strokeFor(shape, status)}
+                  opacity="0.92"
+                  stroke={selected ? '#60a5fa' : strokeFor(shape, status)}
                   strokeWidth={selected ? 4 : toNumber(shape.style?.strokeWidth, 2)}
+                  filter="url(#townMapGlow)"
                 />
                 <text
                   x={toNumber(g.x) + toNumber(g.width, 100) / 2}
@@ -233,7 +281,7 @@ function SvgMapCanvas({
                   textAnchor="middle"
                   fontSize="20"
                   fontWeight="800"
-                  fill={status === 'sold' ? '#fff' : '#111827'}
+                  fill="#ffffff"
                   pointerEvents="none"
                 >
                   {shape.label}
@@ -241,14 +289,19 @@ function SvgMapCanvas({
               </g>
             );
           })}
+          <defs>
+            <filter id="townMapGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#000000" floodOpacity="0.32" />
+            </filter>
+          </defs>
         </g>
       </svg>
     </div>
   );
 }
 
-export default function TownMap({ townName, showToast }) {
-  const [mode, setMode] = useState('overview');
+export default function TownMap({ townName, showToast, variant = 'full', initialMode = 'overview', readOnly = false }) {
+  const [mode, setMode] = useState(initialMode);
   const [shapes, setShapes] = useState([]);
   const [properties, setProperties] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -256,7 +309,7 @@ export default function TownMap({ townName, showToast }) {
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(variant === 'hero' ? 0.82 : 1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
@@ -363,8 +416,8 @@ export default function TownMap({ townName, showToast }) {
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
   return (
-    <div className="town-map-shell">
-      <div className="town-map-head">
+    <div className={`town-map-shell ${variant === 'hero' ? 'town-map-shell--hero' : ''}`}>
+      {variant !== 'hero' && <div className="town-map-head">
         <div>
           <div className="ui-label">Native SVG town map</div>
           <h2>{townName} Map</h2>
@@ -372,11 +425,11 @@ export default function TownMap({ townName, showToast }) {
         </div>
         <div className="town-map-actions">
           <button className={`btn ${mode === 'overview' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('overview')}>Overview</button>
-          <button className={`btn ${mode === 'designer' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('designer')}><EditIcon size={13}/> Designer</button>
+          {!readOnly && <button className={`btn ${mode === 'designer' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('designer')}><EditIcon size={13}/> Designer</button>}
         </div>
-      </div>
+      </div>}
 
-      <div className="town-map-toolbar">
+      <div className={`town-map-toolbar ${variant === 'hero' ? 'town-map-toolbar--overlay' : ''}`}>
         <div className="town-map-search">
           <SearchIcon size={14}/>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search plot, shop, road..." />
@@ -386,12 +439,12 @@ export default function TownMap({ townName, showToast }) {
             {item}
           </button>
         ))}
-        <button className="btn btn-ghost" onClick={() => setZoom((z) => Math.max(0.4, z - 0.1))}>-</button>
-        <button className="btn btn-ghost" onClick={() => setZoom((z) => Math.min(2.5, z + 0.1))}>+</button>
-        <button className="btn btn-ghost" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
+        <button className="btn btn-ghost" onClick={() => setZoom((z) => Math.max(0.15, z - 0.15))}>-</button>
+        <button className="btn btn-ghost" onClick={() => setZoom((z) => Math.min(6, z + 0.15))}>+</button>
+        <button className="btn btn-ghost" onClick={() => { setZoom(variant === 'hero' ? 0.82 : 1); setPan({ x: 0, y: 0 }); }}>Reset</button>
       </div>
 
-      {mode === 'designer' && (
+      {mode === 'designer' && !readOnly && (
         <div className="town-map-designer-bar">
           <button className="btn btn-secondary" onClick={() => addShape('plot')}><PlusIcon size={13}/> Plot</button>
           <button className="btn btn-secondary" onClick={() => addShape('shop')}><PlusIcon size={13}/> Shop</button>
@@ -403,7 +456,7 @@ export default function TownMap({ townName, showToast }) {
         </div>
       )}
 
-      <div className="town-map-layout">
+      <div className={`town-map-layout ${variant === 'hero' ? 'town-map-layout--hero' : ''}`}>
         <div className="town-map-main-card">
           {shapes.length === 0 ? (
             <div className="town-map-empty">
@@ -421,7 +474,9 @@ export default function TownMap({ townName, showToast }) {
               zoom={zoom}
               pan={pan}
               setPan={setPan}
+              setZoom={setZoom}
               mode={mode}
+              variant={variant}
             />
           )}
           <div className="town-map-legend">
@@ -432,7 +487,7 @@ export default function TownMap({ townName, showToast }) {
           </div>
         </div>
 
-        <aside className="town-map-side">
+        {variant !== 'hero' && <aside className="town-map-side">
           {selected ? (
             <>
               <div className="town-map-side-title">Selected Shape</div>
@@ -480,7 +535,14 @@ export default function TownMap({ townName, showToast }) {
               ) : (
                 <div className="town-map-field-grid">
                   {['x', 'y', 'width', 'height'].map((k) => (
-                    <label key={k}>{k}<input type="number" value={selected.geometry?.[k] ?? ''} onChange={(e) => updateGeometry({ [k]: Number(e.target.value) })} disabled={mode !== 'designer'} /></label>
+                    <label key={k}>
+                      {k}
+                      <div className="town-map-stepper">
+                        <button type="button" onClick={() => updateGeometry({ [k]: toNumber(selected.geometry?.[k]) - 10 })} disabled={mode !== 'designer'}>-</button>
+                        <input type="number" value={selected.geometry?.[k] ?? ''} onChange={(e) => updateGeometry({ [k]: Number(e.target.value) })} disabled={mode !== 'designer'} />
+                        <button type="button" onClick={() => updateGeometry({ [k]: toNumber(selected.geometry?.[k]) + 10 })} disabled={mode !== 'designer'}>+</button>
+                      </div>
+                    </label>
                   ))}
                 </div>
               )}
@@ -500,7 +562,7 @@ export default function TownMap({ townName, showToast }) {
               <p>Click any plot, shop, road or label to inspect it. In Designer mode you can move and edit shapes.</p>
             </div>
           )}
-        </aside>
+        </aside>}
       </div>
     </div>
   );
