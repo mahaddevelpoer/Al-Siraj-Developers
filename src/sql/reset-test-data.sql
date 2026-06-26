@@ -17,6 +17,7 @@ DECLARE
     'ceo_push_delivery_log',
     'audit_log',
     'user_activity',
+    'town_map_shapes',
     'money_ledger',
     'receipt_archive',
     'file_manifest',

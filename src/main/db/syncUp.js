@@ -140,6 +140,7 @@ async function performFullSyncUp(reportProgress, options = {}) {
     ['receipt_archive', 'Receipt_Archive.xlsx'],
     ['money_ledger', 'Money_Ledger.xlsx'],
     ['town_financial_summary', 'Town_Financial_Summary.xlsx'],
+    ['town_map_shapes', 'Town_Map_Shapes.xlsx'],
   ];
   for (const [table, fileName] of extraTables) {
     let rows = [];

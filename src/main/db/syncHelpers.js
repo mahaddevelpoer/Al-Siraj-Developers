@@ -32,6 +32,7 @@ const UPSERT_CONFLICT = {
   receipt_archive: 'receipt_id',
   money_ledger: 'source_type,source_id,direction',
   town_financial_summary: 'town_name',
+  town_map_shapes: 'shape_id',
 };
 
 const GLOBAL_KEY_MAP = {
@@ -144,6 +145,7 @@ const TABLE_COLUMNS = {
   receipt_archive: ['Receipt_ID','Receipt_Number','Receipt_Type','Town_Name','Entity_ID','Entity_Name','Amount','Receipt_Date','Payload_JSON','Created_At'],
   money_ledger: ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Debit_Account','Credit_Account','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'],
   town_financial_summary: ['Town_Name','Total_Received','Total_Expenses','Cash_Balance','Pending_Collection','Investor_Balance','Updated_At'],
+  town_map_shapes: ['Shape_ID','Town_Name','Property_Type','Property_Number','Shape_Type','Label','Status','Geometry_JSON','Style_JSON','Sort_Order','Updated_At'],
 };
 
 function getRowVal(row, key) {

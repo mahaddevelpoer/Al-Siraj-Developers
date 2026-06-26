@@ -143,7 +143,7 @@ async function performFullSync(reportProgress = () => {}) {
       sales, expenses, ceoExpenses, ceoSalary, installments,
       notifications, employees, advanceSalaries, salaryPayments, towns,
       dailyEntries, commissions, resellHistory, townAgents, investors,
-      investorTransactions, constructionProjects, constructionPayments, commissionReceipts, collectionPayments, moneyLedger, townFinancialSummary
+      investorTransactions, constructionProjects, constructionPayments, commissionReceipts, collectionPayments, moneyLedger, townFinancialSummary, townMapShapes
     ] = await Promise.all([
       onlineDb.getAllSales(),
       onlineDb.getAll('expenses'),
@@ -167,6 +167,7 @@ async function performFullSync(reportProgress = () => {}) {
       safeGetAll('collection_payments'),
       safeGetAll('money_ledger'),
       safeGetAll('town_financial_summary'),
+      safeGetAll('town_map_shapes'),
     ]);
 
     const ctx = storage.getSyncContext?.() || {};
@@ -259,6 +260,9 @@ async function performFullSync(reportProgress = () => {}) {
 
     const SUMMARY_COLS = ['Town_Name','Total_Received','Total_Expenses','Cash_Balance','Pending_Collection','Investor_Balance','Updated_At'];
     await overwriteExcelFile(path.join(globalsPath, 'Town_Financial_Summary.xlsx'), 'Data', SUMMARY_COLS, scoped(townFinancialSummary).map((r) => mapGenericFromCloud(SUMMARY_COLS, r)));
+
+    const MAP_SHAPE_COLS = ['Shape_ID','Town_Name','Property_Type','Property_Number','Shape_Type','Label','Status','Geometry_JSON','Style_JSON','Sort_Order','Updated_At'];
+    await overwriteExcelFile(path.join(globalsPath, 'Town_Map_Shapes.xlsx'), 'Data', MAP_SHAPE_COLS, scoped(townMapShapes).map((r) => mapGenericFromCloud(MAP_SHAPE_COLS, r)));
 
     reportProgress(50, 'Writing towns...');
     const townsPath = getTownsPath();

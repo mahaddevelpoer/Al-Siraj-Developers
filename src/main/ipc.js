@@ -15,6 +15,7 @@ const fs = require('fs');
 const onlineDb = require('./db/online');
 const storage = require('./db/storage');
 const businessExtras = require('./db/businessExtras');
+const townMapDb = require('./db/townMap');
 const pendingSync = require('./db/pendingSync');
 const { buildTownLedgerReport, exportTownLedgerReport } = require('./db/townReport');
 
@@ -418,6 +419,7 @@ async function purgeLocalTownBusinessData(townName) {
     'Receipt_Archive.xlsx',
     'Money_Ledger.xlsx',
     'Town_Financial_Summary.xlsx',
+    'Town_Map_Shapes.xlsx',
   ];
   for (const file of files) {
     const fp = path.join(getGlobalsPath(), file);
@@ -457,6 +459,7 @@ async function purgeCloudTownBusinessData(townName) {
     'receipt_archive',
     'money_ledger',
     'town_financial_summary',
+    'town_map_shapes',
   ];
   for (const table of tables) {
     try { await onlineDb.deleteWhere(table, { Town_Name: town }); } catch (_) {}
@@ -592,6 +595,54 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       );
       if (!isAccountantScoped()) return result;
       return { plots: filterRowsByScope(result?.plots || []), shops: filterRowsByScope(result?.shops || []) };
+    } catch(e) { return { error: e.message }; }
+  });
+
+  // Town SVG map shapes
+  ipcMain.handle('get-town-map-shapes', async (_, townName) => {
+    try {
+      const town = scopedTown(townName, isAccountantScoped());
+      return await dataLayer.read(
+        () => townMapDb.getTownMapShapes(town),
+        async () => {
+          const rows = await onlineDb.findMany('town_map_shapes', { Town_Name: town });
+          return (rows || []).map(townMapDb.fromRow);
+        }
+      );
+    } catch(e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('save-town-map-shapes', async (_, { townName, shapes }) => {
+    try {
+      const town = scopedTown(townName, true);
+      assertTownAccess(town);
+      if (!Array.isArray(shapes)) throw new Error('Shapes array is required');
+      return await syncOnline(
+        () => townMapDb.saveTownMapShapes(town, shapes),
+        async () => {
+          const rows = shapes.map((shape, index) => townMapDb.toRow(shape, town, index));
+          const existing = await onlineDb.findMany('town_map_shapes', { Town_Name: town }).catch(() => []);
+          const incoming = new Set(rows.map((row) => String(row.Shape_ID)));
+          for (const row of rows) await onlineDb.insert('town_map_shapes', row);
+          for (const row of existing || []) {
+            const id = row.Shape_ID || row.shape_id;
+            if (id && !incoming.has(String(id))) await onlineDb.deleteWhere('town_map_shapes', { Shape_ID: id });
+          }
+          return { success: true, count: rows.length };
+        },
+        { tableName: 'town_map_shapes', payload: { townName: town, count: shapes.length } }
+      );
+    } catch(e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('delete-town-map-shape', async (_, shapeId) => {
+    try {
+      if (!isNonEmpty(shapeId)) throw new Error('Shape id is required');
+      return await syncOnline(
+        () => townMapDb.deleteTownMapShape(shapeId),
+        () => onlineDb.deleteWhere('town_map_shapes', { Shape_ID: shapeId }),
+        { tableName: 'town_map_shapes', operation: 'delete', payload: { Shape_ID: shapeId } }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -1892,10 +1943,37 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     '  UNIQUE(user_id)',
     ');',
     'ALTER TABLE public.notification_preferences ENABLE ROW LEVEL SECURITY;',
+    // Town map designer / overview
+    'CREATE TABLE IF NOT EXISTS public.town_map_shapes (',
+    '  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),',
+    '  shape_id TEXT NOT NULL UNIQUE,',
+    '  town_name TEXT NOT NULL,',
+    '  property_type TEXT,',
+    '  property_number TEXT,',
+    '  shape_type TEXT NOT NULL DEFAULT \'plot\',',
+    '  label TEXT,',
+    '  status TEXT DEFAULT \'available\',',
+    '  geometry_json JSONB DEFAULT \'{}\'::jsonb,',
+    '  style_json JSONB DEFAULT \'{}\'::jsonb,',
+    '  sort_order INTEGER DEFAULT 0,',
+    '  client_write_id TEXT,',
+    '  sync_status TEXT DEFAULT \'synced\',',
+    '  created_at TIMESTAMPTZ DEFAULT NOW(),',
+    '  updated_at TIMESTAMPTZ DEFAULT NOW(),',
+    '  deleted_at TIMESTAMPTZ',
+    ');',
+    'CREATE INDEX IF NOT EXISTS idx_town_map_shapes_town ON public.town_map_shapes(town_name);',
+    'CREATE INDEX IF NOT EXISTS idx_town_map_shapes_property ON public.town_map_shapes(town_name, property_type, property_number);',
+    'ALTER TABLE public.town_map_shapes ENABLE ROW LEVEL SECURITY;',
+    'DROP POLICY IF EXISTS "town_map_shapes_role_read" ON public.town_map_shapes;',
+    'DROP POLICY IF EXISTS "town_map_shapes_role_write" ON public.town_map_shapes;',
+    'CREATE POLICY "town_map_shapes_role_read" ON public.town_map_shapes FOR SELECT USING (true);',
+    'CREATE POLICY "town_map_shapes_role_write" ON public.town_map_shapes FOR ALL USING (true) WITH CHECK (true);',
     // Realtime publication: ensure tables broadcast changes (safe idempotent add)
     'DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = \'supabase_realtime\' AND tablename = \'appeals\' AND schemaname = \'public\') THEN ALTER PUBLICATION supabase_realtime ADD TABLE public.appeals; END IF; END $$;',
     'DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = \'supabase_realtime\' AND tablename = \'commissions\' AND schemaname = \'public\') THEN ALTER PUBLICATION supabase_realtime ADD TABLE public.commissions; END IF; END $$;',
     'DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = \'supabase_realtime\' AND tablename = \'installments\' AND schemaname = \'public\') THEN ALTER PUBLICATION supabase_realtime ADD TABLE public.installments; END IF; END $$;',
+    'DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = \'supabase_realtime\' AND tablename = \'town_map_shapes\' AND schemaname = \'public\') THEN ALTER PUBLICATION supabase_realtime ADD TABLE public.town_map_shapes; END IF; END $$;',
     // Role-based RLS policies
     'DROP POLICY IF EXISTS "role_based_properties" ON public.properties;',
     'CREATE POLICY "role_based_properties" ON public.properties FOR SELECT USING (',

@@ -10,6 +10,8 @@ import CommissionTracker from './CommissionTracker';
 import TownAgents from './TownAgents';
 import InvestorDashboard from './InvestorDashboard';
 import ConstructionDashboard from './ConstructionDashboard';
+import TownMap from './TownMap';
+import AccountingReports from './AccountingReports';
 import DailyLedger from '../systems/DailySystem/DailyLedger';
 import TownExpenses from './TownExpenses';
 import { EmployeeSalary } from '../systems/ExpenseSystem';
@@ -27,6 +29,8 @@ const firstDayOfMonth = () => {
 
 const menuItems = [
   { key: 'overview',      Icon: ChartIcon,      label: 'Overview',            color: '#3b82f6' },
+  { key: 'townMap',       Icon: PinIcon,        label: 'Town Map',            color: '#2563eb' },
+  { key: 'accounting',    Icon: BookIcon,       label: 'Accounts Reports',    color: '#0f766e' },
   { key: 'expenses',      Icon: DollarIcon,     label: 'Employees and Salaries', color: '#f43f5e' },
   { key: 'dailyEntries',  Icon: BookIcon,       label: 'Daily Entries',       color: '#6366f1' },
   { key: 'townAgents',    Icon: UsersIcon,      label: 'Sales Agents',        color: '#06b6d4' },
@@ -431,6 +435,8 @@ export default function TownDashboard({
   const renderTabContent = () => {
     switch (activeTab) {
       case 'overview': return <TownOverview town={townData} refreshKey={overviewRefreshKey} />;
+      case 'townMap': return <TownMap townName={townData.Town_Name} showToast={showToast} />;
+      case 'accounting': return <AccountingReports townName={townData.Town_Name} showToast={showToast} />;
       case 'prices': return <TownPrices townName={townData.Town_Name} showToast={showToast} />;
       case 'addPlot': return <AddProperty type="Plot" townName={townData.Town_Name} showToast={showToast} />;
       case 'addShop': return <AddProperty type="Shop" townName={townData.Town_Name} showToast={showToast} />;
