@@ -311,7 +311,9 @@ async function sellProperty(data) {
   const gapLabel = useInstallment ? (data.Gap_Label || 'Monthly') : '';
 
   const remaining = totalAmount - advanceAmount;
-  const monthlyInstallment = (useInstallment && totalInstallments > 0) ? Math.ceil(remaining / totalInstallments) : 0;
+  const baseInstallment = (useInstallment && totalInstallments > 0) ? Math.floor(remaining / totalInstallments) : 0;
+  const installmentRemainder = (useInstallment && totalInstallments > 0) ? Math.round(remaining - (baseInstallment * totalInstallments)) : 0;
+  const monthlyInstallment = (useInstallment && totalInstallments > 0) ? baseInstallment + (installmentRemainder > 0 ? 1 : 0) : 0;
   const commissionRate = parseFloat(data.Commission_Rate) || 0;
   const commissionAmount = totalAmount * (commissionRate / 100);
   const expenseTotal = parseFloat(data.Expense_Total) || 0;
@@ -443,6 +445,7 @@ async function sellProperty(data) {
       const dueDate = new Date(startDate);
       dueDate.setDate(dueDate.getDate() + (gapDays * i));
       
+      const installmentAmount = baseInstallment + (i <= installmentRemainder ? 1 : 0);
       const installmentData = {
         Tracker_ID: generateId(),
         Sale_ID: saleId,
@@ -451,14 +454,14 @@ async function sellProperty(data) {
         Town_Name: townName,
         Customer_Name: data.Customer_Name,
         Phone_Number: data.Phone_Number,
-        Monthly_Amount: monthlyInstallment,
+        Monthly_Amount: installmentAmount,
         Due_Date: dueDate.toISOString().split('T')[0],
         Status: i === 1 ? 'Due' : 'Upcoming',
         Paid_Date: '',
         Month_Number: i,
         Total_Months: totalInstallments,
         Received_Amount: 0,
-        Remaining_Amount: monthlyInstallment,
+        Remaining_Amount: installmentAmount,
         Agent_Name: data.Agent_Name || '',
       };
       await appendToExcel(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data', installmentData);
@@ -736,8 +739,10 @@ async function resellProperty(data) {
     Math.max(0, Number.isFinite(rawAdvanceAmount) ? rawAdvanceAmount : resellAmount)
   );
   const remaining = Math.max(0, resellAmount - advanceAmount);
+  const resellBaseInstallment = installmentsEnabled && totalInstallments > 0 ? Math.floor(remaining / totalInstallments) : 0;
+  const resellInstallmentRemainder = installmentsEnabled && totalInstallments > 0 ? Math.round(remaining - (resellBaseInstallment * totalInstallments)) : 0;
   const monthlyInstallment = installmentsEnabled && totalInstallments > 0
-    ? (parseFloat(Monthly_Installment) || Math.ceil(remaining / totalInstallments))
+    ? (parseFloat(Monthly_Installment) || resellBaseInstallment + (resellInstallmentRemainder > 0 ? 1 : 0))
     : 0;
   const resellDate = new Date().toISOString().split('T')[0];
 
@@ -893,6 +898,7 @@ async function resellProperty(data) {
     for (let i = 1; i <= totalInstallments; i++) {
       const dueDate = new Date(startDate);
       dueDate.setDate(dueDate.getDate() + (gapDays * i));
+      const installmentAmount = parseFloat(Monthly_Installment) || (resellBaseInstallment + (i <= resellInstallmentRemainder ? 1 : 0));
       await appendToExcel(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data', {
         Tracker_ID: generateId(),
         Sale_ID: saleId,
@@ -901,14 +907,14 @@ async function resellProperty(data) {
         Town_Name: townName,
         Customer_Name: Customer_Name || property.Customer_Name || '',
         Phone_Number: Phone_Number || property.Phone_Number || '',
-        Monthly_Amount: monthlyInstallment,
+        Monthly_Amount: installmentAmount,
         Due_Date: dueDate.toISOString().split('T')[0],
         Status: i === 1 ? 'Due' : 'Upcoming',
         Paid_Date: '',
         Month_Number: i,
         Total_Months: totalInstallments,
         Received_Amount: 0,
-        Remaining_Amount: monthlyInstallment,
+        Remaining_Amount: installmentAmount,
         Agent_Name: property.Agent_Name || '',
       });
     }

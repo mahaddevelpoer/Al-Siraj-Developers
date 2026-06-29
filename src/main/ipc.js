@@ -3,7 +3,7 @@ const { BrowserWindow, shell } = require('electron');
 const { addTown, getTowns, getTownDetails, getTownPrices, setTownPrices, addCeoExpense, deleteCeoExpense, editCeoExpense, updateTown, deleteTown } = require('./db/towns');
 const { addPlot, addShop, getPropertyFile, getAllPropertiesByTown, getAllProperties, sellProperty, updateFileStatus, resellProperty, getSoldProperties, cancelDeal } = require('./db/properties');
 const { getDailyEntries, addDailyEntry, deleteDailyEntry } = require('./db/dailyEntries');
-const { getInstallments, getDueInstallments, markInstallmentPaid, extendInstallmentDate, addEmployee, getEmployees, deleteEmployee, getNotifications, dismissNotification, getDashboardStats, getAllSales, getAllExpenses, getCeoExpenses, getCeoSalary, addCeoSalary, deleteCeoSalary, getResellHistory, getProfitLossReport, getTownPerformance, getInstallmentProperties, getPropertyInstallments, recordCollectionPaymentLocal } = require('./db/globals');
+const { getInstallments, getDueInstallments, markInstallmentPaid, extendInstallmentDate, addEmployee, getEmployees, deleteEmployee, getNotifications, dismissNotification, getDashboardStats, getAllSales, getAllExpenses, getCeoExpenses, getCeoSalary, addCeoSalary, deleteCeoSalary, getResellHistory, getProfitLossReport, getTownPerformance, getInstallmentProperties, getPropertyInstallments, recordCollectionPaymentLocal, reconcileInstallmentSaleTotals } = require('./db/globals');
 const EmployeeDB = require('./db/employees');
 const { performBackup } = require('./db/backup');
 const { performFullSyncUp } = require('./db/syncUp');
@@ -2628,6 +2628,8 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
   ipcMain.handle('get-pending-collections', async (_, agentName) => {
     try {
       const filter = typeof agentName === 'object' && agentName !== null ? agentName : { agentName };
+      const scopeTown = filter.townName || filter.Town_Name || '';
+      await reconcileInstallmentSaleTotals(scopeTown).catch(() => {});
       const wanted = [filter.agentName, filter.agentEmail]
         .map(v => String(v || '').trim().toLowerCase())
         .filter(Boolean);

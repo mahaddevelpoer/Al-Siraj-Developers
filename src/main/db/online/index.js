@@ -486,9 +486,18 @@ async function markInstallmentPaid(data) {
   });
 
   if (sale) {
-    const currentReceived = parseFloat(sale.Received_Amount) || 0;
     const totalPrice = parseFloat(sale.Total_Amount_PKR) || 0;
-    const newReceived = Math.min(currentReceived + paidAmount, totalPrice);
+    const saleInstallments = await findMany('installments', {
+      Type: inst.Type,
+      Plot_Shop_Number: String(inst.Plot_Shop_Number),
+      Town_Name: inst.Town_Name,
+    });
+    const paidSum = (saleInstallments || []).reduce((sum, row) => {
+      const isPaid = String(row.Tracker_ID || row.tracker_id) === String(Tracker_ID) || String(row.Status || row.status || '').toLowerCase() === 'paid';
+      return isPaid ? sum + (parseFloat(row.Monthly_Amount || row.monthly_amount) || 0) : sum;
+    }, 0);
+    const advance = parseFloat(sale.Advance_Amount_PKR || sale.advance_amount_pkr) || 0;
+    const newReceived = Math.min(advance + paidSum, totalPrice);
     const newRemaining = Math.max(0, totalPrice - newReceived);
 
     const updates = {
@@ -629,7 +638,9 @@ async function sellProperty(data) {
   const gapDays = useInstallment ? (parseInt(data.Gap_Days) || 30) : 0;
   const gapLabel = useInstallment ? (data.Gap_Label || 'Monthly') : '';
   const remaining = totalAmount - advanceAmount;
-  const monthlyInstallment = (useInstallment && totalInstallments > 0) ? Math.ceil(remaining / totalInstallments) : 0;
+  const baseInstallment = (useInstallment && totalInstallments > 0) ? Math.floor(remaining / totalInstallments) : 0;
+  const installmentRemainder = (useInstallment && totalInstallments > 0) ? Math.round(remaining - (baseInstallment * totalInstallments)) : 0;
+  const monthlyInstallment = (useInstallment && totalInstallments > 0) ? baseInstallment + (installmentRemainder > 0 ? 1 : 0) : 0;
   const commissionRate = parseFloat(data.Commission_Rate) || 0;
   const commissionAmount = totalAmount * (commissionRate / 100);
   const expenseTotal = parseFloat(data.Expense_Total) || 0;
@@ -674,6 +685,7 @@ async function sellProperty(data) {
     for (let i = 1; i <= totalInstallments; i++) {
       const dueDate = new Date(startDate);
       dueDate.setDate(dueDate.getDate() + (gapDays * i));
+      const installmentAmount = baseInstallment + (i <= installmentRemainder ? 1 : 0);
       installments.push({
         Tracker_ID: generateId(),
         Plot_Shop_Number: String(number),
@@ -681,14 +693,14 @@ async function sellProperty(data) {
         Town_Name: townName,
         Customer_Name: data.Customer_Name,
         Phone_Number: data.Phone_Number,
-        Monthly_Amount: monthlyInstallment,
+        Monthly_Amount: installmentAmount,
         Due_Date: dueDate.toISOString().split('T')[0],
         Status: i === 1 ? 'Due' : 'Upcoming',
         Paid_Date: null,
         Month_Number: i,
         Total_Months: totalInstallments,
         Received_Amount: 0,
-        Remaining_Amount: monthlyInstallment,
+        Remaining_Amount: installmentAmount,
         Agent_Name: data.Agent_Name || '',
       });
     }
@@ -783,7 +795,9 @@ async function resellProperty(data) {
   const remaining = totalAmount - advanceAmount;
   const totalInstallments = useInstallment ? (parseInt(data.Total_Installments) || 0) : 0;
   const gapDays = useInstallment ? (parseInt(data.Gap_Days) || 30) : 0;
-  const monthlyInstallment = useInstallment && totalInstallments > 0 ? (parseFloat(data.Monthly_Installment) || Math.ceil(remaining / totalInstallments)) : 0;
+  const baseInstallment = useInstallment && totalInstallments > 0 ? Math.floor(remaining / totalInstallments) : 0;
+  const installmentRemainder = useInstallment && totalInstallments > 0 ? Math.round(remaining - (baseInstallment * totalInstallments)) : 0;
+  const monthlyInstallment = useInstallment && totalInstallments > 0 ? (parseFloat(data.Monthly_Installment) || baseInstallment + (installmentRemainder > 0 ? 1 : 0)) : 0;
   const commissionRate = parseFloat(data.Commission_Rate ?? property.Commission_Rate) || 0;
   const commissionAmount = parseFloat(data.Commission_Amount ?? property.Commission_Amount) || 0;
   const refundAmount = parseFloat(data.Refund_Amount ?? data.Expense_Total) || 0;
@@ -847,6 +861,7 @@ async function resellProperty(data) {
     for (let i = 1; i <= totalInstallments; i++) {
       const dueDate = new Date(startDate);
       dueDate.setDate(dueDate.getDate() + (gapDays * i));
+      const installmentAmount = parseFloat(data.Monthly_Installment) || (baseInstallment + (i <= installmentRemainder ? 1 : 0));
       installments.push({
         Tracker_ID: generateId(),
         Sale_ID: saleId,
@@ -855,14 +870,14 @@ async function resellProperty(data) {
         Town_Name: townName,
         Customer_Name: data.Customer_Name,
         Phone_Number: data.Phone_Number,
-        Monthly_Amount: monthlyInstallment,
+        Monthly_Amount: installmentAmount,
         Due_Date: dueDate.toISOString().split('T')[0],
         Status: i === 1 ? 'Due' : 'Upcoming',
         Paid_Date: null,
         Month_Number: i,
         Total_Months: totalInstallments,
         Received_Amount: 0,
-        Remaining_Amount: monthlyInstallment,
+        Remaining_Amount: installmentAmount,
         Agent_Name: data.Agent_Name || '',
       });
     }

@@ -57,14 +57,65 @@ function computeSaleReceived(sale, allInstallments) {
     const paidSum = (allInstallments || [])
       .filter(inst => saleMatchesInstallment(sale, inst) && String(inst.Status || '').toLowerCase() === 'paid')
       .reduce((sum, inst) => sum + (parseFloat(inst.Monthly_Amount) || 0), 0);
-    const recordedReceived = parseFloat(sale.Received_Amount) || 0;
-    return Math.min(Math.max(recordedReceived, advance + paidSum), total);
+    return Math.min(advance + paidSum, total);
   }
 
   const received = parseFloat(sale.Received_Amount) || 0;
   const remaining = parseFloat(sale.Remaining_Amount) || 0;
   if (received > 0) return Math.min(received, total || received);
   return remaining > 0 ? advance : total;
+}
+
+function buildInstallmentReceiptNumber(item, paidDate) {
+  const datePart = String(paidDate || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
+  const type = String(item.Type || 'PROPERTY').replace(/[^a-zA-Z0-9]+/g, '').toUpperCase() || 'PROPERTY';
+  const number = String(item.Plot_Shop_Number || 'NA').replace(/[^a-zA-Z0-9]+/g, '').toUpperCase() || 'NA';
+  const month = String(parseInt(item.Month_Number, 10) || 0).padStart(2, '0');
+  return `INS-${type}-${number}-M${month}-${datePart}`;
+}
+
+async function reconcileInstallmentSaleTotals(townName = '') {
+  const salesPath = path.join(getGlobalsPath(), 'All_Sales.xlsx');
+  const installmentsPath = path.join(getGlobalsPath(), 'Installments_Tracker.xlsx');
+  const sales = await readExcelFile(salesPath, 'Data').catch(() => []);
+  const installments = await readExcelFile(installmentsPath, 'Data').catch(() => []);
+  const touched = [];
+
+  for (const sale of sales) {
+    if (townName && String(sale.Town_Name || '') !== String(townName)) continue;
+    if (!isPropertySale(sale)) continue;
+    if ((parseInt(sale.Total_Installments, 10) || 0) <= 0) continue;
+    const total = parseFloat(sale.Total_Amount_PKR) || 0;
+    const received = computeSaleReceived(sale, installments);
+    const remaining = Math.max(0, total - received);
+    const oldReceived = parseFloat(sale.Received_Amount) || 0;
+    const oldRemaining = parseFloat(sale.Remaining_Amount) || 0;
+    if (Math.abs(oldReceived - received) > 0.009 || Math.abs(oldRemaining - remaining) > 0.009) {
+      await updateExcelRow(salesPath, 'Data', sale._rowNumber, {
+        Received_Amount: received,
+        Remaining_Amount: remaining,
+        Installment_Status: remaining <= 0 ? 'Completed' : 'Active',
+      });
+      const { getPropertyFile, updatePropertyFile } = require('./properties');
+      const prop = await getPropertyFile(sale.Type, sale.Plot_Shop_Number, sale.Town_Name);
+      if (prop) {
+        await updatePropertyFile(sale.Type, sale.Plot_Shop_Number, sale.Town_Name, {
+          Received_Amount: received,
+          Remaining_Amount: remaining,
+          Installment_Status: remaining <= 0 ? 'Completed' : 'Active',
+        });
+      }
+      touched.push({ sale, received, remaining });
+    }
+  }
+
+  const towns = new Set(touched.map((row) => row.sale.Town_Name).filter(Boolean));
+  const { updateTownFinancials } = require('./properties');
+  for (const town of towns) {
+    await updateTownFinancials(town).catch(() => {});
+    await refreshTownFinancialSummary(town).catch(() => {});
+  }
+  return touched.length;
 }
 
 async function upsertCommissionForSaleLocal(sale) {
@@ -219,11 +270,12 @@ async function markInstallmentPaid(data) {
   const item = all.find(i => i.Tracker_ID === Tracker_ID);
   if (!item) throw new Error('Installment not found');
   if (String(item.Status || '').toLowerCase() === 'paid') {
+    await reconcileInstallmentSaleTotals(item.Town_Name);
     return { success: true, alreadyPaid: true, receiptNumber: item.Receipt_Number || '' };
   }
 
   const paidDate = data.Paid_Date || new Date().toISOString().split('T')[0];
-  const receiptNumber = data.Receipt_Number || item.Receipt_Number || `INS-${String(item.Tracker_ID || Date.now()).replace(/[^a-zA-Z0-9]/g, '').slice(-10)}-${paidDate.replace(/-/g, '')}`;
+  const receiptNumber = data.Receipt_Number || item.Receipt_Number || buildInstallmentReceiptNumber(item, paidDate);
 
   await updateExcelRow(filePath, 'Data', item._rowNumber, {
     Status: 'Paid',
@@ -241,10 +293,9 @@ async function markInstallmentPaid(data) {
   let newReceivedForSale = null;
   let newRemainingForSale = null;
   if (sale?._rowNumber) {
-    const paid = parseFloat(item.Monthly_Amount) || 0;
-    const currentReceived = parseFloat(sale.Received_Amount || sale.Advance_Amount_PKR || 0);
     const total = parseFloat(sale.Total_Amount_PKR || 0);
-    newReceivedForSale = Math.min(currentReceived + paid, total);
+    const markedInstallments = all.map((inst) => String(inst.Tracker_ID) === String(Tracker_ID) ? { ...inst, Status: 'Paid' } : inst);
+    newReceivedForSale = Math.min(computeSaleReceived(sale, markedInstallments), total);
     newRemainingForSale = Math.max(0, total - newReceivedForSale);
     await updateExcelRow(salesPath, 'Data', sale._rowNumber, {
       Received_Amount: newReceivedForSale,
@@ -291,6 +342,7 @@ async function markInstallmentPaid(data) {
   // Recalculate town financials
   const { updateTownFinancials } = require('./properties');
   if (item.Town_Name) await updateTownFinancials(item.Town_Name);
+  if (item.Town_Name) await refreshTownFinancialSummary(item.Town_Name).catch(() => {});
   if (sale && newRemainingForSale !== null && newRemainingForSale <= 0) {
     await upsertCommissionForSaleLocal({ ...sale, Received_Amount: newReceivedForSale, Remaining_Amount: newRemainingForSale });
   }
@@ -896,4 +948,4 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
   return { newReceived, newRemaining, payment: paymentRow };
 }
 
-module.exports = { getInstallments, getDueInstallments, upsertDueInstallmentNotifications, markInstallmentPaid, extendInstallmentDate, addEmployee, getEmployees, deleteEmployee, getNotifications, dismissNotification, getDashboardStats, getAllSales, getAllExpenses, getCeoExpenses, getCeoSalary, addCeoSalary, deleteCeoSalary, getResellHistory, getProfitLossReport, recordSalaryPayment, getSalaryRecords, getTownPerformance, getInstallmentProperties, getPropertyInstallments, recordCollectionPaymentLocal };
+module.exports = { getInstallments, getDueInstallments, upsertDueInstallmentNotifications, markInstallmentPaid, extendInstallmentDate, addEmployee, getEmployees, deleteEmployee, getNotifications, dismissNotification, getDashboardStats, getAllSales, getAllExpenses, getCeoExpenses, getCeoSalary, addCeoSalary, deleteCeoSalary, getResellHistory, getProfitLossReport, recordSalaryPayment, getSalaryRecords, getTownPerformance, getInstallmentProperties, getPropertyInstallments, recordCollectionPaymentLocal, reconcileInstallmentSaleTotals };

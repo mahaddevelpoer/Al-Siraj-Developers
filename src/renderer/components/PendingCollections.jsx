@@ -21,7 +21,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
   const loadData = async () => {
     setLoading(true);
     try {
-      const agent = roleView === 'agent' ? { agentName, agentEmail } : null;
+      const agent = roleView === 'agent' ? { agentName, agentEmail, townName } : { townName };
       const res = await window.api.getPendingCollections(agent);
       const rows = Array.isArray(res?.data) ? res.data : [];
       const filtered = townName ? rows.filter((row) => String(row.Town_Name || '') === String(townName)) : rows;
