@@ -2217,6 +2217,18 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
           .order('created_at', ascending: false),
       supabase.from('towns').select('*'),
     ]);
+    var mediaRows = <Map<String, dynamic>>[];
+    try {
+      final media = await supabase
+          .from('media_library')
+          .select('*')
+          .eq('type', 'daily_ledger_receipt')
+          .eq('report_date', day)
+          .order('created_at', ascending: false);
+      mediaRows = List<Map<String, dynamic>>.from(media);
+    } catch (_) {
+      mediaRows = <Map<String, dynamic>>[];
+    }
     final data = results[0];
     final activeTownNames = List<Map<String, dynamic>>.from(
       results[1],
@@ -2231,13 +2243,15 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
           status != 'rejected' &&
           (activeTownNames.isEmpty || activeTownNames.contains(town));
     }).toList();
-    final townNames =
-        rows
-            .map((row) => '${rowVal(row, 'Town_Name')}'.trim())
-            .where((name) => name.isNotEmpty && name != 'null')
-            .toSet()
-            .toList()
-          ..sort();
+    final townSet = rows
+        .map((row) => '${rowVal(row, 'Town_Name')}'.trim())
+        .where((name) => name.isNotEmpty && name != 'null')
+        .toSet();
+    for (final media in mediaRows) {
+      final town = '${media['town_name'] ?? media['Town_Name'] ?? ''}'.trim();
+      if (town.isNotEmpty && town != 'null') townSet.add(town);
+    }
+    final townNames = townSet.toList()..sort();
     final receipts = townNames.map((town) {
       final townRows = rows
           .where((row) => '${rowVal(row, 'Town_Name')}'.trim() == town)

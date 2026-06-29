@@ -64,6 +64,7 @@ const UPSERT_CONFLICT = {
   commission_receipts: 'receipt_id',
   collection_payments: 'payment_id',
   receipt_archive: 'receipt_id',
+  media_library: 'media_id',
   money_ledger: 'source_type,source_id,direction',
   town_financial_summary: 'town_name',
   town_map_shapes: 'shape_id',
@@ -338,6 +339,39 @@ function debitCreditFor({ direction, sourceType, debitAccount, creditAccount }) 
     : { debit: accountForSource(sourceType, direction), credit: 'Cash / Bank' };
 }
 
+function stableLedgerReceiptNumber({ sourceType, sourceId, direction, date }) {
+  const raw = `${sourceType}-${sourceId}-${direction}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const day = String(date || new Date().toISOString().split('T')[0]).replace(/-/g, '');
+  return `LED-${day}-${raw.slice(0, 48) || uuid()}`;
+}
+
+function receiptArchivePayload(row) {
+  const receiptNumber = row.Receipt_Number || '';
+  if (!receiptNumber) return null;
+  return {
+    Receipt_ID: `REC-${String(receiptNumber).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 110)}`,
+    Receipt_Number: receiptNumber,
+    Receipt_Type: row.Source_Type || 'ledger',
+    Town_Name: row.Town_Name || '',
+    Entity_ID: row.Source_ID || '',
+    Entity_Name: row.Party_Name || '',
+    Amount: parseFloat(row.Amount) || 0,
+    Receipt_Date: row.Date || new Date().toISOString().split('T')[0],
+    Payload_JSON: {
+      receiptNumber,
+      receiptType: row.Source_Type || 'ledger',
+      townName: row.Town_Name || '',
+      partyName: row.Party_Name || '',
+      amount: parseFloat(row.Amount) || 0,
+      direction: row.Direction || '',
+      debitAccount: row.Debit_Account || '',
+      creditAccount: row.Credit_Account || '',
+      description: row.Description || '',
+      sourceId: row.Source_ID || '',
+    },
+  };
+}
+
 async function recordMoneyEvent(data) {
   const amount = parseFloat(data?.amount ?? data?.Amount) || 0;
   if (amount <= 0) return { skipped: true, reason: 'amount_zero' };
@@ -350,10 +384,11 @@ async function recordMoneyEvent(data) {
     debitAccount: data.debitAccount || data.Debit_Account,
     creditAccount: data.creditAccount || data.Credit_Account,
   });
-  return await insert('money_ledger', {
+  const date = data.date || data.Date || new Date().toISOString().split('T')[0];
+  const row = {
     Ledger_ID: data.ledgerId || data.Ledger_ID || `${sourceType}-${sourceId}-${direction}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120),
     Town_Name: data.townName || data.Town_Name || '',
-    Date: data.date || data.Date || new Date().toISOString().split('T')[0],
+    Date: date,
     Source_Type: sourceType,
     Source_ID: sourceId,
     Direction: direction,
@@ -362,11 +397,17 @@ async function recordMoneyEvent(data) {
     Credit_Account: accounts.credit,
     Party_Name: data.partyName || data.Party_Name || '',
     Description: data.description || data.Description || '',
-    Receipt_Number: data.receiptNumber || data.Receipt_Number || '',
+    Receipt_Number: data.receiptNumber || data.Receipt_Number || stableLedgerReceiptNumber({ sourceType, sourceId, direction, date }),
     Status: data.status || data.Status || 'approved',
     Created_By: data.createdBy || data.Created_By || 'System',
     Created_At: data.createdAt || data.Created_At || new Date().toISOString(),
-  });
+  };
+  const saved = await insert('money_ledger', row);
+  const receipt = receiptArchivePayload(row);
+  if (receipt) {
+    await insert('receipt_archive', receipt).catch(() => {});
+  }
+  return saved;
 }
 
 async function addDailyEntry(data) {
@@ -375,7 +416,8 @@ async function addDailyEntry(data) {
   const category = String(data.Category || data.category || data.Income_Type || data.incomeType || '').toLowerCase();
   const moduleBacked = category.includes('investor') || category.includes('construction') || category.includes('commission');
   const amount = parseFloat(data.Amount ?? data.amount) || 0;
-  if (!moduleBacked && review !== 'pending' && review !== 'rejected' && amount > 0) {
+  const skipLedgerWrite = String(data.Skip_Ledger || data.skipLedger || '').toLowerCase() === 'yes';
+  if (!skipLedgerWrite && !moduleBacked && review !== 'pending' && review !== 'rejected' && amount > 0) {
     await recordMoneyEvent({
       sourceType: 'daily_entry',
       sourceId: data.Entry_ID || data.entryId || row.Entry_ID || row.entry_id,
@@ -383,7 +425,7 @@ async function addDailyEntry(data) {
       amount,
       townName: data.Town_Name || data.townName,
       date: data.Date || data.date,
-      partyName: data.Created_By || data.createdBy || '',
+      partyName: data.Account_Name || data.accountName || data.Created_By || data.createdBy || '',
       description: data.Description || data.description || data.Category || data.category || 'Daily entry',
       createdBy: data.Created_By || data.createdBy || 'System',
       status: 'approved',
@@ -493,7 +535,8 @@ async function createCommissionRecord(sale) {
   const commissionPercent = parseFloat(sale.Commission_Rate) || 0;
   const commissionAmount = parseFloat(sale.Commission_Amount) || (totalPrice * (commissionPercent / 100));
 
-  if (commissionAmount <= 0 || !agentName) return;
+  const noAgent = !String(agentName || '').trim() || /^(no agent|none|n\/a|na|null|undefined|-|select agent)$/i.test(String(agentName || '').trim());
+  if (commissionAmount <= 0 || noAgent) return;
 
   const saleId = sale.id || sale.Sale_ID || `${sale.Town_Name || ''}-${sale.Type || ''}-${sale.Plot_Shop_Number || ''}`;
   const stableId = `COM-${String(saleId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)}`;

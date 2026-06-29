@@ -10,6 +10,7 @@ function template() {
       'Accountant login can work offline from this file.',
       'Add accountant objects inside the accountants array.',
       'Required fields: email, password, full_name, town_name, is_active.',
+      'Optional field: admin_password. If set, accountant must enter it as a local administration lock password.',
     ],
     accountants: [],
   };
@@ -70,6 +71,7 @@ function upsertAccountant(dbPath, account) {
     role: 'accountant',
     town_name: account.town_name || account.townName,
     town_id: account.town_id || account.town_name || account.townName,
+    admin_password: account.admin_password || account.adminPassword || '',
     is_active: account.is_active !== false,
     updated_at: now,
   };
@@ -86,7 +88,7 @@ function upsertAccountant(dbPath, account) {
   return { ...next, password: undefined };
 }
 
-function login(dbPath, email, password) {
+function login(dbPath, email, password, adminPassword = '') {
   const cleanEmail = normalizeEmail(email);
   const store = readStore(dbPath);
   const account = store.accountants.find((row) => normalizeEmail(row.email) === cleanEmail);
@@ -95,6 +97,16 @@ function login(dbPath, email, password) {
   }
   if (account.is_active === false) throw new Error('This accountant is inactive');
   if (!account.town_name && !account.town_id) throw new Error('This accountant has no assigned town');
+  const storedAdminPassword = String(account.admin_password || '');
+  const cleanAdminPassword = String(adminPassword || '');
+  if (storedAdminPassword && storedAdminPassword !== cleanAdminPassword) {
+    throw new Error('Invalid administration password for this accountant system');
+  }
+  if (!storedAdminPassword && cleanAdminPassword) {
+    account.admin_password = cleanAdminPassword;
+    account.updated_at = new Date().toISOString();
+    writeStore(dbPath, store);
+  }
   return {
     id: account.id || `local-accountant-${cleanEmail}`,
     email: cleanEmail,
@@ -104,6 +116,7 @@ function login(dbPath, email, password) {
     town_id: account.town_id || account.town_name,
     is_active: true,
     local_offline: true,
+    admin_password_set: Boolean(account.admin_password),
   };
 }
 

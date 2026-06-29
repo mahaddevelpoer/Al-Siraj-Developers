@@ -39,6 +39,13 @@ export function AuthProvider({ children }) {
       if (session?.user) {
         setUser(session.user);
         await fetchUserProfile(session.user.id);
+        return;
+      }
+      const savedLocal = JSON.parse(localStorage.getItem('al_siraj_local_accountant_session') || 'null');
+      if (savedLocal?.profile && savedLocal?.user && !savedLocal.profile.admin_password_set) {
+        setUser({ ...savedLocal.user, local_offline: true });
+        setUserProfile(savedLocal.profile);
+        setUserRole('accountant');
       }
     } catch (error) {
       console.error('Auth check error:', error);
@@ -101,15 +108,22 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const signIn = async (email, password, role = '') => {
+  const signIn = async (email, password, role = '', options = {}) => {
     try {
       if (role === 'accountant' && window.api?.localAccountantLogin) {
-        const local = await window.api.localAccountantLogin({ email, password });
+        const local = await window.api.localAccountantLogin({ email, password, adminPassword: options.adminPassword || '' });
         if (local?.success && local.profile) {
           const fakeUser = { ...(local.user || { id: local.profile.id, email: local.profile.email }), local_offline: true };
           setUser(fakeUser);
           setUserProfile(local.profile);
           setUserRole('accountant');
+          if (options.remember !== false) {
+            localStorage.setItem('al_siraj_local_accountant_session', JSON.stringify({
+              user: fakeUser,
+              profile: local.profile,
+              saved_at: new Date().toISOString(),
+            }));
+          }
           return { success: true, user: fakeUser, profile: local.profile, localOffline: true };
         }
       }
@@ -130,6 +144,7 @@ export function AuthProvider({ children }) {
     try {
       const { error } = await auth.signOut();
       if (error && user?.local_offline !== true) throw error;
+      localStorage.removeItem('al_siraj_local_accountant_session');
       setUser(null);
       setUserRole(null);
       setUserProfile(null);

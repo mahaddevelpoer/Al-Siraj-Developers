@@ -5,7 +5,7 @@ const { getGlobalsPath, readExcelFile, appendToExcel, deleteExcelRow, generateId
 const { updateTownFinancials } = require('./properties');
 const { recordMoneyEvent } = require('./moneyLedger');
 
-const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status'];
+const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Account_Name', 'Account_Type', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status', 'Skip_Ledger'];
 
 function getDailyEntriesPath() {
   return path.join(getGlobalsPath(), 'Daily_Entries.xlsx');
@@ -53,7 +53,7 @@ async function getDailyEntries({ date, townName }) {
 }
 
 async function addDailyEntry(data) {
-  const { date, time, type, description, amount, townName, incomeType, category, subcategory, propertyId, installmentId, propertyDetails, installmentDetails, entryId, reference, createdBy, reviewStatus } = data;
+  const { date, time, type, description, amount, townName, accountName, accountType, incomeType, category, subcategory, propertyId, installmentId, propertyDetails, installmentDetails, entryId, reference, createdBy, reviewStatus, skipLedger } = data;
   
   await ensureDailyEntriesFile();
   const filePath = getDailyEntriesPath();
@@ -75,6 +75,8 @@ async function addDailyEntry(data) {
     Description: description || '',
     Amount: parseFloat(amount) || 0,
     Town_Name: townName || '',
+    Account_Name: accountName || data.Account_Name || '',
+    Account_Type: accountType || data.Account_Type || '',
     Income_Type: incomeType || '',
     Category: category || '',
     Subcategory: subcategory || '',
@@ -85,6 +87,7 @@ async function addDailyEntry(data) {
     Reference: reference || '',
     Created_By: createdBy || '',
     Review_Status: reviewStatus || '',
+    Skip_Ledger: skipLedger || data.Skip_Ledger || '',
   };
   
   await appendToExcel(filePath, 'Data', newEntry);
@@ -93,7 +96,8 @@ async function addDailyEntry(data) {
   const moduleBacked = normalizedCategory.includes('investor') ||
     normalizedCategory.includes('construction') ||
     normalizedCategory.includes('commission');
-  if (!moduleBacked && review !== 'pending' && review !== 'rejected' && newEntry.Amount > 0) {
+  const skipLedgerWrite = String(newEntry.Skip_Ledger || '').toLowerCase() === 'yes';
+  if (!skipLedgerWrite && !moduleBacked && review !== 'pending' && review !== 'rejected' && newEntry.Amount > 0) {
     await recordMoneyEvent({
       sourceType: 'daily_entry',
       sourceId: newEntry.Entry_ID,
@@ -101,7 +105,7 @@ async function addDailyEntry(data) {
       amount: newEntry.Amount,
       townName: newEntry.Town_Name,
       date: newEntry.Date,
-      partyName: newEntry.Created_By || '',
+      partyName: newEntry.Account_Name || newEntry.Created_By || '',
       description: newEntry.Description || newEntry.Category || 'Daily entry',
       receiptNumber: '',
       createdBy: newEntry.Created_By || 'System',
@@ -110,7 +114,7 @@ async function addDailyEntry(data) {
   }
 
   // Also update town financials: record income in All_Sales, expense in All_Expenses
-  if (townName && amount && parseFloat(amount) > 0) {
+  if (!skipLedgerWrite && townName && amount && parseFloat(amount) > 0) {
     try {
       const globalsPath = getGlobalsPath();
       if (type === 'Expense') {
@@ -138,7 +142,7 @@ async function addDailyEntry(data) {
           Plot_Shop_Number: '',
           Type: 'Daily Income',
           Town_Name: townName,
-          Customer_Name: description || 'Daily Income',
+          Customer_Name: newEntry.Account_Name || description || 'Daily Income',
           CNIC: '',
           Phone_Number: '',
           Sell_Date: date || new Date().toISOString().split('T')[0],

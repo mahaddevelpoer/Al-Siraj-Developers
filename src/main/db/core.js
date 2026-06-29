@@ -207,6 +207,7 @@ async function initializeDatabase(dbPath) {
   { name: 'Resell_History.xlsx', columns: ['Resell_ID','Plot_Shop_Number','Type','Town_Name','Original_Customer','Original_Sell_Date','Original_Amount','Resell_Amount','Refund_Amount','Resell_Date','Receipt_Number','Agent_Name','Profit_Loss'] },
   { name: 'Money_Ledger.xlsx', columns: ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Debit_Account','Credit_Account','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'] },
   { name: 'Town_Financial_Summary.xlsx', columns: ['Town_Name','Total_Received','Total_Expenses','Cash_Balance','Pending_Collection','Investor_Balance','Updated_At'] },
+  { name: 'Media_Library.xlsx', columns: ['Media_ID','Town_Name','Type','Title','File_Path','Pdf_Path','Excel_Path','Html_Path','Account_Name','Property_Number','Receipt_Number','Report_Date','From_Date','To_Date','Created_At'] },
   { name: 'Pending_Sync.xlsx', columns: ['Sync_ID','Operation','Table_Name','Client_Write_ID','Payload_JSON','Status','Retry_Count','Last_Error','Created_At','Updated_At'] },
 
     { name: 'Notifications_Log.xlsx', columns: ['Notification_ID','Type','Message','Plot_Shop_Number','Town_Name','Customer_Name','Due_Date','Created_Date','Status','Dismissed'] },

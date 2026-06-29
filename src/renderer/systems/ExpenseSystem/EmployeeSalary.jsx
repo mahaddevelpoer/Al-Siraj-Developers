@@ -444,6 +444,14 @@ function EmployeeCard({ emp, isSelected, onSelect, onSalaryIncrease, onGiveSalar
           <div style={{ fontSize: 18, fontWeight: 800, color: isSelected ? '#4ade80' : '#059669', fontFamily: 'monospace' }}>
             PKR {(emp.baseSalary || 0).toLocaleString()}
           </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 8, fontSize: 11, fontWeight: 800, color: isSelected ? 'rgba(255,255,255,0.78)' : 'var(--text-muted)' }}>
+            <span>Received</span>
+            <b style={{ color: isSelected ? '#bfdbfe' : '#2563eb' }}>PKR {(emp.salaryReceived || 0).toLocaleString()}</b>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 4, fontSize: 11, fontWeight: 800, color: isSelected ? 'rgba(255,255,255,0.78)' : 'var(--text-muted)' }}>
+            <span>Remaining</span>
+            <b style={{ color: (emp.salaryRemaining || 0) > 0 ? '#b45309' : '#0f766e' }}>PKR {(emp.salaryRemaining || 0).toLocaleString()}</b>
+          </div>
         </div>
 
         {/* Contacts */}
@@ -500,6 +508,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
     const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     return `${months[d.getMonth()]} ${d.getFullYear()}`;
   });
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [baseSalary, setBaseSalary] = useState(String(employee.baseSalary || ''));
   const [paymentAmount, setPaymentAmount] = useState('');
   const [monthPaid, setMonthPaid] = useState(0);
@@ -600,6 +609,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
         salaryAppliedAmount,
         cashDisbursedAmount: actualCashDisbursed,
         salaryAmount: numericBaseSalary,
+        Payment_Date: paymentDate,
         month,
         townName,
         type: 'Employee',
@@ -614,7 +624,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
         setReceiptData({
           type: 'salary',
           receiptNumber: res.Receipt_Number,
-          date: res.Date,
+          date: res.Payment_Date || res.Date || paymentDate,
           employeeName: employee.name,
           designation: employee.designation,
           employeePhone: employee.phone,
@@ -678,13 +688,23 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
 
         <form onSubmit={handleSubmit} style={{ padding: 24 }}>
           {/* Month + Base Salary */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
             <div>
               <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 4, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Month *</label>
               <input
                 value={month}
                 onChange={e => setMonth(e.target.value)}
                 placeholder="e.g. June 2026"
+                required
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 8, boxSizing: 'border-box' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 4, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Payment Date *</label>
+              <input
+                type="date"
+                value={paymentDate}
+                onChange={e => setPaymentDate(e.target.value)}
                 required
                 style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 8, boxSizing: 'border-box' }}
               />
@@ -1212,6 +1232,9 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
   };
 
   const salaryLedgers = employees.map((emp) => {
+    const now = new Date();
+    const currentMonthName = now.toLocaleString('en-US', { month: 'long' });
+    const currentMonthKey = `${currentMonthName} ${now.getFullYear()}`;
     const empRows = salaryRecords.filter((row) =>
       String(row.Name || row.employeeName || '').trim().toLowerCase() === String(emp.name || '').trim().toLowerCase()
     );
@@ -1222,12 +1245,21 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
     const disbursed = empRows.reduce((sum, row) => sum + (parseFloat(row.Cash_Disbursed_Amount) || parseFloat(row.Amount) || 0), 0);
     const advances = empRows.reduce((sum, row) => sum + (parseFloat(row.New_Advance_Given) || 0), 0);
     const latest = [...empRows].sort((a, b) => new Date(b.Date || b.date || 0) - new Date(a.Date || a.date || 0))[0];
-    const monthlySalary = parseFloat(latest?.Salary_Amount || emp.baseSalary) || 0;
-    const currentRemaining = Math.max(0, parseFloat(latest?.Salary_Remaining_After ?? monthlySalary) || 0);
+    const monthlySalary = parseFloat(emp.baseSalary || latest?.Salary_Amount) || 0;
+    const currentMonthRows = empRows.filter((row) => String(row.Month || row.month || '') === currentMonthKey);
+    const currentMonthPaid = currentMonthRows.reduce((sum, row) => {
+      const salaryPart = parseFloat(row.Salary_Paid_Amount);
+      return sum + (Number.isFinite(salaryPart) ? salaryPart : Math.max(0, (parseFloat(row.Amount) || 0) - (parseFloat(row.New_Advance_Given) || 0)));
+    }, 0);
+    const monthLatest = [...currentMonthRows].sort((a, b) => new Date(b.Date || b.date || 0) - new Date(a.Date || a.date || 0))[0];
+    const currentRemaining = monthLatest
+      ? Math.max(0, parseFloat(monthLatest.Salary_Remaining_After ?? (monthlySalary - currentMonthPaid)) || 0)
+      : Math.max(0, monthlySalary);
     return {
       employee: emp,
       rows: empRows,
       paid,
+      currentMonthPaid,
       disbursed,
       advances,
       monthlySalary,
@@ -1423,17 +1455,23 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
               gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
               gap: 20,
             }}>
-              {employees.map(emp => (
+              {employees.map(emp => {
+                const ledger = salaryLedgers.find((row) => row.employee.id === emp.id || row.employee.name === emp.name);
+                return (
                 <EmployeeCard
                   key={emp.id}
-                  emp={emp}
+                  emp={{
+                    ...emp,
+                    salaryReceived: ledger?.currentMonthPaid || 0,
+                    salaryRemaining: ledger?.currentRemaining ?? Math.max(0, (parseFloat(emp.baseSalary) || 0) - (ledger?.paid || 0)),
+                  }}
                   isSelected={selectedEmployee?.id === emp.id}
                   onSelect={(e) => setSelectedEmployee(e)}
                   onSalaryIncrease={handleSalaryIncreaseClick}
                   onGiveSalary={handlePayClick}
                   onDelete={handleDeleteClick}
                 />
-              ))}
+              );})}
             </div>
           )}
         </>

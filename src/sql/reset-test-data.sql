@@ -20,6 +20,7 @@ DECLARE
     'town_map_shapes',
     'money_ledger',
     'receipt_archive',
+    'media_library',
     'file_manifest',
     'commission_receipts',
     'commissions',

@@ -5,6 +5,7 @@ const {
   getGlobalsPath,
   readExcelFile,
   appendToExcel,
+  updateExcelRow,
   ensureSheetColumns,
   generateId,
   withFileWriteLock,
@@ -123,6 +124,42 @@ function sourceKey(row) {
   ].join('|');
 }
 
+function stableReceiptNumber({ sourceType, sourceId, direction, date }) {
+  const raw = `${sourceType}-${sourceId}-${direction}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `LED-${String(date || today()).replace(/-/g, '')}-${raw.slice(0, 48) || generateId()}`;
+}
+
+async function archiveLedgerReceipt(row, receiptType) {
+  if (!row?.Receipt_Number) return null;
+  try {
+    const { saveReceiptArchive } = require('./businessExtras');
+    return await saveReceiptArchive({
+      Receipt_ID: `REC-${String(row.Receipt_Number).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 110)}`,
+      Receipt_Number: row.Receipt_Number,
+      Receipt_Type: receiptType || row.Source_Type || 'ledger',
+      Town_Name: row.Town_Name,
+      Entity_ID: row.Source_ID,
+      Entity_Name: row.Party_Name,
+      Amount: row.Amount,
+      Receipt_Date: row.Date,
+      Payload_JSON: {
+        receiptNumber: row.Receipt_Number,
+        receiptType: receiptType || row.Source_Type || 'ledger',
+        townName: row.Town_Name,
+        partyName: row.Party_Name,
+        amount: row.Amount,
+        direction: row.Direction,
+        debitAccount: row.Debit_Account,
+        creditAccount: row.Credit_Account,
+        description: row.Description,
+        sourceId: row.Source_ID,
+      },
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
 async function getMoneyLedger({ townName } = {}) {
   const fp = await ensureMoneyLedgerFile();
   const rows = await readExcelFile(fp, 'Data');
@@ -130,6 +167,30 @@ async function getMoneyLedger({ townName } = {}) {
     String(r.Status || 'approved').toLowerCase() === 'approved' &&
     (!townName || String(r.Town_Name || '') === String(townName))
   );
+}
+
+async function backfillLedgerReceipts({ townName } = {}) {
+  const fp = await ensureMoneyLedgerFile();
+  const rows = await readExcelFile(fp, 'Data');
+  let updated = 0;
+  let archived = 0;
+  for (const row of rows) {
+    if (townName && String(row.Town_Name || '') !== String(townName)) continue;
+    const receiptNumber = row.Receipt_Number || stableReceiptNumber({
+      sourceType: row.Source_Type || 'ledger',
+      sourceId: row.Source_ID || row.Ledger_ID || generateId(),
+      direction: normalizeDirection(row.Direction),
+      date: row.Date,
+    });
+    const next = { ...row, Receipt_Number: receiptNumber };
+    if (!row.Receipt_Number && row._rowNumber) {
+      await updateExcelRow(fp, 'Data', row._rowNumber, { Receipt_Number: receiptNumber });
+      updated += 1;
+    }
+    const archive = await archiveLedgerReceipt(next, row.Source_Type || 'ledger');
+    if (archive) archived += 1;
+  }
+  return { success: true, updated, archived };
 }
 
 async function recordMoneyEvent(data) {
@@ -148,7 +209,22 @@ async function recordMoneyEvent(data) {
   const existing = await readExcelFile(fp, 'Data');
   const key = `${String(sourceType).trim().toLowerCase()}|${String(sourceId).trim()}|${direction}`;
   const match = existing.find(r => sourceKey(r) === key);
-  if (match) return { ...match, duplicate: true };
+  if (match) {
+    if (!match.Receipt_Number && match._rowNumber) {
+      const receiptNumber = stableReceiptNumber({
+        sourceType,
+        sourceId,
+        direction,
+        date: match.Date || data.date || data.Date,
+      });
+      await updateExcelRow(fp, 'Data', match._rowNumber, { Receipt_Number: receiptNumber });
+      const updated = { ...match, Receipt_Number: receiptNumber };
+      await archiveLedgerReceipt(updated, sourceType);
+      return { ...updated, duplicate: true };
+    }
+    await archiveLedgerReceipt(match, sourceType);
+    return { ...match, duplicate: true };
+  }
 
   const row = {
     Ledger_ID: data.ledgerId || data.Ledger_ID || generateId(),
@@ -162,12 +238,13 @@ async function recordMoneyEvent(data) {
     Credit_Account: accounts.credit,
     Party_Name: data.partyName || data.Party_Name || '',
     Description: data.description || data.Description || '',
-    Receipt_Number: data.receiptNumber || data.Receipt_Number || '',
+    Receipt_Number: data.receiptNumber || data.Receipt_Number || stableReceiptNumber({ sourceType, sourceId, direction, date: data.date || data.Date }),
     Status: data.status || data.Status || 'approved',
     Created_By: data.createdBy || data.Created_By || 'System',
     Created_At: data.createdAt || data.Created_At || new Date().toISOString(),
   };
   await appendToExcel(fp, 'Data', row);
+  await archiveLedgerReceipt(row, sourceType);
   if (row.Town_Name) await refreshTownFinancialSummary(row.Town_Name);
   return row;
 }
@@ -497,5 +574,6 @@ module.exports = {
   getAllTownFinancialSummaries,
   refreshTownFinancialSummary,
   computeLedgerSummary,
+  backfillLedgerReceipts,
   backfillMoneyLedger,
 };

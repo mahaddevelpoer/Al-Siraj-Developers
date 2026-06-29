@@ -28,12 +28,13 @@ const EXPENSE_CATEGORIES = {
   },
 };
 
-export default function DailyExpenseEntry({ onSubmit, isAppealMode }) {
+export default function DailyExpenseEntry({ onSubmit, isAppealMode, accountOptions = [] }) {
   const [category, setCategory] = useState(null);
   const [subcategory, setSubcategory] = useState(null);
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [showCustom, setShowCustom] = useState(false);
+  const [accountKey, setAccountKey] = useState('');
 
   const handleCategorySelect = (cat) => {
     setCategory(cat);
@@ -54,6 +55,7 @@ export default function DailyExpenseEntry({ onSubmit, isAppealMode }) {
     const subcategoryLabel = subcategory !== 'none'
       ? EXPENSE_CATEGORIES[category]?.subcategories?.find(s => s.value === subcategory)?.label || subcategory
       : '';
+    const account = accountOptions.find((item) => item.key === accountKey);
 
     onSubmit({
       type: 'Expense',
@@ -63,12 +65,15 @@ export default function DailyExpenseEntry({ onSubmit, isAppealMode }) {
       subcategoryLabel,
       description: description || categoryLabel,
       amount: parseFloat(amount),
+      accountName: account?.name || '',
+      accountType: account?.type || '',
     });
 
     setCategory(null);
     setSubcategory(null);
     setDescription('');
     setAmount('');
+    setAccountKey('');
     setShowCustom(false);
   };
 
@@ -215,6 +220,16 @@ export default function DailyExpenseEntry({ onSubmit, isAppealMode }) {
               />
             </div>
           )}
+
+          <div className="form-group" style={{ marginBottom: 16 }}>
+            <label>Paid to</label>
+            <select value={accountKey} onChange={(e) => setAccountKey(e.target.value)}>
+              <option value="">General / no account</option>
+              {accountOptions.map((account) => (
+                <option key={account.key} value={account.key}>{account.label}</option>
+              ))}
+            </select>
+          </div>
 
           <div className="form-group" style={{ marginBottom: 20 }}>
             <label>Amount (PKR) *</label>

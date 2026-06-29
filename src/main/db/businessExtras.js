@@ -74,6 +74,10 @@ async function saveReceiptArchive(data) {
   const fp = await ensureFile('receiptArchive');
   const receiptNumber = data?.Receipt_Number || data?.receiptNumber;
   if (!receiptNumber) throw new Error('Receipt_Number is required');
+  const existing = (await readExcelFile(fp, 'Data')).find((row) =>
+    String(row.Receipt_Number || '').trim() === String(receiptNumber || '').trim()
+  );
+  if (existing) return existing;
   const payload = data?.Payload_JSON || data?.payload || data;
   const row = {
     Receipt_ID: data.Receipt_ID || generateId(),

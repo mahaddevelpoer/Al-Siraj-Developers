@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function PendingCollections({ roleView }) {
+export default function PendingCollections({ roleView, townName, onChanged, onNavigate }) {
   const { userProfile, user } = useAuth();
   const agentName = userProfile?.full_name || '';
   const agentEmail = user?.email || userProfile?.email || '';
@@ -14,6 +14,7 @@ export default function PendingCollections({ roleView }) {
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState('');
   const [history, setHistory] = useState(null);
+  const [installmentMap, setInstallmentMap] = useState({});
 
   useEffect(() => { loadData(); }, []);
 
@@ -22,7 +23,18 @@ export default function PendingCollections({ roleView }) {
     try {
       const agent = roleView === 'agent' ? { agentName, agentEmail } : null;
       const res = await window.api.getPendingCollections(agent);
-      if (res?.data) setCollections(res.data);
+      const rows = Array.isArray(res?.data) ? res.data : [];
+      const filtered = townName ? rows.filter((row) => String(row.Town_Name || '') === String(townName)) : rows;
+      setCollections(filtered);
+      const entries = await Promise.all(filtered
+        .filter((row) => (parseInt(row.Total_Installments, 10) || 0) > 0 || /installment/i.test(String(row.Collection_Category || '')))
+        .slice(0, 80)
+        .map(async (row) => {
+          const id = `${row.Type}|${row.Plot_Shop_Number}|${row.Town_Name}`;
+          const list = await window.api.getPropertyInstallments?.(id).catch(() => []);
+          return [String(row.id || id), Array.isArray(list) ? list : []];
+        }));
+      setInstallmentMap(Object.fromEntries(entries));
     } catch (e) {
       setMsg('Failed to load: ' + e.message);
     }
@@ -70,7 +82,8 @@ export default function PendingCollections({ roleView }) {
           .filter(item => (parseFloat(item.Remaining_Amount) || 0) > 0));
       }
       setPayModal(null);
-      loadData();
+      await loadData();
+      onChanged?.();
     } catch (e) {
       setMsg('Payment failed: ' + e.message);
     }
@@ -82,7 +95,8 @@ export default function PendingCollections({ roleView }) {
       const res = await window.api.deliverFileAfterPayment(saleId);
       if (res?.error) { setMsg(res.error); return; }
       setMsg('\u2705 File delivered successfully!');
-      loadData();
+      await loadData();
+      onChanged?.();
     } catch (e) {
       setMsg('Delivery failed: ' + e.message);
     }
@@ -181,12 +195,21 @@ export default function PendingCollections({ roleView }) {
                 {collections.map(c => {
                   const rem = parseFloat(c.Remaining_Amount) || 0;
                   const isFullyPaid = rem <= 0;
+                  const isInstallmentSale = (parseInt(c.Total_Installments, 10) || 0) > 0 || /installment/i.test(String(c.Collection_Category || ''));
+                  const installmentRows = installmentMap[String(c.id || `${c.Type}|${c.Plot_Shop_Number}|${c.Town_Name}`)] || [];
                   return (
                     <tr key={c.id}>
                       <td style={{ fontWeight: 600 }}>
                         {c.Type} #{c.Plot_Shop_Number}
                         <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{c.Town_Name}</div>
                         <div style={{ fontSize: 10, color: c.Collection_Category === 'Overdue' ? '#dc2626' : 'var(--text-muted)', fontWeight: 700 }}>{c.Collection_Category}</div>
+                        {isInstallmentSale && installmentRows.length > 0 && (
+                          <div style={{ marginTop: 6, fontSize: 10, color: '#334155', fontWeight: 700, lineHeight: 1.5 }}>
+                            {installmentRows.filter((i) => !i.isPaid).slice(0, 3).map((i) => (
+                              <div key={i.id}>#{i.installmentNumber} - {i.dueDate || '-'} - PKR {(parseFloat(i.dueAmount) || 0).toLocaleString()}</div>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td>
                         {c.Customer_Name}
@@ -204,6 +227,11 @@ export default function PendingCollections({ roleView }) {
                           PKR {rem.toLocaleString()}
                         </span>
                         {isFullyPaid && <span style={{ marginLeft: 4, fontSize: 10, color: '#059669' }}>{'\u2705'} Paid</span>}
+                        {isInstallmentSale && (
+                          <div style={{ marginTop: 6, fontSize: 10, color: '#2563eb', fontWeight: 800 }}>
+                            Installment plan: {installmentRows.filter((i) => !i.isPaid).length}/{installmentRows.length} unpaid
+                          </div>
+                        )}
                       </td>
                       <td>
                         <span style={{
@@ -219,11 +247,20 @@ export default function PendingCollections({ roleView }) {
                           <button
                             className="btn btn-success btn-sm"
                             onClick={() => openPayModal(c)}
-                            disabled={isFullyPaid}
+                            disabled={isFullyPaid || isInstallmentSale}
                             style={{ fontSize: 10, padding: '4px 10px' }}
                           >
-                            {isFullyPaid ? '\u2705' : '\u{1F4B0}'} Collect
+                            {isInstallmentSale ? 'Use Installments' : isFullyPaid ? '\u2705' : '\u{1F4B0}'} Collect
                           </button>
+                          {isInstallmentSale && (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => onNavigate?.('installments')}
+                              style={{ fontSize: 10, padding: '4px 10px' }}
+                            >
+                              Open Tracker
+                            </button>
+                          )}
                           {isFullyPaid && c.File_Status !== 'Delivered' && (
                             <button
                               className="btn btn-primary btn-sm"

@@ -11,7 +11,7 @@ BEGIN
     'advance_salaries','salary_records','salary_payments','town_agents',
     'investors','investor_transactions','construction_projects',
     'construction_payments','commissions','commission_receipts',
-    'collection_payments','resell_history','receipt_archive','money_ledger',
+    'collection_payments','resell_history','receipt_archive','media_library','money_ledger',
     'town_financial_summary'
   ]
   LOOP
@@ -47,7 +47,7 @@ BEGIN
     'advance_salaries','salary_records','salary_payments','town_agents',
     'investors','investor_transactions','construction_projects',
     'construction_payments','commissions','commission_receipts',
-    'collection_payments','resell_history','receipt_archive','money_ledger',
+    'collection_payments','resell_history','receipt_archive','media_library','money_ledger',
     'town_financial_summary'
   ]
   LOOP
@@ -68,7 +68,7 @@ BEGIN
     'ceo_salary','employees','employees_v2','advance_salaries','salary_records',
     'salary_payments','town_agents','investors','investor_transactions',
     'construction_projects','construction_payments','commissions',
-    'commission_receipts','collection_payments','resell_history','receipt_archive'
+    'commission_receipts','collection_payments','resell_history','receipt_archive','media_library'
   ]
   LOOP
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t)
@@ -114,6 +114,36 @@ BEGIN
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.receipt_archive;
   END IF;
+
+  CREATE TABLE IF NOT EXISTS public.media_library (
+    media_id TEXT PRIMARY KEY,
+    town_name TEXT,
+    type TEXT,
+    title TEXT,
+    file_path TEXT,
+    pdf_path TEXT,
+    excel_path TEXT,
+    html_path TEXT,
+    account_name TEXT,
+    property_number TEXT,
+    receipt_number TEXT,
+    report_date DATE,
+    from_date DATE,
+    to_date DATE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    client_write_id TEXT,
+    sync_status TEXT DEFAULT 'synced',
+    deleted_at TIMESTAMPTZ
+  );
+  ALTER TABLE public.media_library ENABLE ROW LEVEL SECURITY;
+  DROP POLICY IF EXISTS media_library_read_all ON public.media_library;
+  DROP POLICY IF EXISTS media_library_write_all ON public.media_library;
+  CREATE POLICY media_library_read_all ON public.media_library FOR SELECT USING (true);
+  CREATE POLICY media_library_write_all ON public.media_library FOR ALL USING (true) WITH CHECK (true);
+  CREATE INDEX IF NOT EXISTS idx_media_library_town_type
+    ON public.media_library (town_name, type, created_at DESC)
+    WHERE deleted_at IS NULL;
 
   IF to_regclass('public.appeals') IS NOT NULL THEN
     ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS town_name TEXT;

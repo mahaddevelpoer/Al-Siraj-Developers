@@ -55,50 +55,50 @@ async function performFullSyncUp(reportProgress, options = {}) {
     getInstallments(),
   ]);
 
-  reportProgress(10, 'Syncing towns to cloud...');
+  reportProgress(10, 'Uploading Towns.xlsx -> towns...');
   await upsertAll(_admin, 'towns', scopedRows(towns, scopedTown).map(mapTownToCloud));
 
-  reportProgress(18, 'Syncing properties to cloud...');
+  reportProgress(18, 'Uploading Plots/Shops Excel -> properties...');
   const propRows = [
     ...(allProps.plots || []).map(mapPlotToCloud),
     ...(allProps.shops || []).map(mapShopToCloud),
   ].filter((p) => p.Property_Number && p.Town_Name && (!scopedTown || String(p.Town_Name) === scopedTown));
   await upsertAll(_admin, 'properties', propRows);
 
-  reportProgress(26, 'Syncing sales to cloud...');
+  reportProgress(26, 'Uploading All_Sales.xlsx -> all_sales...');
   const scopedSales = scopedRows(sales, scopedTown);
   const cloudSales = pickTableRows('all_sales', scopedSales);
   const skippedSales = (scopedSales || []).length - cloudSales.length;
   if (skippedSales > 0) reportProgress(25, `Skipping ${skippedSales} local income rows not meant for sales table...`);
   await upsertAll(_admin, 'all_sales', cloudSales);
 
-  reportProgress(34, 'Syncing installments to cloud...');
+  reportProgress(34, 'Uploading Installments_Tracker.xlsx -> installments...');
   await upsertAll(_admin, 'installments', pickTableRows('installments', scopedRows(installments, scopedTown)));
 
-  reportProgress(42, 'Syncing expenses to cloud...');
+  reportProgress(42, 'Uploading All_Expenses.xlsx -> expenses...');
   await upsertAll(_admin, 'expenses', pickTableRows('expenses', scopedRows(expenses, scopedTown)));
 
-  reportProgress(50, 'Syncing CEO expenses to cloud...');
+  reportProgress(50, 'Uploading CEO_Expenses.xlsx -> ceo_expenses...');
   await upsertAll(_admin, 'ceo_expenses', pickTableRows('ceo_expenses', scopedRows(ceoExpenses, scopedTown)));
 
-  reportProgress(58, 'Syncing CEO salary to cloud...');
+  reportProgress(58, 'Uploading CEO_Salary.xlsx -> ceo_salary...');
   await upsertAll(_admin, 'ceo_salary', pickTableRows('ceo_salary', scopedRows(ceoSalary, scopedTown)));
 
-  reportProgress(66, 'Syncing notifications to cloud...');
+  reportProgress(66, 'Uploading Notifications_Log.xlsx -> notifications...');
   let notifs = [];
   try {
     notifs = await readExcelFile(path.join(getGlobalsPath(), 'Notifications_Log.xlsx'), 'Data');
   } catch (_) {}
   await upsertAll(_admin, 'notifications', pickTableRows('notifications', scopedRows(notifs, scopedTown)));
 
-  reportProgress(68, 'Syncing resell history to cloud...');
+  reportProgress(68, 'Uploading Resell_History.xlsx -> resell_history...');
   let resellHistory = [];
   try {
     resellHistory = await getResellHistory();
   } catch (_) {}
   await upsertAll(_admin, 'resell_history', pickTableRows('resell_history', scopedRows(resellHistory, scopedTown)));
 
-  reportProgress(70, 'Syncing employees to cloud...');
+  reportProgress(70, 'Uploading Employees.xlsx -> employees...');
   const empDB = new EmployeeDB(getGlobalsPath());
   let empV2 = [];
   try {
@@ -106,28 +106,28 @@ async function performFullSyncUp(reportProgress, options = {}) {
   } catch (_) {}
   await upsertAllSafe(_admin, 'employees', scopedRows(empV2, scopedTown).map(mapEmployeeToCloud).filter((e) => e.Employee_ID));
 
-  reportProgress(74, 'Syncing advance salaries to cloud...');
+  reportProgress(74, 'Uploading Advance_Salaries.xlsx -> advance_salaries...');
   let advances = [];
   try {
     advances = await empDB.getAdvanceSalaries();
   } catch (_) {}
   await upsertAllSafe(_admin, 'advance_salaries', scopedRows(advances, scopedTown).map(mapAdvanceToCloud).filter((a) => a.Advance_ID));
 
-  reportProgress(78, 'Syncing salary payments to cloud...');
+  reportProgress(78, 'Uploading Salary_Records.xlsx -> salary_records...');
   let salaryPays = [];
   try {
     salaryPays = await getSalaryRecords();
   } catch (_) {}
   await upsertAllSafe(_admin, 'salary_records', scopedRows(salaryPays, scopedTown).map(mapSalaryRecordToCloud).filter((sp) => sp.Payment_ID || sp.Receipt_Number));
 
-  reportProgress(82, 'Syncing daily entries to cloud...');
+  reportProgress(82, 'Uploading Daily_Entries.xlsx -> daily_entries...');
   let entries = [];
   try {
     entries = await getDailyEntries({});
   } catch (_) {}
   await upsertAll(_admin, 'daily_entries', scopedRows(entries, scopedTown).map(mapDailyEntryToCloud).filter((e) => e.Entry_ID));
 
-  reportProgress(86, 'Syncing town agents, investors and construction...');
+  reportProgress(86, 'Uploading business ledgers to cloud...');
   const extraTables = [
     ['town_agents', 'Town_Agents.xlsx'],
     ['investors', 'Investors.xlsx'],
@@ -138,13 +138,16 @@ async function performFullSyncUp(reportProgress, options = {}) {
     ['commission_receipts', 'Commission_Receipts.xlsx'],
     ['collection_payments', 'Collection_Payments.xlsx'],
     ['receipt_archive', 'Receipt_Archive.xlsx'],
+    ['media_library', 'Media_Library.xlsx'],
     ['money_ledger', 'Money_Ledger.xlsx'],
     ['town_financial_summary', 'Town_Financial_Summary.xlsx'],
     ['town_map_shapes', 'Town_Map_Shapes.xlsx'],
   ];
-  for (const [table, fileName] of extraTables) {
+  for (let index = 0; index < extraTables.length; index += 1) {
+    const [table, fileName] = extraTables[index];
     let rows = [];
     try { rows = await readExcelFile(path.join(getGlobalsPath(), fileName), 'Data'); } catch (_) {}
+    reportProgress(86 + Math.min(2, Math.round((index / Math.max(1, extraTables.length)) * 2)), `Uploading ${fileName} -> ${table}...`);
     await upsertAllSafe(_admin, table, pickTableRows(table, scopedRows(rows, scopedTown)));
   }
 

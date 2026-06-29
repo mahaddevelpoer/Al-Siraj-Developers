@@ -78,6 +78,7 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     investorTxRows,
     constructionRows,
     constructionPaymentRows,
+    receiptArchiveRows,
   ] = await Promise.all([
     safeRead('Money_Ledger.xlsx'),
     safeRead('All_Sales.xlsx'),
@@ -88,6 +89,7 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     safeRead('Investor_Transactions.xlsx'),
     safeRead('Construction_Projects.xlsx'),
     safeRead('Construction_Payments.xlsx'),
+    safeRead('Receipt_Archive.xlsx'),
   ]);
 
   const ledger = ledgerRows
@@ -287,6 +289,20 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     },
   );
 
+  const receiptArchive = receiptArchiveRows
+    .filter((row) => sameTown(row, town))
+    .filter((row) => inRange(rowDate(row, ['Receipt_Date', 'Date', 'Created_At']), from, to))
+    .map((row) => ({
+      receiptNumber: row.Receipt_Number || '',
+      receiptType: row.Receipt_Type || '',
+      townName: row.Town_Name || '',
+      entityName: row.Entity_Name || '',
+      amount: money(row.Amount),
+      receiptDate: rowDate(row, ['Receipt_Date', 'Date', 'Created_At']),
+      entityId: row.Entity_ID || '',
+    }))
+    .sort((a, b) => clean(b.receiptDate).localeCompare(clean(a.receiptDate)) || clean(a.receiptNumber).localeCompare(clean(b.receiptNumber)));
+
   return {
     townName: town,
     fromDate: from,
@@ -313,6 +329,7 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     agentOverall,
     investorLedgers,
     constructionLedgers,
+    receiptArchive,
   };
 }
 
@@ -381,6 +398,7 @@ async function exportTownLedgerReport(params) {
   addSheet('Agent Overall', [report.agentOverall]);
   addSheet('Investors', report.investorLedgers);
   addSheet('Construction', report.constructionLedgers);
+  addSheet('Receipts', report.receiptArchive);
   await workbook.xlsx.writeFile(excelPath);
 
   const summaryCards = [
@@ -403,13 +421,115 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
 <h2>Agent Group / Overall</h2>${htmlTable([{key:'group',label:'Group'},{key:'agents',label:'Agents'},{key:'earned',label:'Earned'},{key:'paid',label:'Paid'},{key:'paidInRange',label:'Paid In Range'},{key:'remaining',label:'Remaining'}], [...report.agentGroupLedgers, report.agentOverall].map((r)=>({...r,earned:pkr(r.earned),paid:pkr(r.paid),paidInRange:pkr(r.paidInRange),remaining:pkr(r.remaining)})))}
 <h2>Investor Ledger</h2>${htmlTable([{key:'name',label:'Investor'},{key:'credit',label:'Credit'},{key:'debit',label:'Debit'},{key:'balance',label:'Balance'}], report.investorLedgers.map((r)=>({...r,credit:pkr(r.credit),debit:pkr(r.debit),balance:pkr(r.balance)})))}
 <h2>Construction Ledger</h2>${htmlTable([{key:'category',label:'Category'},{key:'constructor',label:'Constructor'},{key:'dealAmount',label:'Deal'},{key:'paid',label:'Paid'},{key:'remaining',label:'Remaining'},{key:'status',label:'Status'}], report.constructionLedgers.map((r)=>({...r,dealAmount:pkr(r.dealAmount),paid:pkr(r.paid),remaining:pkr(r.remaining)})))}
+<h2>Receipt Archive</h2>${htmlTable([{key:'receiptDate',label:'Date'},{key:'receiptNumber',label:'Receipt #'},{key:'receiptType',label:'Type'},{key:'entityName',label:'Party'},{key:'amount',label:'Amount'},{key:'entityId',label:'Source'}], report.receiptArchive.map((r)=>({...r,amount:pkr(r.amount)})))}
 </body></html>`;
   fs.writeFileSync(htmlPath, html, 'utf8');
 
   return { success: true, report, excelPath, htmlPath };
 }
 
+async function buildDueInstallmentsReport({ townName = '', fromDate = '', toDate = '', leadDays = 7 } = {}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const lead = new Date();
+  lead.setDate(lead.getDate() + (parseInt(leadDays, 10) || 7));
+  const defaultTo = lead.toISOString().slice(0, 10);
+  const from = clean(fromDate) || today;
+  const to = clean(toDate) || defaultTo;
+  const town = clean(townName);
+  const rows = await safeRead('Installments_Tracker.xlsx');
+  const dueRows = rows
+    .filter((row) => !town || sameTown(row, town))
+    .filter((row) => clean(row.Status || '').toLowerCase() !== 'paid')
+    .filter((row) => inRange(rowDate(row, ['Due_Date', 'Installment_Date', 'Date']), from, to))
+    .map((row) => {
+      const dueDate = rowDate(row, ['Due_Date', 'Installment_Date', 'Date']);
+      const status = dueDate && dueDate < today ? 'Overdue' : 'Due Soon';
+      return {
+        townName: row.Town_Name || '',
+        property: `${row.Type || 'Property'} ${row.Plot_Shop_Number || row.Property_Number || ''}`.trim(),
+        customer: row.Customer_Name || '',
+        phone: row.Phone_Number || row.Phone || '',
+        month: `${row.Month_Number || ''}/${row.Total_Months || row.Total_Months || ''}`.replace(/\/$/, ''),
+        dueDate,
+        amount: money(row.Monthly_Amount || row.Amount || row.Installment_Amount),
+        status,
+        trackerId: row.Tracker_ID || '',
+      };
+    })
+    .sort((a, b) => clean(a.dueDate).localeCompare(clean(b.dueDate)) || clean(a.townName).localeCompare(clean(b.townName)));
+
+  const byTown = groupBy(
+    dueRows,
+    (row) => row.townName,
+    (name) => ({ townName: name, count: 0, amount: 0, overdue: 0, dueSoon: 0 }),
+    (item, row) => {
+      item.count += 1;
+      item.amount += money(row.amount);
+      if (row.status === 'Overdue') item.overdue += 1;
+      else item.dueSoon += 1;
+    },
+  );
+
+  return {
+    townName: town || 'All Towns',
+    fromDate: from,
+    toDate: to,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      count: dueRows.length,
+      amount: dueRows.reduce((sum, row) => sum + money(row.amount), 0),
+      overdue: dueRows.filter((row) => row.status === 'Overdue').length,
+      dueSoon: dueRows.filter((row) => row.status !== 'Overdue').length,
+    },
+    byTown,
+    rows: dueRows,
+  };
+}
+
+async function exportDueInstallmentsReport(params = {}) {
+  const report = await buildDueInstallmentsReport(params);
+  const reportsDir = path.join(getGlobalsPath(), 'Reports', 'Installments');
+  ensureDir(reportsDir);
+  const base = `due-installments-${safeFilePart(report.townName)}-${report.fromDate}-to-${report.toDate}`;
+  const excelPath = path.join(reportsDir, `${base}.xlsx`);
+  const htmlPath = path.join(reportsDir, `${base}.html`);
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'AL SIRAJ DEVELOPERS';
+  workbook.created = new Date();
+  const addSheet = (name, rows) => {
+    const sheet = workbook.addWorksheet(name);
+    if (!rows.length) {
+      sheet.addRow(['No records']);
+      return;
+    }
+    const keys = Object.keys(rows[0]);
+    sheet.addRow(keys);
+    rows.forEach((row) => sheet.addRow(keys.map((key) => row[key])));
+    sheet.getRow(1).font = { bold: true };
+    keys.forEach((key, index) => {
+      sheet.getColumn(index + 1).width = Math.max(14, Math.min(34, key.length + 8));
+    });
+  };
+  addSheet('Due Installments', report.rows);
+  addSheet('Town Summary', report.byTown);
+  addSheet('Overall', [report.summary]);
+  await workbook.xlsx.writeFile(excelPath);
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Due Installments</title><style>
+body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h1{margin:0 0 4px;font-size:24px}.meta{color:#64748b;margin-bottom:18px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px}.card span{display:block;font-size:11px;color:#64748b;text-transform:uppercase}.card strong{font-size:18px}table{width:100%;border-collapse:collapse;background:#fff;margin-top:14px}th,td{border:1px solid #e5e7eb;padding:8px;text-align:left;font-size:12px}th{background:#eef2ff}.bad{color:#dc2626;font-weight:bold}.soon{color:#b45309;font-weight:bold}@media print{body{background:#fff;margin:12mm}.cards{grid-template-columns:repeat(2,1fr)}}
+</style></head><body><h1>AL SIRAJ DEVELOPERS - Due Installments Report</h1><div class="meta">${escapeHtml(report.townName)} | ${report.fromDate} to ${report.toDate} | Generated ${new Date(report.generatedAt).toLocaleString()}</div>
+<div class="cards"><div class="card"><span>Total Due Rows</span><strong>${report.summary.count}</strong></div><div class="card"><span>Total Amount</span><strong>${pkr(report.summary.amount)}</strong></div><div class="card"><span>Overdue</span><strong>${report.summary.overdue}</strong></div><div class="card"><span>Due Soon</span><strong>${report.summary.dueSoon}</strong></div></div>
+<h2>Town Summary</h2>${htmlTable([{key:'townName',label:'Town'},{key:'count',label:'Rows'},{key:'amount',label:'Amount'},{key:'overdue',label:'Overdue'},{key:'dueSoon',label:'Due Soon'}], report.byTown.map((r)=>({...r,amount:pkr(r.amount)})))}
+<h2>Due Properties</h2>${htmlTable([{key:'townName',label:'Town'},{key:'property',label:'Property'},{key:'customer',label:'Customer'},{key:'phone',label:'Phone'},{key:'month',label:'Installment'},{key:'dueDate',label:'Due Date'},{key:'amount',label:'Amount'},{key:'status',label:'Status'}], report.rows.map((r)=>({...r,amount:pkr(r.amount),status:r.status})))}
+</body></html>`;
+  fs.writeFileSync(htmlPath, html, 'utf8');
+  return { success: true, report, excelPath, htmlPath };
+}
+
 module.exports = {
   buildTownLedgerReport,
   exportTownLedgerReport,
+  buildDueInstallmentsReport,
+  exportDueInstallmentsReport,
 };

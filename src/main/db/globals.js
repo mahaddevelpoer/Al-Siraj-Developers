@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
 const { getGlobalsPath, getPropertiesPath, readExcelFile, appendToExcel, updateExcelRow, generateId, ensureSheetColumns } = require('./core');
-const { recordMoneyEvent, getMoneySummary, backfillMoneyLedger, getAllTownFinancialSummaries } = require('./moneyLedger');
+const { recordMoneyEvent, getMoneySummary, backfillMoneyLedger, getAllTownFinancialSummaries, refreshTownFinancialSummary } = require('./moneyLedger');
 
 function isPropertySale(row) {
   const type = String(row?.Type || '').trim().toLowerCase();
@@ -462,6 +462,11 @@ async function getDashboardStats() {
   const sales = await readExcelFile(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data');
   const { getTowns } = require('./towns');
   const towns = await getTowns();
+  for (const town of towns) {
+    if (town?.Town_Name) {
+      await refreshTownFinancialSummary(town.Town_Name).catch(() => {});
+    }
+  }
   const summaries = await getAllTownFinancialSummaries();
   const money = summaries.length
     ? {
@@ -525,12 +530,12 @@ async function getResellHistory() {
 async function recordSalaryPayment(data) {
   const { employeeName, amount, month, townName, type, note, designation, advanceDeduction, newAdvanceGiven, salaryAmount, isAdvanceSalary } = data;
   const now = new Date();
-  const dateStr = now.toISOString().split('T')[0];
+  const dateStr = data.Payment_Date || data.Date || now.toISOString().split('T')[0];
   const seq = String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0') + String(now.getSeconds()).padStart(2,'0');
   const receiptNumber = `SAL-${dateStr.replace(/-/g,'')}-${seq}`;
   const recordsPath = path.join(getGlobalsPath(), 'Salary_Records.xlsx');
   await ensureSheetColumns(recordsPath, 'Data', [
-    'Receipt_Number','Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By',
+    'Receipt_Number','Date','Payment_Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By',
     'Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After',
     'Salary_Remaining_After','Is_Advance_Salary'
   ]);
@@ -561,6 +566,7 @@ async function recordSalaryPayment(data) {
   const salaryData = {
     Receipt_Number: receiptNumber,
     Date: dateStr,
+    Payment_Date: dateStr,
     Month: month || '',
     Type: type || 'Employee',
     Name: employeeName || '',

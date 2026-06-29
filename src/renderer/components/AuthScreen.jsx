@@ -47,8 +47,9 @@ export default function AuthScreen({ onLogin }) {
   // Login fields
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
   // Register fields
   const [regName, setRegName] = useState('');
@@ -81,6 +82,7 @@ export default function AuthScreen({ onLogin }) {
     setError('');
     setLoginEmail('');
     setLoginPassword('');
+    setAdminPassword('');
     setFormMode('login');
     setRegStep(1);
     setWizStep(1);
@@ -105,7 +107,10 @@ export default function AuthScreen({ onLogin }) {
     setLoading(true);
     setError('');
     try {
-      const result = await signIn(loginEmail, loginPassword, selectedRole);
+      const result = await signIn(loginEmail, loginPassword, selectedRole, {
+        adminPassword,
+        remember: rememberMe,
+      });
       if (!result.success) {
         throw new Error(result.error || 'Invalid email or password');
       }
@@ -471,6 +476,23 @@ export default function AuthScreen({ onLogin }) {
                       </button>
                     </div>
                   </div>
+                  {selectedRole === 'accountant' && (
+                    <div className="form-group">
+                      <label>Administration Password</label>
+                      <div className="auth-input-wrap">
+                        <IconShield className="auth-input-icon" size={18} />
+                        <input
+                          type="password"
+                          value={adminPassword}
+                          onChange={(e) => setAdminPassword(e.target.value)}
+                          placeholder="Optional first time, required if set"
+                        />
+                      </div>
+                      <small className="auth-helper-text">
+                        One-time online activation CEO se hoti hai. Uske baad accountant assigned town par offline kaam kar sakta hai.
+                      </small>
+                    </div>
+                  )}
                   <div className="auth-form-row">
                     <label className="auth-checkbox">
                       <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />

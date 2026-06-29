@@ -15,6 +15,7 @@ DECLARE
     ARRAY['commissions', 'id'],
     ARRAY['commission_receipts', 'receipt_id'],
     ARRAY['receipt_archive', 'receipt_id'],
+    ARRAY['media_library', 'media_id'],
     ARRAY['money_ledger', 'ledger_id'],
     ARRAY['daily_entries', 'entry_id'],
     ARRAY['notifications', 'notification_id'],

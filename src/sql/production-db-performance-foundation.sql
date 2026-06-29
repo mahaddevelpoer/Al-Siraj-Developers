@@ -39,6 +39,28 @@ CREATE TABLE IF NOT EXISTS public.town_financial_summary (
   updated_at timestamptz DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.media_library (
+  media_id text PRIMARY KEY,
+  town_name text,
+  type text,
+  title text,
+  file_path text,
+  pdf_path text,
+  excel_path text,
+  html_path text,
+  account_name text,
+  property_number text,
+  receipt_number text,
+  report_date date,
+  from_date date,
+  to_date date,
+  client_write_id text,
+  sync_status text DEFAULT 'synced',
+  deleted_at timestamptz,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS public.audit_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   table_name text NOT NULL,
@@ -71,7 +93,7 @@ BEGIN
     'ceo_salary','notifications','daily_entries','employees','employees_v2',
     'advance_salaries','salary_records','salary_payments','town_agents',
     'investors','investor_transactions','construction_projects',
-    'construction_payments','commissions','commission_receipts','receipt_archive',
+    'construction_payments','commissions','commission_receipts','receipt_archive','media_library',
     'money_ledger','town_financial_summary'
   ]
   LOOP
@@ -106,7 +128,7 @@ BEGIN
     'ceo_salary','notifications','daily_entries','employees','employees_v2',
     'advance_salaries','salary_records','salary_payments','town_agents',
     'investors','investor_transactions','construction_projects',
-    'construction_payments','commissions','commission_receipts','receipt_archive',
+    'construction_payments','commissions','commission_receipts','receipt_archive','media_library',
     'money_ledger','town_financial_summary'
   ]
   LOOP
@@ -183,6 +205,7 @@ DECLARE
     ARRAY['construction_payments', 'payment_id'],
     ARRAY['commission_receipts', 'receipt_id'],
     ARRAY['receipt_archive', 'receipt_id'],
+    ARRAY['media_library', 'media_id'],
     ARRAY['daily_entries', 'entry_id'],
     ARRAY['notifications', 'notification_id'],
     ARRAY['expenses', 'expense_id'],
@@ -247,7 +270,7 @@ DECLARE
   t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'appeals','daily_entries','notifications','money_ledger',
+    'appeals','daily_entries','notifications','money_ledger','media_library',
     'town_financial_summary','all_sales','installments'
   ]
   LOOP

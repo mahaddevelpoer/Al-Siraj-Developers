@@ -17,7 +17,7 @@ const {
   getRowVal,
 } = require('./syncHelpers');
 
-const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status'];
+const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Account_Name', 'Account_Type', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status'];
 
 function safeFolderName(name) {
   return String(name || '')
@@ -143,7 +143,7 @@ async function performFullSync(reportProgress = () => {}) {
       sales, expenses, ceoExpenses, ceoSalary, installments,
       notifications, employees, advanceSalaries, salaryPayments, towns,
       dailyEntries, commissions, resellHistory, townAgents, investors,
-      investorTransactions, constructionProjects, constructionPayments, commissionReceipts, collectionPayments, moneyLedger, townFinancialSummary, townMapShapes
+      investorTransactions, constructionProjects, constructionPayments, commissionReceipts, collectionPayments, receiptArchive, mediaLibrary, moneyLedger, townFinancialSummary, townMapShapes
     ] = await Promise.all([
       onlineDb.getAllSales(),
       onlineDb.getAll('expenses'),
@@ -165,6 +165,8 @@ async function performFullSync(reportProgress = () => {}) {
       safeGetAll('construction_payments'),
       safeGetAll('commission_receipts'),
       safeGetAll('collection_payments'),
+      safeGetAll('receipt_archive'),
+      safeGetAll('media_library'),
       safeGetAll('money_ledger'),
       safeGetAll('town_financial_summary'),
       safeGetAll('town_map_shapes'),
@@ -254,6 +256,12 @@ async function performFullSync(reportProgress = () => {}) {
 
     const COLLECTION_PAY_COLS = ['Payment_ID','Sale_ID','Sale_Code','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes'];
     await overwriteExcelFile(path.join(globalsPath, 'Collection_Payments.xlsx'), 'Data', COLLECTION_PAY_COLS, scoped(collectionPayments).map((r) => mapGenericFromCloud(COLLECTION_PAY_COLS, r)));
+
+    const RECEIPT_ARCHIVE_COLS = ['Receipt_ID','Receipt_Number','Receipt_Type','Town_Name','Entity_ID','Entity_Name','Amount','Receipt_Date','Payload_JSON','Created_At'];
+    await overwriteExcelFile(path.join(globalsPath, 'Receipt_Archive.xlsx'), 'Data', RECEIPT_ARCHIVE_COLS, scoped(receiptArchive).map((r) => mapGenericFromCloud(RECEIPT_ARCHIVE_COLS, r)));
+
+    const MEDIA_COLS = ['Media_ID','Town_Name','Type','Title','File_Path','Pdf_Path','Excel_Path','Html_Path','Account_Name','Property_Number','Receipt_Number','Report_Date','From_Date','To_Date','Created_At'];
+    await overwriteExcelFile(path.join(globalsPath, 'Media_Library.xlsx'), 'Data', MEDIA_COLS, scoped(mediaLibrary).map((r) => mapGenericFromCloud(MEDIA_COLS, r)));
 
     const MONEY_LEDGER_COLS = ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Debit_Account','Credit_Account','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'];
     await overwriteExcelFile(path.join(globalsPath, 'Money_Ledger.xlsx'), 'Data', MONEY_LEDGER_COLS, scoped(moneyLedger).map((r) => mapGenericFromCloud(MONEY_LEDGER_COLS, r)));

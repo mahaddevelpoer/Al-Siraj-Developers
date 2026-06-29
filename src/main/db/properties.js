@@ -3,6 +3,7 @@ const fs = require('fs');
 const ExcelJS = require('exceljs');
 const { getPropertiesPath, getTownsPath, getGlobalsPath, readExcelFile, appendToExcel, generateId, deleteExcelRow, syncMirrorsForFile, getHeaderKeys, withFileWriteLock, writeWorkbookAtomic, ensureSheetColumns } = require('./core');
 const { recordMoneyEvent, getMoneySummary, backfillMoneyLedger } = require('./moneyLedger');
+const { saveReceiptArchive } = require('./businessExtras');
 
 function safeFolderName(name) {
   return String(name || '')
@@ -31,10 +32,26 @@ function getPropertyPath(type, number, townName) {
   return path.join(getTownPropertiesDir(townName), fileName);
 }
 
+function buildSaleReceiptArchive({ receiptNumber, receiptType, townName, entityId, entityName, amount, date, payload }) {
+  const stableId = `${receiptType}-${String(receiptNumber || entityId || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 48)}`;
+  return {
+    Receipt_ID: stableId,
+    Receipt_Number: receiptNumber,
+    Receipt_Type: receiptType,
+    Town_Name: townName,
+    Entity_ID: entityId,
+    Entity_Name: entityName,
+    Amount: amount,
+    Receipt_Date: date,
+    Payload_JSON: payload,
+  };
+}
+
 async function upsertCommissionForSaleLocal(sale) {
   const amount = parseFloat(sale.Commission_Amount) || 0;
   const agent = String(sale.Agent_Name || '').trim();
-  if (amount <= 0 || !agent) return;
+  const noAgent = !agent || /^(no agent|none|n\/a|na|null|undefined|-|select agent)$/i.test(agent);
+  if (amount <= 0 || noAgent) return;
 
   const commissionPath = path.join(getGlobalsPath(), 'Commissions.xlsx');
   await ensureSheetColumns(commissionPath, 'Data', ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Paid_Amount','Remaining_Amount','Status','Paid_Date','Last_Paid_Date','Created_At']);
@@ -375,6 +392,31 @@ async function sellProperty(data) {
     Transfer_Image: data.Transfer_Image || '',
   };
   await appendToExcel(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', saleData);
+  if (data.Receipt_Number) {
+    await saveReceiptArchive(buildSaleReceiptArchive({
+      receiptNumber: data.Receipt_Number,
+      receiptType: 'property_sale',
+      townName,
+      entityId: saleId,
+      entityName: data.Customer_Name,
+      amount: advanceAmount,
+      date: updates.Sell_Date,
+      payload: {
+        type: 'property_sale',
+        saleId,
+        townName,
+        propertyType: type,
+        propertyNumber: number,
+        customerName: data.Customer_Name,
+        phoneNumber: data.Phone_Number,
+        totalAmount,
+        advanceAmount,
+        remainingAmount: remaining,
+        paymentMethod: data.Payment_Method || 'Cash',
+        receiptNumber: data.Receipt_Number,
+      },
+    }));
+  }
   if (advanceAmount > 0) {
     await recordMoneyEvent({
       sourceType: 'sale_advance',
@@ -743,6 +785,33 @@ async function resellProperty(data) {
     Monthly_Installment: monthlyInstallment,
   };
   await appendToExcel(path.join(getGlobalsPath(), 'Resell_History.xlsx'), 'Data', resellData);
+  if (Receipt_Number) {
+    await saveReceiptArchive(buildSaleReceiptArchive({
+      receiptNumber: Receipt_Number,
+      receiptType: 'property_resell',
+      townName,
+      entityId: resellId,
+      entityName: Customer_Name || property.Customer_Name || '',
+      amount: advanceAmount,
+      date: resellDate,
+      payload: {
+        type: 'property_resell',
+        resellId,
+        townName,
+        propertyType: type,
+        propertyNumber: number,
+        previousCustomer: property.Customer_Name || '',
+        customerName: Customer_Name || property.Customer_Name || '',
+        phoneNumber: Phone_Number || property.Phone_Number || '',
+        resellAmount,
+        advanceAmount,
+        remainingAmount: remaining,
+        refundAmount,
+        paymentMethod: Payment_Method || 'Cash',
+        receiptNumber: Receipt_Number,
+      },
+    }));
+  }
   if (refundAmount > 0) {
     await recordMoneyEvent({
       sourceType: 'resell_refund',

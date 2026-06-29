@@ -20,7 +20,7 @@ const normalizeTown = (town = {}) => ({
   Status: town.Status || town.status || 'Active',
 });
 
-export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelect, onLogout, showToast, onNavigate, userRole }) {
+export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelect, onLogout, showToast, onNavigate, userRole, notificationBell }) {
   const [towns, setTowns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -355,6 +355,7 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
         </div>
         <div className="ui-topbar-title">CEO Portfolio Hub</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {notificationBell}
           {userRole === 'ceo' && (
             <>
               <button

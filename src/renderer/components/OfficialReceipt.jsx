@@ -813,22 +813,14 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                       <span style={{ borderBottom: '1px solid black', display: 'inline-block', padding: '0 8px' }}>{data?.number || '—'}</span>
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 10 }}>
                       <div>
-                        <span style={{ fontWeight: 700 }}>{lang === 'en' ? 'Plot No:' : 'پلاٹ نمبر:'}</span>
-                        <span style={{ borderBottom: '1px solid black', display: 'inline-block', width: '60px', textAlign: 'center' }}>{data?.type === 'Plot' ? data?.number : '—'}</span>
+                        <span style={{ fontWeight: 700 }}>{propertyNumberLabel}</span>
+                        <span style={{ borderBottom: '1px solid black', display: 'inline-block', width: '90px', textAlign: 'center' }}>{data?.number || '-'}</span>
                       </div>
                       <div>
-                        <span style={{ fontWeight: 700 }}>{lang === 'en' ? 'Shop No:' : 'دکان نمبر:'}</span>
-                        <span style={{ borderBottom: '1px solid black', display: 'inline-block', width: '60px', textAlign: 'center' }}>{data?.type === 'Shop' ? data?.number : '—'}</span>
-                      </div>
-                      <div>
-                        <span style={{ fontWeight: 700 }}>{lang === 'en' ? 'Registry:' : 'رجسٹری:'}</span>
-                        <span style={{ borderBottom: '1px solid black', display: 'inline-block', width: '60px', textAlign: 'center' }}>{data?.registry || '—'}</span>
-                      </div>
-                      <div>
-                        <span style={{ fontWeight: 700 }}>{lang === 'en' ? 'Payment:' : 'پیمنٹ:'}</span>
-                        <span style={{ borderBottom: '1px solid black', display: 'inline-block', width: '60px', textAlign: 'center' }}>{data?.payment || '—'}</span>
+                        <span style={{ fontWeight: 700 }}>{lang === 'en' ? 'Category:' : 'Category:'}</span>
+                        <span style={{ borderBottom: '1px solid black', display: 'inline-block', width: '120px', textAlign: 'center' }}>{data?.propertyCategory || data?.Property_Category || '-'}</span>
                       </div>
                     </div>
                   )}
@@ -973,7 +965,7 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                               : 'خریدار نے معاہدہ مذکورہ بالا کو پڑھ لیا ہے اور بطور ثبوت دستخط کر دیے ہیں')
                         }
                       </div>
-                      <div style={{ display: 'flex', justifyContent: data?.buyer2Name ? 'space-around' : 'center', marginBottom: 20 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: data?.buyer2Name ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: 24, alignItems: 'end', marginBottom: 20 }}>
                         <div style={{ textAlign: 'center' }}>
                           <div style={{ borderTop: '1px solid black', width: 180, marginTop: 40 }} />
                           <div style={{ fontSize: 12, fontWeight: 700 }}>{lang === 'en' ? 'Signature Buyer 1' : 'دستخط خریدار اول'}</div>
@@ -984,11 +976,10 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                             <div style={{ fontSize: 12, fontWeight: 700 }}>{lang === 'en' ? 'Signature Buyer 2' : 'دستخط خریدار دوئم'}</div>
                           </div>
                         )}
-                      </div>
-
-                      <div style={{ textAlign: 'center', marginTop: 8 }}>
-                        <div style={{ borderTop: '2px solid black', width: 180, marginTop: 28, marginLeft: 'auto', marginRight: 'auto' }} />
-                        <div style={{ fontSize: 12, fontWeight: 700 }}>{lang === 'en' ? "Director's Signature" : 'دستخط ڈائریکٹر'}</div>
+                      <div style={{ textAlign: 'center' }}>
+                          <div style={{ borderTop: '2px solid black', width: 180, marginTop: 40 }} />
+                          <div style={{ fontSize: 12, fontWeight: 700 }}>{lang === 'en' ? "Director's Signature" : '????? ????????'}</div>
+                        </div>
                       </div>
 
                       {/* Terms & Conditions */}

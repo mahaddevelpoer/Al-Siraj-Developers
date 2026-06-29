@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
 
-export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode }) {
+export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, accountOptions = [] }) {
   const [incomeType, setIncomeType] = useState('general');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
+  const [accountKey, setAccountKey] = useState('');
+  const [pendingCollections, setPendingCollections] = useState([]);
 
   const [properties, setProperties] = useState([]);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [selectedInstallment, setSelectedInstallment] = useState(null);
   const [installmentDetails, setInstallmentDetails] = useState(null);
+
+  const toMoney = (value) => Number(value) || 0;
 
   useEffect(() => {
     if (incomeType === 'installment') {
@@ -16,12 +20,47 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode }) {
     }
   }, [incomeType, townName]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadPendingCollections = async () => {
+      try {
+        const res = await window.api?.getPendingCollections?.(null);
+        const rows = Array.isArray(res?.data) ? res.data : [];
+        if (!cancelled) setPendingCollections(rows.filter((row) => !townName || String(row.Town_Name || '') === String(townName)));
+      } catch {
+        if (!cancelled) setPendingCollections([]);
+      }
+    };
+    loadPendingCollections();
+    return () => { cancelled = true; };
+  }, [townName]);
+
+  const isInstallmentCollection = (row) => (parseInt(row?.Total_Installments, 10) || 0) > 0 ||
+    /installment/i.test(String(row?.Collection_Category || row?.Installment_Status || ''));
+  const advanceOnlyCollections = pendingCollections.filter((row) => !isInstallmentCollection(row));
+  const generalAccountOptions = accountOptions.filter((account) => {
+    if (account.type !== 'Customer') return true;
+    return advanceOnlyCollections.some((row) => {
+      const label = `${row.Customer_Name || 'Customer'} - ${row.Type || ''} ${row.Plot_Shop_Number || ''}`.toLowerCase().replace(/\s+/g, ' ').trim();
+      const name = String(account.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      return label === name || label.includes(name);
+    });
+  });
+  const selectedAccount = generalAccountOptions.find((item) => item.key === accountKey);
+  const selectedReceivable = selectedAccount?.type === 'Customer'
+    ? advanceOnlyCollections.find((row) => {
+        const label = `${row.Customer_Name || 'Customer'} - ${row.Type || ''} ${row.Plot_Shop_Number || ''}`.toLowerCase().replace(/\s+/g, ' ').trim();
+        const name = String(selectedAccount.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        return label === name || label.includes(name) || name.includes(String(row.Plot_Shop_Number || '').toLowerCase());
+      })
+    : null;
+
   const loadInstallmentProperties = async () => {
     try {
       console.log('Loading installment properties for:', townName);
       const result = await window.api.getInstallmentProperties(townName);
       console.log('Installment properties loaded:', result);
-      setProperties(result);
+      setProperties(Array.isArray(result) ? result : []);
     } catch (err) {
       console.error('Error loading properties:', err);
     }
@@ -34,31 +73,55 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode }) {
     setAmount('');
 
     const installments = await window.api.getPropertyInstallments(propertyId);
-    setInstallmentDetails(installments);
+    setInstallmentDetails(Array.isArray(installments) ? installments : []);
   };
 
   const handleInstallmentSelect = (installment) => {
     setSelectedInstallment(installment);
-    setAmount(installment.dueAmount);
+    setAmount(String(toMoney(installment.dueAmount)));
     setDescription(`${selectedProperty.propertyType} #${selectedProperty.propertyNumber} - Installment #${installment.installmentNumber} of ${installment.totalInstallments}`);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const account = generalAccountOptions.find((item) => item.key === accountKey);
+    const installmentAccountName = selectedProperty
+      ? `${selectedProperty.buyerName || 'Customer'} - ${selectedProperty.propertyNumber || selectedProperty.id || ''}`.trim()
+      : '';
 
     onSubmit({
       type: 'Income',
       incomeType,
       description,
       amount: parseFloat(amount),
+      accountName: account?.name || (incomeType === 'installment' ? installmentAccountName : ''),
+      accountType: account?.type || (incomeType === 'installment' ? 'Customer' : ''),
       propertyId: selectedProperty?.id,
       installmentId: selectedInstallment?.id,
       propertyDetails: selectedProperty,
       installmentDetails: selectedInstallment,
+      installmentPaymentPayload: selectedInstallment ? {
+        Tracker_ID: selectedInstallment.id,
+        Paid_Date: new Date().toISOString().split('T')[0],
+      } : null,
+      collectionPayload: selectedReceivable ? {
+        saleId: selectedReceivable.id,
+        amount: parseFloat(amount),
+        paymentMethod: 'Cash',
+        notes: description || 'Customer receivable collected from Daily Income',
+        type: selectedReceivable.Type,
+        plotShopNumber: selectedReceivable.Plot_Shop_Number,
+        townName: selectedReceivable.Town_Name,
+        customerName: selectedReceivable.Customer_Name,
+        agentName: selectedReceivable.Agent_Name,
+        totalAmount: selectedReceivable.Total_Amount_PKR,
+        currentReceived: selectedReceivable.Received_Amount,
+      } : null,
     });
 
     setDescription('');
     setAmount('');
+    setAccountKey('');
     setIncomeType('general');
     setSelectedProperty(null);
     setSelectedInstallment(null);
@@ -112,6 +175,29 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode }) {
 
       {incomeType === 'general' && (
         <>
+          <div className="form-group" style={{ marginBottom: 16 }}>
+            <label>Received from</label>
+            <select value={accountKey} onChange={(e) => setAccountKey(e.target.value)}>
+              <option value="">General / Walk-in</option>
+              {generalAccountOptions.map((account) => (
+                <option key={account.key} value={account.key}>{account.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {selectedReceivable && (
+            <div style={{ marginBottom: 16, padding: 14, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#166534', marginBottom: 8 }}>
+                Customer remaining collection
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, fontSize: 12 }}>
+                <div><b>Property</b><br />{selectedReceivable.Type} {selectedReceivable.Plot_Shop_Number}</div>
+                <div><b>Received</b><br />PKR {toMoney(selectedReceivable.Received_Amount).toLocaleString()}</div>
+                <div><b>Remaining</b><br />PKR {toMoney(selectedReceivable.Remaining_Amount).toLocaleString()}</div>
+              </div>
+            </div>
+          )}
+
           <div className="form-group" style={{ marginBottom: 16 }}>
             <label>Description</label>
             <input
@@ -174,13 +260,13 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode }) {
                     }}
                   >
                     <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>
-                      {prop.propertyType} #{prop.propertyNumber}
+                      {prop.propertyType || prop.Type || 'Property'} #{prop.propertyNumber || prop.Plot_Shop_Number || '-'}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
-                      {prop.buyerName}
+                      {prop.buyerName || prop.Customer_Name || '-'}
                     </div>
                     <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-green)' }}>
-                      {prop.activeInstallments} Active
+                      {toMoney(prop.activeInstallments)} Active
                     </div>
                   </div>
                 ))}
@@ -220,7 +306,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode }) {
                       Due: {new Date(inst.dueDate).toLocaleDateString('en-PK')}
                     </div>
                     <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>
-                      PKR {inst.dueAmount?.toLocaleString()}
+                      PKR {toMoney(inst.dueAmount).toLocaleString()}
                     </div>
                     {inst.isPaid ? (
                       <div style={{ fontSize: 9, background: '#d1fae5', color: '#065f46', padding: '2px 6px', borderRadius: '3px', textAlign: 'center', fontWeight: 700 }}>
@@ -244,16 +330,16 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode }) {
               </div>
 
               <div style={{ fontSize: 12, color: '#666', lineHeight: 1.6 }}>
-                <div><strong>Total Paid:</strong> PKR {selectedProperty.totalPaid?.toLocaleString()}</div>
-                <div><strong>Total Price:</strong> PKR {selectedProperty.totalPrice?.toLocaleString()}</div>
+                <div><strong>Total Paid:</strong> PKR {toMoney(selectedProperty.totalPaid).toLocaleString()}</div>
+                <div><strong>Total Price:</strong> PKR {toMoney(selectedProperty.totalPrice).toLocaleString()}</div>
                 <div style={{ marginTop: 8, fontSize: 13, fontWeight: 800, color: '#d11a2a' }}>
-                  Remaining: PKR {(selectedProperty.totalPrice - selectedProperty.totalPaid)?.toLocaleString()}
+                  Remaining: PKR {Math.max(0, toMoney(selectedProperty.totalPrice) - toMoney(selectedProperty.totalPaid)).toLocaleString()}
                 </div>
 
-                {selectedProperty.advanceTaken > 0 && (
+                {toMoney(selectedProperty.advanceTaken) > 0 && (
                   <div style={{ marginTop: 12, padding: 12, background: '#fff7ed', borderRadius: 'var(--radius-sm)', border: '1px solid #fed7aa' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', marginBottom: 4 }}>
-                      Advance Given: PKR {selectedProperty.advanceTaken?.toLocaleString()}
+                      Advance Given: PKR {toMoney(selectedProperty.advanceTaken).toLocaleString()}
                     </div>
                     <div style={{ fontSize: 10, color: '#b45309' }}>
                       Select an installment above to record payment
@@ -270,12 +356,12 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode }) {
                 INSTALLMENT DETAILS
               </div>
               <div style={{ fontSize: 12, color: '#0f172a', lineHeight: 1.6 }}>
-                <div><strong>Property:</strong> {selectedProperty.propertyType} #{selectedProperty.propertyNumber}</div>
-                <div><strong>Buyer:</strong> {selectedProperty.buyerName}</div>
+                <div><strong>Property:</strong> {selectedProperty.propertyType || 'Property'} #{selectedProperty.propertyNumber || '-'}</div>
+                <div><strong>Buyer:</strong> {selectedProperty.buyerName || '-'}</div>
                 <div><strong>Installment:</strong> #{selectedInstallment.installmentNumber} of {selectedInstallment.totalInstallments}</div>
                 <div><strong>Due Date:</strong> {new Date(selectedInstallment.dueDate).toLocaleDateString('en-PK')}</div>
                 <div style={{ marginTop: 8, fontSize: 14, fontWeight: 800, color: 'var(--accent-green)' }}>
-                  Amount: PKR {selectedInstallment.dueAmount?.toLocaleString()}
+                  Amount: PKR {toMoney(selectedInstallment.dueAmount).toLocaleString()}
                 </div>
               </div>
             </div>

@@ -113,6 +113,22 @@ async function markPendingSynced(clientWriteId) {
   }
 }
 
+async function markPendingAttemptFailed(error) {
+  const fp = await ensurePendingSyncFile();
+  const rows = await readExcelFile(fp, 'Data');
+  const now = new Date().toISOString();
+  const message = error && error.message ? error.message : String(error || 'Sync failed');
+  for (const row of rows) {
+    if (String(row.Status || '').toLowerCase() === 'pending' && row._rowNumber) {
+      await updateExcelRow(fp, 'Data', row._rowNumber, {
+        Retry_Count: (parseInt(row.Retry_Count, 10) || 0) + 1,
+        Last_Error: message,
+        Updated_At: now,
+      });
+    }
+  }
+}
+
 async function hasPendingSyncRows() {
   const rows = await getPendingSyncRows();
   return rows.length > 0;
@@ -126,5 +142,6 @@ module.exports = {
   getPendingSyncRows,
   markAllPendingSynced,
   markPendingSynced,
+  markPendingAttemptFailed,
   hasPendingSyncRows,
 };

@@ -17,6 +17,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [receiptMode, setReceiptMode] = useState(null);
+  const [accountOptions, setAccountOptions] = useState([]);
 
   // Appeal state
   const [modalStep, setModalStep] = useState(null);
@@ -30,6 +31,42 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   const isNonToday = userRole === 'accountant' && selectedDate !== todayStr;
 
   useEffect(() => { loadEntries(); }, [selectedDate, townName, refreshKey]);
+  useEffect(() => { loadAccountOptions(); }, [townName, refreshKey]);
+
+  const addOption = (map, type, name) => {
+    const clean = String(name || '').trim();
+    if (!clean) return;
+    const key = `${type}:${clean}`.toLowerCase();
+    if (!map.has(key)) map.set(key, { key, type, name: clean, label: `${clean} (${type})` });
+  };
+
+  const loadAccountOptions = async () => {
+    if (!townName) return;
+    try {
+      const map = new Map();
+      const historyFrom = '2000-01-01';
+      const historyTo = new Date().toISOString().slice(0, 10);
+      const [report, agents, investors, construction, employees] = await Promise.all([
+        window.api?.getTownLedgerReport?.({ townName, fromDate: historyFrom, toDate: historyTo }).catch(() => null),
+        window.api?.getTownAgents?.(townName).catch(() => []),
+        window.api?.getInvestors?.(townName).catch(() => []),
+        window.api?.getConstructionProjects?.(townName).catch(() => []),
+        window.api?.getEmployeesV2?.(townName).catch(() => []),
+      ]);
+      (report?.customerLedgers || []).forEach((row) => addOption(map, 'Customer', `${row.customer || row.Customer_Name || 'Customer'} - ${row.property || row.Plot_Shop_Number || ''}`));
+      (report?.employeeLedgers || []).forEach((row) => addOption(map, 'Employee', row.name));
+      (report?.agentLedgers || []).forEach((row) => addOption(map, 'Sales Agent', row.name));
+      (report?.investorLedgers || []).forEach((row) => addOption(map, 'Investor', row.name || row.Investor_Name));
+      (report?.constructorLedgers || report?.constructionLedgers || []).forEach((row) => addOption(map, 'Constructor', row.name || row.Constructor_Name));
+      (Array.isArray(agents) ? agents : []).forEach((row) => addOption(map, 'Sales Agent', row.Agent_Name));
+      (Array.isArray(investors) ? investors : []).forEach((row) => addOption(map, 'Investor', row.Investor_Name));
+      (Array.isArray(construction) ? construction : []).forEach((row) => addOption(map, 'Constructor', row.Constructor_Name));
+      (Array.isArray(employees) ? employees : []).forEach((row) => addOption(map, 'Employee', row.Employee_Name));
+      setAccountOptions(Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label)));
+    } catch {
+      setAccountOptions([]);
+    }
+  };
 
   // Realtime: CEO approved/rejected from Dashboard
   useEffect(() => {
@@ -62,7 +99,36 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
 
   const submitEntryToApi = async (payload) => {
     try {
-      const r = await window.api.addDailyEntry(payload);
+      let nextPayload = payload;
+      if (payload?.collectionPayload?.saleId) {
+        const collected = await window.api.recordPendingCollection(payload.collectionPayload);
+        if (collected?.error) {
+          showToast?.(collected.error, 'error');
+          return;
+        }
+        nextPayload = {
+          ...payload,
+          skipLedger: 'Yes',
+          Skip_Ledger: 'Yes',
+          reference: `COL-${payload.collectionPayload.saleId}-${Date.now()}`,
+          description: payload.description || `Collection received from ${payload.collectionPayload.customerName || payload.accountName || 'customer'}`,
+        };
+      }
+      if (payload?.installmentPaymentPayload?.Tracker_ID) {
+        const paid = await window.api.markInstallmentPaid(payload.installmentPaymentPayload);
+        if (paid?.error) {
+          showToast?.(paid.error, 'error');
+          return;
+        }
+        nextPayload = {
+          ...payload,
+          skipLedger: 'Yes',
+          Skip_Ledger: 'Yes',
+          reference: `INST-${payload.installmentPaymentPayload.Tracker_ID}-${Date.now()}`,
+          description: payload.description || `Installment received from ${payload.accountName || 'customer'}`,
+        };
+      }
+      const r = await window.api.addDailyEntry(nextPayload);
       if (r?.error) showToast?.(r.error, 'error');
       else { showToast?.('✅ Entry saved!'); await loadEntries(); onEntryAdded?.(); }
     } catch { showToast?.('Failed to add entry', 'error'); }
@@ -269,10 +335,10 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
         {/* Left: Forms */}
         <div style={{ height: 'fit-content', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: activeTab === 'income' ? 'block' : 'none' }}>
-            <DailyIncomeEntry townName={townName} onSubmit={handleAddEntry} isAppealMode={isNonToday} />
+            <DailyIncomeEntry townName={townName} onSubmit={handleAddEntry} isAppealMode={isNonToday} accountOptions={accountOptions} />
           </div>
           <div style={{ display: activeTab === 'expense' ? 'block' : 'none' }}>
-            <DailyExpenseEntry onSubmit={handleAddEntry} isAppealMode={isNonToday} />
+            <DailyExpenseEntry onSubmit={handleAddEntry} isAppealMode={isNonToday} accountOptions={accountOptions} />
           </div>
           {isNonToday && (
             <div style={{ padding: '10px 14px', background: '#fff7ed', border: '1px dashed #f59e0b', borderRadius: 10, fontSize: 11, color: '#92400e', lineHeight: 1.6 }}>
@@ -303,7 +369,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      {['Time', 'Type', 'Description', 'Amount', 'Action'].map(h => (
+                      {['Time', 'Type', 'Account', 'Description', 'Amount', 'Action'].map(h => (
                         <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Amount' ? 'right' : h === 'Action' ? 'center' : 'left', fontWeight: 700, fontSize: 10, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{h}</th>
                       ))}
                     </tr>
@@ -316,6 +382,9 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
                         <td style={{ padding: '10px 14px', fontWeight: 600 }}>{e.Time || '-'}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: e.Type === 'Income' ? '#E6F4EA' : '#FCE8E6', color: e.Type === 'Income' ? '#137333' : '#C5221F', border: e.Type === 'Income' ? '1px solid #C4EED0' : '1px solid #FAD2CF' }}>{e.Type}</span>
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                          {e.Account_Name || '-'}
                         </td>
                         <td style={{ padding: '10px 14px' }}>{e.Description}</td>
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: e.Type === 'Income' ? '#137333' : '#C5221F' }}>{fmtPkr(e.Amount)}</td>

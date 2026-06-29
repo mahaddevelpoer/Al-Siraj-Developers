@@ -97,6 +97,16 @@ function isCurrentAccountantContext() {
   }
 }
 
+function getCurrentAccountantTown() {
+  try {
+    const ctx = storageSync.getSyncContext() || {};
+    if (String(ctx.role || '').toLowerCase() !== 'accountant') return '';
+    return String(ctx.accountantTown || ctx.town_name || ctx.town_id || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
 function getAppIconPath() {
   return path.join(__dirname, '../../public/favicon.ico');
 }
@@ -491,10 +501,18 @@ app.whenReady().then(async () => {
     try {
       const created = await upsertDueInstallmentNotifications({ leadDays: 7 });
       if (!Array.isArray(created) || created.length === 0) return;
+      const accountantTown = getCurrentAccountantTown();
+      const scoped = accountantTown
+        ? created.filter((row) => String(row.Town_Name || '') === accountantTown)
+        : created;
+      if (!scoped.length) return;
 
-      const first = created[0];
-      const title = first.Type === 'Overdue' ? 'Overdue Installment' : 'Due Installment';
-      const body = first.Message || `Installment reminder (${first.Town_Name || ''})`.trim();
+      const first = scoped[0];
+      const overdue = scoped.filter((row) => row.Type === 'Overdue').length;
+      const title = overdue ? `${overdue} Overdue Installment(s)` : `${scoped.length} Due Installment(s)`;
+      const body = scoped.length === 1
+        ? (first.Message || `Installment reminder (${first.Town_Name || ''})`.trim())
+        : `${first.Town_Name || accountantTown || 'Town'} has ${scoped.length} due/overdue installment reminders.`;
 
       if (isCurrentAccountantContext()) new Notification({ title, body, icon: getAppIconPath() }).show();
     } catch (_) {

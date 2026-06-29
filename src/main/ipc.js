@@ -18,7 +18,9 @@ const businessExtras = require('./db/businessExtras');
 const townMapDb = require('./db/townMap');
 const accountantAuth = require('./db/accountantAuth');
 const pendingSync = require('./db/pendingSync');
-const { buildTownLedgerReport, exportTownLedgerReport } = require('./db/townReport');
+const mediaLibrary = require('./db/mediaLibrary');
+const { getGlobalsPath } = require('./db/core');
+const { buildTownLedgerReport, exportTownLedgerReport, buildDueInstallmentsReport, exportDueInstallmentsReport } = require('./db/townReport');
 
 let _windowGetter = null;
 let _queuedUploadTimer = null;
@@ -46,6 +48,20 @@ function sendCloudDataRefreshed(detail = {}) {
   const win = getActiveWindow();
   if (win && !win.isDestroyed()) {
     try { win.webContents.send('cloud-data-refreshed', { at: new Date().toISOString(), ...detail }); } catch {}
+  }
+}
+
+function sendCloudUploadProgress(percent, msg, detail = {}) {
+  const win = getActiveWindow();
+  if (win && !win.isDestroyed()) {
+    try {
+      win.webContents.send('sync-progress-to-cloud', {
+        percent: Math.max(0, Math.min(100, Number(percent) || 0)),
+        msg,
+        background: true,
+        ...detail,
+      });
+    } catch {}
   }
 }
 
@@ -82,6 +98,59 @@ async function renderHtmlReportToPdf(htmlPath) {
   }
 }
 
+function reportSafePart(value) {
+  return String(value || 'report')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 80);
+}
+
+function reportEscape(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function reportMoney(value) {
+  return `PKR ${(Number(value) || 0).toLocaleString()}`;
+}
+
+function buildPropertyReceiptArchive(data = {}, mode = 'property_sale') {
+  const type = data.type || data.Type || '';
+  const number = data.number || data.Plot_Shop_Number || '';
+  const townName = data.townName || data.Town_Name || '';
+  const totalAmount = parseFloat(data.Deal_Amount_PKR ?? data.Resell_Amount ?? data.Total_Amount_PKR) || 0;
+  const advanceAmount = parseFloat(data.Advance_Amount_PKR ?? data.Received_Amount) || 0;
+  const remainingAmount = Math.max(0, totalAmount - advanceAmount);
+  const date = data.Sell_Date || data.Resell_Date || new Date().toISOString().split('T')[0];
+  const receiptNumber = data.Receipt_Number || '';
+  return {
+    Receipt_ID: `${mode}-${String(receiptNumber || `${type}-${number}-${townName}`).replace(/[^a-zA-Z0-9]/g, '').slice(0, 48)}`,
+    Receipt_Number: receiptNumber,
+    Receipt_Type: mode,
+    Town_Name: townName,
+    Entity_ID: data.Sale_ID || `${type}|${number}|${townName}`,
+    Entity_Name: data.Customer_Name || '',
+    Amount: advanceAmount,
+    Receipt_Date: date,
+    Payload_JSON: JSON.stringify({
+      type: mode,
+      townName,
+      propertyType: type,
+      propertyNumber: number,
+      customerName: data.Customer_Name || '',
+      phoneNumber: data.Phone_Number || '',
+      totalAmount,
+      advanceAmount,
+      remainingAmount,
+      paymentMethod: data.Payment_Method || 'Cash',
+      receiptNumber,
+    }),
+  };
+}
+
 function scheduleQueuedFileUpload(delayMs = 3000) {
   storage.queueAllLocalFiles();
 }
@@ -96,11 +165,14 @@ function scheduleQueuedCloudSync(delayMs = 1500) {
     }
     _cloudSyncInFlight = true;
     try {
-      await performFullSyncUp(() => {});
+      sendCloudUploadProgress(2, 'Checking pending local Excel changes...');
+      await performFullSyncUp((percent, msg) => sendCloudUploadProgress(percent, msg));
       await pendingSync.markAllPendingSynced();
+      sendCloudUploadProgress(100, 'Local Excel changes saved to database');
       sendCloudDataRefreshed({ source: 'queued-cloud-sync' });
       scheduleCloudDownload(900);
     } catch (e) {
+      await pendingSync.markPendingAttemptFailed(e).catch(() => {});
       sendSyncWarning('Cloud database sync error: ' + (e.message || 'Unknown'));
     } finally {
       _cloudSyncInFlight = false;
@@ -197,6 +269,17 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
         excelPath: exported.excelPath,
         summary: exported.report?.summary || {},
       });
+      await mediaLibrary.recordMediaItem({
+        townName,
+        type: 'daily_ledger_receipt',
+        title: `${townName} daily ledger receipt ${date}`,
+        pdfPath: pdfPath || '',
+        excelPath: exported.excelPath || '',
+        htmlPath: exported.htmlPath || '',
+        reportDate: date,
+        fromDate: date,
+        toDate: date,
+      }).catch(() => {});
     } catch (e) {
       failed.push({ townName, error: e.message || 'Receipt generation failed' });
     }
@@ -623,7 +706,12 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-town-details', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getTownDetails(town), () => onlineDb.findOne('towns', { Town_Name: town })); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-town-prices', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getTownPrices(town), () => onlineDb.findOne('towns', { Town_Name: town })); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-town-prices', async (_, townName) => {
+    try {
+      const town = scopedTown(townName, true);
+      return await getTownPrices(town);
+    } catch(e) { return { error: e.message }; }
+  });
   ipcMain.handle('set-town-prices', async (_, townName, prices) => {
     try {
       if (!isNonEmpty(townName)) throw new Error('Town name is required');
@@ -741,7 +829,15 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertTownAccess(data.townName);
       if (!isNonEmpty(data.Customer_Name)) throw new Error('Customer_Name is required');
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
-      return await syncOnline(() => sellProperty(data), () => onlineDb.sellProperty(data));
+      return await syncOnline(
+        () => sellProperty(data),
+        async () => {
+          const result = await onlineDb.sellProperty(data);
+          if (data.Receipt_Number) await onlineDb.insert('receipt_archive', buildPropertyReceiptArchive(data, 'property_sale'));
+          return result;
+        },
+        { tableName: 'all_sales', operation: 'insert', payload: data }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('cancel-deal', async (_, data) => {
@@ -825,7 +921,15 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(data.townName)) throw new Error('Town name is required');
       assertTownAccess(data.townName);
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
-      return await syncOnline(() => resellProperty(data), () => onlineDb.resellProperty(data));
+      return await syncOnline(
+        () => resellProperty(data),
+        async () => {
+          const result = await onlineDb.resellProperty(data);
+          if (data.Receipt_Number) await onlineDb.insert('receipt_archive', buildPropertyReceiptArchive(data, 'property_resell'));
+          return result;
+        },
+        { tableName: 'resell_history', operation: 'insert', payload: data }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-resell-history', async () => { try { const rows = await dataLayer.read(() => getResellHistory(), () => onlineDb.getAll('resell_history')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
@@ -923,9 +1027,9 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   // Dashboard
   ipcMain.handle('get-dashboard-stats', async () => { try { return await dataLayer.read(() => getDashboardStats(), () => onlineDb.getDashboardStats()); } catch(e) { return { error: e.message }; } });
 
-  ipcMain.handle('local-accountant-login', async (_, { email, password } = {}) => {
+  ipcMain.handle('local-accountant-login', async (_, { email, password, adminPassword } = {}) => {
     try {
-      const profile = accountantAuth.login(dbPath, email, password);
+      const profile = accountantAuth.login(dbPath, email, password, adminPassword);
       storage.setSyncContext({
         role: 'accountant',
         userId: profile.id,
@@ -1034,6 +1138,21 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const result = await performFullSyncUp(sendProgress);
       await pendingSync.markAllPendingSynced();
       return { success: true, ...result };
+    } catch(e) {
+      await pendingSync.markPendingAttemptFailed(e).catch(() => {});
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('get-pending-sync-status', async () => {
+    try {
+      const rows = await pendingSync.getPendingSyncRows();
+      const byTable = {};
+      for (const row of rows) {
+        const table = String(row.Table_Name || 'unknown');
+        byTable[table] = (byTable[table] || 0) + 1;
+      }
+      return { success: true, count: rows.length, byTable };
     } catch(e) { return { error: e.message }; }
   });
 
@@ -1081,7 +1200,133 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const town = scopedTown(params.townName, true);
       const result = await exportTownLedgerReport({ ...params, townName: town });
       const pdfPath = await renderHtmlReportToPdf(result.htmlPath);
+      await mediaLibrary.recordMediaItem({
+        townName: town,
+        type: 'ledger_report',
+        title: `${town} ledger report ${params.fromDate || ''} to ${params.toDate || ''}`.trim(),
+        pdfPath,
+        excelPath: result.excelPath,
+        htmlPath: result.htmlPath,
+        fromDate: params.fromDate || '',
+        toDate: params.toDate || '',
+      });
       return { ...result, pdfPath };
+    } catch(e) { return { error: e.message }; }
+  });
+  ipcMain.handle('export-account-ledger-report', async (_, params = {}) => {
+    try {
+      const town = scopedTown(params.townName, true);
+      const account = params.account || {};
+      const accountName = String(account.name || params.accountName || '').trim();
+      if (!accountName) throw new Error('Account name is required');
+      const fromDate = params.fromDate || '';
+      const toDate = params.toDate || '';
+      const rows = Array.isArray(account.rows) ? account.rows : [];
+      const reportsDir = path.join(getGlobalsPath(), 'Reports', reportSafePart(town), 'Accounts');
+      fs.mkdirSync(reportsDir, { recursive: true });
+      const base = `${reportSafePart(accountName)}_${fromDate || 'from'}_${toDate || 'to'}_${Date.now()}`;
+      const htmlPath = path.join(reportsDir, `${base}.html`);
+      const rowsHtml = rows.length ? rows.map((row) => {
+        const label = row.date || row.Date || row.property || row.name || account.type || '';
+        const amount = row.amount || row.received || row.paid || row.remaining || 0;
+        const note = row.description || row.receiptNumber || row.receipt_number || row.property || '';
+        return `<tr><td>${reportEscape(label)}</td><td>${reportEscape(note)}</td><td>${reportMoney(amount)}</td></tr>`;
+      }).join('') : '<tr><td colspan="3">No ledger rows in this range</td></tr>';
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>${reportEscape(accountName)} Account Report</title><style>
+body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h1{margin:0 0 4px;font-size:24px}.meta{color:#64748b;margin-bottom:18px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px}.card span{display:block;font-size:11px;color:#64748b;text-transform:uppercase}.card strong{font-size:18px}table{width:100%;border-collapse:collapse;background:#fff;margin-top:16px}th,td{border:1px solid #e5e7eb;padding:8px;text-align:left;font-size:12px}th{background:#eff6ff}@media print{body{background:#fff;margin:12mm}.cards{grid-template-columns:1fr 1fr 1fr}}</style></head><body>
+<h1>AL SIRAJ DEVELOPERS - Account Ledger Report</h1>
+<div class="meta">${reportEscape(town)} | ${reportEscape(account.type || 'Account')} | ${reportEscape(accountName)} | ${reportEscape(fromDate)} to ${reportEscape(toDate)} | Generated ${new Date().toLocaleString()}</div>
+<div class="cards"><div class="card"><span>Total Received</span><strong>${reportMoney(account.received)}</strong></div><div class="card"><span>Total Paid</span><strong>${reportMoney(account.paid)}</strong></div><div class="card"><span>Balance</span><strong>${reportMoney(account.balance)}</strong></div></div>
+<table><thead><tr><th>Date / Source</th><th>Detail</th><th>Amount</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+</body></html>`;
+      fs.writeFileSync(htmlPath, html, 'utf8');
+      const pdfPath = await renderHtmlReportToPdf(htmlPath);
+      await mediaLibrary.recordMediaItem({
+        townName: town,
+        type: 'account_report',
+        title: `${accountName} account report`,
+        accountName,
+        pdfPath,
+        htmlPath,
+        fromDate,
+        toDate,
+      });
+      return { success: true, htmlPath, pdfPath };
+    } catch(e) { return { error: e.message }; }
+  });
+  ipcMain.handle('get-due-installments-report', async (_, params = {}) => {
+    try {
+      const town = params.townName ? scopedTown(params.townName, true) : scopedTown('', false);
+      return await buildDueInstallmentsReport({ ...params, townName: town || params.townName || '' });
+    } catch(e) { return { error: e.message }; }
+  });
+  ipcMain.handle('export-due-installments-report', async (_, params = {}) => {
+    try {
+      const town = params.townName ? scopedTown(params.townName, true) : scopedTown('', false);
+      const result = await exportDueInstallmentsReport({ ...params, townName: town || params.townName || '' });
+      const pdfPath = await renderHtmlReportToPdf(result.htmlPath);
+      await mediaLibrary.recordMediaItem({
+        townName: town || params.townName || '',
+        type: 'due_installments',
+        title: `Due installment report ${params.fromDate || ''} to ${params.toDate || ''}`.trim(),
+        pdfPath,
+        excelPath: result.excelPath,
+        htmlPath: result.htmlPath,
+        fromDate: params.fromDate || '',
+        toDate: params.toDate || '',
+      });
+      return { ...result, pdfPath };
+    } catch(e) { return { error: e.message }; }
+  });
+  ipcMain.handle('get-media-library', async (_, params = {}) => {
+    try {
+      const town = params.townName ? scopedTown(params.townName, true) : scopedTown('', false);
+      return await mediaLibrary.getMediaLibrary({ ...params, townName: town || params.townName || '' });
+    } catch(e) { return { error: e.message }; }
+  });
+  ipcMain.handle('export-receipt-archive-pdf', async (_, params = {}) => {
+    try {
+      const receipt = params.receipt || {};
+      const receiptNumber = String(receipt.Receipt_Number || params.receiptNumber || '').trim();
+      if (!receiptNumber) throw new Error('Receipt number is required');
+      const town = params.townName ? scopedTown(params.townName, true) : String(receipt.Town_Name || params.townName || '');
+      const reportsDir = path.join(getGlobalsPath(), 'Reports', reportSafePart(town || 'Global'), 'Receipts');
+      fs.mkdirSync(reportsDir, { recursive: true });
+      const htmlPath = path.join(reportsDir, `${reportSafePart(receiptNumber)}_${Date.now()}.html`);
+      let payload = {};
+      try { payload = JSON.parse(receipt.Payload_JSON || '{}'); } catch (_) {}
+      const payloadRows = Object.entries(payload || {}).map(([key, value]) =>
+        `<tr><td>${reportEscape(key)}</td><td>${reportEscape(typeof value === 'object' ? JSON.stringify(value) : value)}</td></tr>`
+      ).join('');
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>${reportEscape(receiptNumber)}</title><style>
+body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h1{margin:0 0 4px;font-size:24px}.meta{color:#64748b;margin-bottom:18px}.box{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:14px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #e5e7eb;padding:8px 0}.row span{color:#64748b}.row b{color:#111827}table{width:100%;border-collapse:collapse;background:#fff;margin-top:12px}td,th{border:1px solid #e5e7eb;padding:8px;font-size:12px;text-align:left}th{background:#eff6ff}.sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:46px}.sig{border-top:1px solid #111827;padding-top:8px;text-align:center;font-weight:bold}@media print{body{background:#fff;margin:12mm}}</style></head><body>
+<h1>AL SIRAJ DEVELOPERS - Receipt</h1>
+<div class="meta">${reportEscape(town || receipt.Town_Name || '')} | Generated ${new Date().toLocaleString()}</div>
+<div class="box">
+<div class="row"><span>Receipt No</span><b>${reportEscape(receiptNumber)}</b></div>
+<div class="row"><span>Type</span><b>${reportEscape(receipt.Receipt_Type || '')}</b></div>
+<div class="row"><span>Entity</span><b>${reportEscape(receipt.Entity_Name || receipt.Entity_ID || '')}</b></div>
+<div class="row"><span>Date</span><b>${reportEscape(receipt.Receipt_Date || '')}</b></div>
+<div class="row"><span>Amount</span><b>${reportMoney(receipt.Amount)}</b></div>
+</div>
+<h2>Details</h2>
+<table><tbody>${payloadRows || '<tr><td colspan="2">No additional details saved</td></tr>'}</tbody></table>
+<div class="sign"><div class="sig">Accountant Signature</div><div class="sig">Receiver Signature</div></div>
+</body></html>`;
+      fs.writeFileSync(htmlPath, html, 'utf8');
+      const pdfPath = await renderHtmlReportToPdf(htmlPath);
+      await mediaLibrary.recordMediaItem({
+        townName: town || receipt.Town_Name || '',
+        type: receipt.Receipt_Type || 'receipt',
+        title: `${receiptNumber} receipt`,
+        accountName: receipt.Entity_Name || '',
+        propertyNumber: receipt.Entity_ID || '',
+        receiptNumber,
+        pdfPath,
+        htmlPath,
+        reportDate: receipt.Receipt_Date || new Date().toISOString().slice(0, 10),
+      });
+      return { success: true, pdfPath, htmlPath };
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('open-report-file', async (_, filePath) => {

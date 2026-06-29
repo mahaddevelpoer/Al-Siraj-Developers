@@ -63,6 +63,11 @@ contextBridge.exposeInMainWorld('api', {
   getTownPerformance: (townName) => ipcRenderer.invoke('get-town-performance', townName),
   getTownLedgerReport: (params) => ipcRenderer.invoke('get-town-ledger-report', params),
   exportTownLedgerReport: (params) => ipcRenderer.invoke('export-town-ledger-report', params),
+  exportAccountLedgerReport: (params) => ipcRenderer.invoke('export-account-ledger-report', params),
+  getDueInstallmentsReport: (params) => ipcRenderer.invoke('get-due-installments-report', params),
+  exportDueInstallmentsReport: (params) => ipcRenderer.invoke('export-due-installments-report', params),
+  getMediaLibrary: (params) => ipcRenderer.invoke('get-media-library', params),
+  exportReceiptArchivePdf: (params) => ipcRenderer.invoke('export-receipt-archive-pdf', params),
   openReportFile: (filePath) => ipcRenderer.invoke('open-report-file', filePath),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   getDevConfig: () => ipcRenderer.invoke('get-dev-config'),
@@ -146,6 +151,7 @@ contextBridge.exposeInMainWorld('api', {
   configureFileSyncContext: (context) => ipcRenderer.invoke('configure-file-sync-context', context),
   syncFromCloud: () => ipcRenderer.invoke('sync-from-cloud'),
   syncToCloud: () => ipcRenderer.invoke('sync-to-cloud'),
+  getPendingSyncStatus: () => ipcRenderer.invoke('get-pending-sync-status'),
   generateDailyTownReceipts: (date) => ipcRenderer.invoke('generate-daily-town-receipts', date),
   onSyncProgress: (callback) => {
     try { ipcRenderer.removeAllListeners('sync-progress'); } catch {}

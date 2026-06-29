@@ -153,6 +153,11 @@ export default function AccountingReports({ townName, showToast }) {
 
   const tabs = [
     { key: 'accounts', label: 'Chart / Account List' },
+    { key: 'transactions', label: 'Debit / Credit Rows' },
+    { key: 'individuals', label: 'Individual Ledgers' },
+    { key: 'groups', label: 'Group Ledgers' },
+    { key: 'overall', label: 'Overall' },
+    { key: 'receipts', label: 'Receipts' },
     { key: 'trial', label: 'Trial Balance' },
     { key: 'recovery', label: 'Recovery List' },
     { key: 'scheme', label: 'Scheme Summary' },
@@ -204,6 +209,89 @@ export default function AccountingReports({ townName, showToast }) {
               { key: 'credit', label: 'Credit', render: (r) => pkr(r.credit) },
             ]}
             rows={accountList}
+          />
+        ) : active === 'transactions' ? (
+          <ReportTable
+            empty="No debit/credit rows for selected dates."
+            columns={[
+              { key: 'date', label: 'Date' },
+              { key: 'direction', label: 'Side' },
+              { key: 'amount', label: 'Amount', render: (r) => pkr(r.amount) },
+              { key: 'debitAccount', label: 'Debit' },
+              { key: 'creditAccount', label: 'Credit' },
+              { key: 'partyName', label: 'Party' },
+              { key: 'description', label: 'Description' },
+              { key: 'receiptNumber', label: 'Receipt' },
+            ]}
+            rows={(report?.ledger || []).map((row, index) => ({ ...row, id: `tx-${index}` }))}
+          />
+        ) : active === 'individuals' ? (
+          <ReportTable
+            empty="No individual ledger rows for selected dates."
+            columns={[
+              { key: 'type', label: 'Type' },
+              { key: 'name', label: 'Name' },
+              { key: 'credit', label: 'Credit', render: (r) => pkr(r.credit) },
+              { key: 'debit', label: 'Debit', render: (r) => pkr(r.debit) },
+              { key: 'balance', label: 'Balance', render: (r) => pkr(r.balance) },
+              { key: 'detail', label: 'Detail' },
+            ]}
+            rows={[
+              ...(report?.customerLedgers || []).map((r, i) => ({ id: `cust-${i}`, type: 'Customer', name: r.customer || r.property, credit: r.received, debit: 0, balance: r.remaining, detail: r.property })),
+              ...(report?.employeeLedgers || []).map((r, i) => ({ id: `emp-${i}`, type: 'Employee', name: r.name, credit: 0, debit: r.cashDisbursed, balance: r.remaining, detail: `${r.payments} payment(s)` })),
+              ...(report?.agentLedgers || []).map((r, i) => ({ id: `agent-${i}`, type: 'Agent', name: r.name, credit: r.earned, debit: r.paid, balance: r.remaining, detail: `${r.receiptsInRange} receipt(s)` })),
+              ...(report?.investorLedgers || []).map((r, i) => ({ id: `inv-${i}`, type: 'Investor', name: r.name, credit: r.credit, debit: r.debit, balance: r.balance, detail: `${r.transactions} transaction(s)` })),
+              ...(report?.constructionLedgers || []).map((r, i) => ({ id: `const-${i}`, type: 'Construction', name: r.constructor, credit: r.dealAmount, debit: r.paid, balance: r.remaining, detail: r.category })),
+            ]}
+          />
+        ) : active === 'groups' ? (
+          <ReportTable
+            empty="No group ledger rows for selected dates."
+            columns={[
+              { key: 'group', label: 'Group' },
+              { key: 'credit', label: 'Credit / Earned', render: (r) => pkr(r.credit) },
+              { key: 'debit', label: 'Debit / Paid', render: (r) => pkr(r.debit) },
+              { key: 'balance', label: 'Balance', render: (r) => pkr(r.balance) },
+              { key: 'rows', label: 'Rows' },
+            ]}
+            rows={[
+              { id: 'customers', group: 'Customers', credit: summary.totalReceived, debit: 0, balance: summary.receivable, rows: report?.customerLedgers?.length || 0 },
+              ...(report?.employeeGroupLedgers || []).map((r, i) => ({ id: `eg-${i}`, group: r.group, credit: 0, debit: r.cashDisbursed, balance: r.remaining, rows: r.people })),
+              ...(report?.agentGroupLedgers || []).map((r, i) => ({ id: `ag-${i}`, group: r.group, credit: r.earned, debit: r.paidInRange || r.paid, balance: r.remaining, rows: r.agents })),
+              { id: 'investors', group: 'Investors', credit: summary.investorCredit, debit: summary.investorDebit, balance: summary.investorCredit - summary.investorDebit, rows: report?.investorLedgers?.length || 0 },
+              { id: 'construction', group: 'Construction', credit: 0, debit: summary.constructionPaid, balance: 0, rows: report?.constructionLedgers?.length || 0 },
+            ]}
+          />
+        ) : active === 'overall' ? (
+          <ReportTable
+            empty="No overall data for selected dates."
+            columns={[
+              { key: 'metric', label: 'Metric' },
+              { key: 'value', label: 'Value' },
+            ]}
+            rows={[
+              { metric: 'Total Received', value: pkr(summary.totalReceived) },
+              { metric: 'Total Paid / Expenses', value: pkr(summary.totalPaid) },
+              { metric: 'Cash Balance', value: pkr(summary.cashBalance) },
+              { metric: 'Receivable', value: pkr(summary.receivable) },
+              { metric: 'Payable', value: pkr(summary.payable) },
+              { metric: 'Investor Credit', value: pkr(summary.investorCredit) },
+              { metric: 'Investor Debit', value: pkr(summary.investorDebit) },
+              { metric: 'Construction Paid', value: pkr(summary.constructionPaid) },
+            ]}
+          />
+        ) : active === 'receipts' ? (
+          <ReportTable
+            empty="No receipts saved in selected dates."
+            columns={[
+              { key: 'receiptDate', label: 'Date' },
+              { key: 'receiptNumber', label: 'Receipt #' },
+              { key: 'receiptType', label: 'Type' },
+              { key: 'entityName', label: 'Party' },
+              { key: 'amount', label: 'Amount', render: (r) => pkr(r.amount) },
+              { key: 'entityId', label: 'Source ID' },
+            ]}
+            rows={(report?.receiptArchive || []).map((row, index) => ({ ...row, id: row.receiptNumber || `receipt-${index}` }))}
           />
         ) : active === 'trial' ? (
           <ReportTable

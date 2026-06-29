@@ -1,697 +1,272 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  CheckIcon,
-  CrossIcon,
-  EditIcon,
-  PlusIcon,
-  SaveIcon,
-  SearchIcon,
-  TrashIcon,
-} from './Icons';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-const VIEW_W = 1200;
-const VIEW_H = 800;
-const GRID_EXTENT = 6000;
-
-const defaultStyle = {
-  plot: { stroke: '#0f172a', strokeWidth: 2 },
-  shop: { stroke: '#4c1d95', strokeWidth: 2 },
-  road: { stroke: '#64748b' },
-  boundary: { stroke: '#f8fafc', strokeWidth: 5 },
-  label: { fill: '#111827' },
-};
-
-function makeId() {
-  return `shape-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function normalizeStatus(value) {
-  const clean = String(value || 'available').toLowerCase();
-  if (clean.includes('sold')) return 'sold';
-  if (clean.includes('reserve') || clean.includes('book')) return 'reserved';
-  return 'available';
-}
+const money = (value) => `PKR ${(Number(value) || 0).toLocaleString()}`;
 
 function propertyKey(type, number) {
   return `${String(type || '').toLowerCase()}::${String(number || '').trim().toLowerCase()}`;
 }
 
-function shapeDisplayStatus(shape, property) {
-  if (property) return normalizeStatus(property.Status || property.status);
-  return normalizeStatus(shape.status);
-}
-
-function fillFor(status, type) {
-  if (type === 'road') return 'none';
-  if (type === 'label') return '#e5e7eb';
-  if (status === 'sold') return '#ef4444';
-  if (status === 'reserved') return '#f59e0b';
-  return type === 'shop' ? '#38bdf8' : '#22c55e';
-}
-
-function strokeFor(shape, status) {
-  if (status === 'sold') return '#991b1b';
-  if (status === 'reserved') return '#92400e';
-  return shape.style?.stroke || defaultStyle[shape.type]?.stroke || '#111827';
-}
-
-function toNumber(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function createShape(type, count) {
-  const base = {
-    id: makeId(),
-    type,
-    status: 'available',
-    label: `${type === 'shop' ? 'Shop' : type === 'road' ? 'Road' : type === 'boundary' ? 'Boundary' : type === 'label' ? 'Label' : 'Plot'} ${count}`,
-    propertyType: '',
-    propertyNumber: '',
-    style: defaultStyle[type] || {},
-    sortOrder: count,
-  };
-  if (type === 'road') {
-    return { ...base, geometry: { kind: 'line', x1: 180, y1: 360, x2: 760, y2: 360, strokeWidth: 24 } };
-  }
-  if (type === 'boundary') {
-    return { ...base, geometry: { kind: 'polyline', points: [], strokeWidth: 5 }, status: 'boundary' };
-  }
-  if (type === 'label') {
-    return { ...base, geometry: { kind: 'text', x: 360, y: 180, fontSize: 30 } };
-  }
+function normalizeProperty(row, type) {
+  const number = row?.Property_Number || row?.Plot_Number || row?.Shop_Number || row?.number || '';
   return {
-    ...base,
-    geometry: {
-      kind: 'rect',
-      x: type === 'shop' ? 520 : 460,
-      y: type === 'shop' ? 320 : 280,
-      width: type === 'shop' ? 90 : 135,
-      height: type === 'shop' ? 58 : 85,
-    },
+    ...row,
+    Property_Type: row?.Property_Type || type,
+    Property_Number: number,
+    Property_Category: row?.Property_Category || row?.Category || row?.property_category || 'Residential',
+    Status: row?.Status || row?.status || 'Available',
   };
 }
 
-function SvgMapCanvas({
-  shapes,
-  propertiesByKey,
-  selectedId,
-  onSelect,
-  onMoveShape,
-  zoom,
-  pan,
-  setPan,
-  setZoom,
-  mode = 'overview',
-  variant = 'full',
-  drawingBoundaryId = null,
-  onAddBoundaryPoint,
-}) {
-  const svgRef = useRef(null);
-  const dragRef = useRef(null);
-  const panRef = useRef(null);
-
-  const point = (event) => {
-    const svg = svgRef.current;
-    const rect = svg.getBoundingClientRect();
-    const viewX = ((event.clientX - rect.left) / rect.width) * VIEW_W;
-    const viewY = ((event.clientY - rect.top) / rect.height) * VIEW_H;
-    return {
-      x: (viewX - pan.x) / zoom,
-      y: (viewY - pan.y) / zoom,
-    };
-  };
-
-  const viewPoint = (event) => {
-    const svg = svgRef.current;
-    const rect = svg.getBoundingClientRect();
-    return {
-      x: ((event.clientX - rect.left) / rect.width) * VIEW_W,
-      y: ((event.clientY - rect.top) / rect.height) * VIEW_H,
-    };
-  };
-
-  const onMouseMove = (event) => {
-    if (dragRef.current && mode === 'designer') {
-      const p = point(event);
-      const { id, start, original } = dragRef.current;
-      onMoveShape(id, p.x - start.x, p.y - start.y, original);
-    } else if (panRef.current) {
-      const v = viewPoint(event);
-      setPan({
-        x: panRef.current.origin.x + (v.x - panRef.current.start.x),
-        y: panRef.current.origin.y + (v.y - panRef.current.start.y),
-      });
-    }
-  };
-
-  const stopDrag = () => {
-    dragRef.current = null;
-    panRef.current = null;
-  };
-
-  return (
-    <div
-      className={`town-map-canvas-wrap ${variant === 'hero' ? 'town-map-canvas-wrap--hero' : ''}`}
-      onMouseMove={onMouseMove}
-      onMouseUp={stopDrag}
-      onMouseLeave={stopDrag}
-    >
-      {variant !== 'hero' && <div className="town-map-world-hud">
-        <span>Zoom {Math.round(zoom * 100)}%</span>
-        <span>X {Math.round(-pan.x / zoom)}</span>
-        <span>Y {Math.round(-pan.y / zoom)}</span>
-      </div>}
-      <svg
-        ref={svgRef}
-        className="town-map-svg"
-        viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-        onWheel={(event) => {
-          if (!setZoom) return;
-          event.preventDefault();
-          const before = point(event);
-          const factor = event.deltaY > 0 ? 0.88 : 1.14;
-          const nextZoom = Math.max(0.15, Math.min(6, zoom * factor));
-          const v = viewPoint(event);
-          setZoom(nextZoom);
-          setPan({
-            x: v.x - before.x * nextZoom,
-            y: v.y - before.y * nextZoom,
-          });
-        }}
-        onMouseDown={(e) => {
-          if (e.target === svgRef.current) {
-            if (drawingBoundaryId && mode === 'designer') {
-              onAddBoundaryPoint?.(drawingBoundaryId, point(e));
-              return;
-            }
-            const v = viewPoint(e);
-            panRef.current = {
-              start: { x: v.x, y: v.y },
-              origin: { ...pan },
-            };
-            onSelect?.(null);
-          }
-        }}
-      >
-        <rect x="0" y="0" width={VIEW_W} height={VIEW_H} fill="#050816" />
-        <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
-          <rect x={-GRID_EXTENT} y={-GRID_EXTENT} width={GRID_EXTENT * 2} height={GRID_EXTENT * 2} fill="#050816" />
-          {[...Array((GRID_EXTENT * 2) / 50 + 1)].map((_, i) => {
-            const x = -GRID_EXTENT + i * 50;
-            return <line key={`v-${i}`} x1={x} y1={-GRID_EXTENT} x2={x} y2={GRID_EXTENT} stroke={x === 0 ? '#475569' : '#172033'} strokeWidth={x === 0 ? 2 : 1} />;
-          })}
-          {[...Array((GRID_EXTENT * 2) / 50 + 1)].map((_, i) => {
-            const y = -GRID_EXTENT + i * 50;
-            return <line key={`h-${i}`} x1={-GRID_EXTENT} y1={y} x2={GRID_EXTENT} y2={y} stroke={y === 0 ? '#475569' : '#172033'} strokeWidth={y === 0 ? 2 : 1} />;
-          })}
-          {[...Array((GRID_EXTENT * 2) / 250 + 1)].map((_, i) => {
-            const x = -GRID_EXTENT + i * 250;
-            return <line key={`major-v-${i}`} x1={x} y1={-GRID_EXTENT} x2={x} y2={GRID_EXTENT} stroke="#243045" strokeWidth="1.5" />;
-          })}
-          {[...Array((GRID_EXTENT * 2) / 250 + 1)].map((_, i) => {
-            const y = -GRID_EXTENT + i * 250;
-            return <line key={`major-h-${i}`} x1={-GRID_EXTENT} y1={y} x2={GRID_EXTENT} y2={y} stroke="#243045" strokeWidth="1.5" />;
-          })}
-          <circle cx="0" cy="0" r="5" fill="#60a5fa" />
-          {shapes.map((shape) => {
-            if (shape.type === 'viewport') return null;
-            const property = propertiesByKey.get(propertyKey(shape.propertyType, shape.propertyNumber));
-            const status = shapeDisplayStatus(shape, property);
-            const selected = selectedId === shape.id;
-            const common = {
-              onMouseDown: (event) => {
-                event.stopPropagation();
-                onSelect?.(shape.id);
-                if (mode === 'designer') {
-                  dragRef.current = {
-                    id: shape.id,
-                    start: point(event),
-                    original: JSON.parse(JSON.stringify(shape.geometry || {})),
-                  };
-                }
-              },
-              style: { cursor: mode === 'designer' ? 'move' : 'pointer' },
-            };
-
-            if (shape.type === 'road') {
-              const g = shape.geometry || {};
-              return (
-                <g key={shape.id} {...common} className="town-map-shape">
-                  <title>{shape.label}</title>
-                  <line
-                    x1={toNumber(g.x1)}
-                    y1={toNumber(g.y1)}
-                    x2={toNumber(g.x2, 300)}
-                    y2={toNumber(g.y2, 300)}
-                    stroke={shape.style?.stroke || '#64748b'}
-                    strokeWidth={toNumber(g.strokeWidth, 20)}
-                    strokeLinecap="round"
-                  />
-                  {selected && <line x1={toNumber(g.x1)} y1={toNumber(g.y1)} x2={toNumber(g.x2, 300)} y2={toNumber(g.y2, 300)} stroke="#60a5fa" strokeWidth={toNumber(g.strokeWidth, 20) + 8} opacity="0.26" strokeLinecap="round" />}
-                </g>
-              );
-            }
-
-            if (shape.type === 'boundary') {
-              const points = Array.isArray(shape.geometry?.points) ? shape.geometry.points : [];
-              const pointText = points.map((p) => `${toNumber(p.x)},${toNumber(p.y)}`).join(' ');
-              return (
-                <g key={shape.id} {...common} className="town-map-shape">
-                  <title>{shape.label}</title>
-                  <polyline
-                    points={pointText}
-                    fill="none"
-                    stroke={selected ? '#60a5fa' : (shape.style?.stroke || '#f8fafc')}
-                    strokeWidth={selected ? toNumber(shape.geometry?.strokeWidth, 5) + 2 : toNumber(shape.geometry?.strokeWidth, 5)}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  {points.map((p, idx) => (
-                    <circle
-                      key={`${shape.id}-p-${idx}`}
-                      cx={toNumber(p.x)}
-                      cy={toNumber(p.y)}
-                      r={selected ? 7 : 4}
-                      fill={idx === points.length - 1 && drawingBoundaryId === shape.id ? '#22c55e' : '#f8fafc'}
-                      stroke="#020617"
-                      strokeWidth="2"
-                    />
-                  ))}
-                </g>
-              );
-            }
-
-            if (shape.type === 'label') {
-              const g = shape.geometry || {};
-              return (
-                <text
-                  key={shape.id}
-                  {...common}
-                  x={toNumber(g.x)}
-                  y={toNumber(g.y)}
-                  fontSize={toNumber(g.fontSize, 24)}
-                  fontWeight="800"
-                  fill={shape.style?.fill || '#e5e7eb'}
-                >
-                  {shape.label}
-                </text>
-              );
-            }
-
-            const g = shape.geometry || {};
-            return (
-              <g key={shape.id} {...common} className="town-map-shape">
-                <title>{shape.label}</title>
-                <rect
-                  x={toNumber(g.x)}
-                  y={toNumber(g.y)}
-                  width={toNumber(g.width, 100)}
-                  height={toNumber(g.height, 70)}
-                  rx="8"
-                  fill={fillFor(status, shape.type)}
-                  opacity="0.92"
-                  stroke={selected ? '#60a5fa' : strokeFor(shape, status)}
-                  strokeWidth={selected ? 4 : toNumber(shape.style?.strokeWidth, 2)}
-                  filter="url(#townMapGlow)"
-                />
-                <text
-                  x={toNumber(g.x) + toNumber(g.width, 100) / 2}
-                  y={toNumber(g.y) + toNumber(g.height, 70) / 2 + 5}
-                  textAnchor="middle"
-                  fontSize="20"
-                  fontWeight="800"
-                  fill="#ffffff"
-                  pointerEvents="none"
-                >
-                  {shape.label}
-                </text>
-              </g>
-            );
-          })}
-          <defs>
-            <filter id="townMapGlow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#000000" floodOpacity="0.32" />
-            </filter>
-          </defs>
-        </g>
-      </svg>
-    </div>
-  );
+function saleKey(row) {
+  return propertyKey(row?.Type || row?.Property_Type, row?.Plot_Shop_Number || row?.Property_Number);
 }
 
-export default function TownMap({ townName, showToast, variant = 'full', initialMode = 'overview', readOnly = false }) {
-  const [mode, setMode] = useState(initialMode);
-  const [shapes, setShapes] = useState([]);
-  const [properties, setProperties] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('all');
+function dateState(rows) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const lead = new Date(today);
+  lead.setDate(lead.getDate() + 7);
+  let overdue = false;
+  let dueSoon = false;
+  rows.forEach((row) => {
+    const status = String(row?.Status || '').toLowerCase();
+    if (status === 'paid') return;
+    const due = new Date(row?.Due_Date || row?.due_date || '');
+    if (Number.isNaN(due.getTime())) return;
+    due.setHours(0, 0, 0, 0);
+    if (due < today) overdue = true;
+    else if (due <= lead) dueSoon = true;
+  });
+  return { overdue, dueSoon };
+}
+
+function toPercent(received, total, installmentRows) {
+  const paid = Number(received) || 0;
+  const amount = Number(total) || 0;
+  if (amount > 0) return Math.max(0, Math.min(100, (paid / amount) * 100));
+  const rows = installmentRows || [];
+  if (rows.length) {
+    const paidCount = rows.filter((r) => String(r?.Status || '').toLowerCase() === 'paid').length;
+    return Math.round((paidCount / rows.length) * 100);
+  }
+  return 0;
+}
+
+export default function TownMap({ townName, showToast, variant = 'full', onNavigate }) {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [zoom, setZoom] = useState(variant === 'hero' ? 0.82 : 1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [drawingBoundaryId, setDrawingBoundaryId] = useState(null);
+  const [properties, setProperties] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [installments, setInstallments] = useState([]);
+  const [resellHistory, setResellHistory] = useState([]);
+  const [receipts, setReceipts] = useState([]);
+  const [selectedKey, setSelectedKey] = useState('');
+  const [filter, setFilter] = useState('all');
 
-  useEffect(() => {
-    load();
-  }, [townName]);
-
-  const propertiesByKey = useMemo(() => {
-    const map = new Map();
-    properties.forEach((p) => map.set(propertyKey(p.Property_Type, p.Property_Number || p.Plot_Number || p.Shop_Number), p));
-    return map;
-  }, [properties]);
-
-  const selected = shapes.find((shape) => shape.id === selectedId) || null;
-  const visibleShapes = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return shapes.filter((shape) => {
-      const property = propertiesByKey.get(propertyKey(shape.propertyType, shape.propertyNumber));
-      const status = shapeDisplayStatus(shape, property);
-      const hay = `${shape.label} ${shape.type} ${shape.propertyType} ${shape.propertyNumber}`.toLowerCase();
-      return (filter === 'all' || status === filter || shape.type === 'road' || shape.type === 'label') &&
-        (!q || hay.includes(q));
-    });
-  }, [shapes, propertiesByKey, query, filter]);
-
-  async function load() {
+  const load = useCallback(async () => {
+    if (!townName) return;
     setLoading(true);
     try {
-      const [saved, plots, shops] = await Promise.all([
-        window.api.getTownMapShapes?.(townName),
+      const [plots, shops, allSales, allInstallments, allResell, archive] = await Promise.all([
         window.api.getAllPlots?.(townName),
         window.api.getAllShops?.(townName),
+        window.api.getAllSales?.(),
+        window.api.getInstallments?.(),
+        window.api.getResellHistory?.(),
+        window.api.getReceiptArchive?.({ townName }),
       ]);
-      if (saved?.error) throw new Error(saved.error);
-      const savedShapes = Array.isArray(saved) ? saved : [];
-      setShapes(savedShapes);
-      const viewport = savedShapes.find((shape) => shape.type === 'viewport');
-      if (viewport && variant === 'hero') {
-        setZoom(toNumber(viewport.geometry?.zoom, 0.82));
-        setPan({
-          x: toNumber(viewport.geometry?.panX, 0),
-          y: toNumber(viewport.geometry?.panY, 0),
-        });
-      }
-      setProperties([
-        ...(Array.isArray(plots) ? plots.map((p) => ({ ...p, Property_Type: 'Plot', Property_Number: p.Property_Number || p.Plot_Number })) : []),
-        ...(Array.isArray(shops) ? shops.map((s) => ({ ...s, Property_Type: 'Shop', Property_Number: s.Property_Number || s.Shop_Number })) : []),
-      ]);
-    } catch (e) {
-      showToast?.(`Town map load failed: ${e.message}`, 'error');
+      const rows = [
+        ...(Array.isArray(plots) ? plots.map((p) => normalizeProperty(p, 'Plot')) : []),
+        ...(Array.isArray(shops) ? shops.map((s) => normalizeProperty(s, 'Shop')) : []),
+      ];
+      setProperties(rows);
+      setSales((Array.isArray(allSales) ? allSales : []).filter((s) => String(s.Town_Name || '') === String(townName)));
+      setInstallments((Array.isArray(allInstallments) ? allInstallments : []).filter((i) => String(i.Town_Name || '') === String(townName)));
+      setResellHistory((Array.isArray(allResell) ? allResell : []).filter((r) => String(r.Town_Name || '') === String(townName)));
+      setReceipts(Array.isArray(archive) ? archive : []);
+    } catch (error) {
+      showToast?.(`Property board load failed: ${error.message}`, 'error');
     } finally {
       setLoading(false);
     }
-  }
+  }, [showToast, townName]);
 
-  function updateSelected(patch) {
-    if (!selected) return;
-    setShapes((current) => current.map((shape) => shape.id === selected.id ? { ...shape, ...patch } : shape));
-  }
+  useEffect(() => { load(); }, [load]);
 
-  function updateGeometry(patch) {
-    if (!selected) return;
-    updateSelected({ geometry: { ...(selected.geometry || {}), ...patch } });
-  }
-
-  function moveShape(id, dx, dy, original) {
-    setShapes((current) => current.map((shape) => {
-      if (shape.id !== id) return shape;
-      const g = original || shape.geometry || {};
-      if (shape.type === 'road') {
-        return { ...shape, geometry: { ...shape.geometry, x1: toNumber(g.x1) + dx, y1: toNumber(g.y1) + dy, x2: toNumber(g.x2) + dx, y2: toNumber(g.y2) + dy } };
-      }
-      if (shape.type === 'boundary') {
-        const points = Array.isArray(g.points) ? g.points : [];
-        return {
-          ...shape,
-          geometry: {
-            ...shape.geometry,
-            points: points.map((p) => ({ x: toNumber(p.x) + dx, y: toNumber(p.y) + dy })),
-          },
-        };
-      }
-      return { ...shape, geometry: { ...shape.geometry, x: toNumber(g.x) + dx, y: toNumber(g.y) + dy } };
-    }));
-  }
-
-  function addShape(type) {
-    const shape = createShape(type, shapes.length + 1);
-    setShapes((current) => [...current, shape]);
-    setSelectedId(shape.id);
-    setMode('designer');
-  }
-
-  function duplicateSelected() {
-    if (!selected) return;
-    const copy = {
-      ...JSON.parse(JSON.stringify(selected)),
-      id: makeId(),
-      label: `${selected.label} Copy`,
-      sortOrder: shapes.length + 1,
-      geometry: selected.type === 'road'
-        ? { ...selected.geometry, x1: toNumber(selected.geometry?.x1) + 24, y1: toNumber(selected.geometry?.y1) + 24, x2: toNumber(selected.geometry?.x2) + 24, y2: toNumber(selected.geometry?.y2) + 24 }
-        : selected.type === 'boundary'
-          ? { ...selected.geometry, points: (selected.geometry?.points || []).map((p) => ({ x: toNumber(p.x) + 24, y: toNumber(p.y) + 24 })) }
-        : { ...selected.geometry, x: toNumber(selected.geometry?.x) + 24, y: toNumber(selected.geometry?.y) + 24 },
-    };
-    setShapes((current) => [...current, copy]);
-    setSelectedId(copy.id);
-  }
-
-  async function save() {
-    setSaving(true);
-    try {
-      const res = await window.api.saveTownMapShapes?.({ townName, shapes });
-      if (res?.error) throw new Error(res.error);
-      showToast?.('Town map saved');
-    } catch (e) {
-      showToast?.(`Map save failed: ${e.message}`, 'error');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const selectedProperty = selected ? propertiesByKey.get(propertyKey(selected.propertyType, selected.propertyNumber)) : null;
-  const visibleCount = visibleShapes.filter((shape) => shape.type !== 'viewport').length;
-
-  function addBoundary() {
-    const shape = createShape('boundary', shapes.length + 1);
-    setShapes((current) => [...current, shape]);
-    setSelectedId(shape.id);
-    setDrawingBoundaryId(shape.id);
-    setMode('designer');
-  }
-
-  function addBoundaryPoint(id, pointValue) {
-    setShapes((current) => current.map((shape) => {
-      if (shape.id !== id) return shape;
-      const currentPoints = Array.isArray(shape.geometry?.points) ? shape.geometry.points : [];
+  const enriched = useMemo(() => {
+    const saleMap = new Map();
+    sales.forEach((sale) => saleMap.set(saleKey(sale), sale));
+    return properties.map((property) => {
+      const key = propertyKey(property.Property_Type, property.Property_Number);
+      const sale = saleMap.get(key);
+      const rows = installments.filter((row) => propertyKey(row.Type, row.Plot_Shop_Number) === key);
+      const history = resellHistory.filter((row) => propertyKey(row.Type, row.Plot_Shop_Number) === key);
+      const total = Number(sale?.Total_Amount_PKR || property.Total_Amount_PKR || property.Total_Price) || 0;
+      const received = Number(sale?.Received_Amount || property.Received_Amount || sale?.Advance_Amount_PKR || property.Advance_Amount_PKR) || 0;
+      const remaining = Number(sale?.Remaining_Amount || property.Remaining_Amount || Math.max(0, total - received)) || 0;
+      const installmentSold = rows.length > 0 || Number(sale?.Total_Installments || property.Total_Installments) > 0;
+      const statusRaw = String(sale?.Status || property.Status || '').toLowerCase();
+      const sold = statusRaw.includes('sold') || !!sale;
+      const progress = sold ? (remaining <= 0 ? 100 : toPercent(received, total, rows)) : 0;
       return {
-        ...shape,
-        geometry: {
-          ...(shape.geometry || {}),
-          points: [...currentPoints, { x: Math.round(pointValue.x), y: Math.round(pointValue.y) }],
-        },
+        key,
+        property,
+        sale,
+        rows,
+        history,
+        total,
+        received,
+        remaining,
+        installmentSold,
+        progress,
+        sold,
+        ...dateState(rows),
       };
-    }));
-  }
-
-  function saveOverviewView() {
-    const viewport = {
-      id: `viewport-${townName}`,
-      type: 'viewport',
-      label: 'Overview View',
-      status: 'system',
-      propertyType: '',
-      propertyNumber: '',
-      style: {},
-      sortOrder: -1,
-      geometry: {
-        kind: 'viewport',
-        zoom,
-        panX: pan.x,
-        panY: pan.y,
-      },
-    };
-    setShapes((current) => {
-      const without = current.filter((shape) => shape.type !== 'viewport');
-      return [viewport, ...without];
     });
-    showToast?.('Overview map angle saved. Click Save Map to keep it permanently.');
-  }
+  }, [installments, properties, resellHistory, sales]);
 
-  if (loading) return <div className="loading"><div className="spinner" /></div>;
+  const selected = enriched.find((item) => item.key === selectedKey) || enriched[0] || null;
+  const visibleItems = filter === 'all' ? enriched : enriched.filter((item) => {
+    if (filter === 'available') return !item.sold;
+    if (filter === 'sold') return item.sold;
+    if (filter === 'due') return item.dueSoon || item.overdue;
+    return true;
+  });
+  const tileSize = visibleItems.length > 300 ? 46 : visibleItems.length > 180 ? 54 : visibleItems.length > 90 ? 66 : visibleItems.length > 40 ? 76 : 88;
+
+  const groups = {
+    Commercial: visibleItems.filter((item) => String(item.property.Property_Category || '').toLowerCase().includes('commercial')),
+    Residential: visibleItems.filter((item) => !String(item.property.Property_Category || '').toLowerCase().includes('commercial')),
+  };
+
+  const counts = {
+    total: enriched.length,
+    available: enriched.filter((i) => !i.sold).length,
+    sold: enriched.filter((i) => i.sold).length,
+    due: enriched.filter((i) => i.dueSoon || i.overdue).length,
+  };
+
+  if (loading) {
+    return (
+      <div className="property-board-shell">
+        <div className="property-board-loading">Loading property board...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className={`town-map-shell ${variant === 'hero' ? 'town-map-shell--hero' : ''}`}>
-      {variant !== 'hero' && <div className="town-map-head">
-        <div>
-          <div className="ui-label">Native SVG town map</div>
-          <h2>{townName} Map</h2>
-          <p>Draw plots, shops, roads and labels. Linked sold properties automatically turn red.</p>
-        </div>
-        <div className="town-map-actions">
-          <button className={`btn ${mode === 'overview' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('overview')}>Overview</button>
-          {!readOnly && <button className={`btn ${mode === 'designer' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('designer')}><EditIcon size={13}/> Designer</button>}
-        </div>
-      </div>}
-
-      {variant !== 'hero' && <div className="town-map-toolbar">
-        <div className="town-map-search">
-          <SearchIcon size={14}/>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search plot, shop, road..." />
-        </div>
-        {['all', 'available', 'reserved', 'sold'].map((item) => (
-          <button key={item} className={`town-map-chip${filter === item ? ' active' : ''}`} onClick={() => setFilter(item)}>
-            {item}
-          </button>
-        ))}
-        <button className="btn btn-ghost" onClick={() => setZoom((z) => Math.max(0.15, z - 0.15))}>-</button>
-        <button className="btn btn-ghost" onClick={() => setZoom((z) => Math.min(6, z + 0.15))}>+</button>
-        <button className="btn btn-ghost" onClick={() => { setZoom(variant === 'hero' ? 0.82 : 1); setPan({ x: 0, y: 0 }); }}>Reset</button>
-      </div>}
-
-      {mode === 'designer' && !readOnly && (
-        <div className="town-map-designer-bar">
-          <button className="btn btn-secondary" onClick={() => addShape('plot')}><PlusIcon size={13}/> Plot</button>
-          <button className="btn btn-secondary" onClick={() => addShape('shop')}><PlusIcon size={13}/> Shop</button>
-          <button className="btn btn-secondary" onClick={() => addShape('road')}><PlusIcon size={13}/> Road</button>
-          <button className={`btn ${drawingBoundaryId ? 'btn-primary' : 'btn-secondary'}`} onClick={addBoundary}><PlusIcon size={13}/> Draw Boundary</button>
-          {drawingBoundaryId && <button className="btn btn-ghost" onClick={() => setDrawingBoundaryId(null)}>Finish Boundary</button>}
-          <button className="btn btn-secondary" onClick={() => addShape('label')}><PlusIcon size={13}/> Label</button>
-          <button className="btn btn-ghost" disabled={!selected} onClick={duplicateSelected}>Duplicate</button>
-          <button className="btn btn-ghost" onClick={saveOverviewView}>Set Overview View</button>
-          <button className="btn btn-danger" disabled={!selected} onClick={() => { setShapes((rows) => rows.filter((s) => s.id !== selected.id)); setSelectedId(null); }}><TrashIcon size={13}/> Delete</button>
-          <button className="btn btn-primary" disabled={saving} onClick={save}><SaveIcon size={13}/> {saving ? 'Saving...' : 'Save Map'}</button>
-        </div>
-      )}
-
-      <div className={`town-map-layout ${variant === 'hero' ? 'town-map-layout--hero' : ''}`}>
-        <div className="town-map-main-card">
-          {visibleCount === 0 ? (
-            <div className="town-map-empty">
-              <h3>No town map yet</h3>
-              <p>Open Designer and add plots, shops, roads and labels for this town.</p>
-              <button className="btn btn-primary" onClick={() => setMode('designer')}>Open Designer</button>
-            </div>
-          ) : (
-            <SvgMapCanvas
-              shapes={visibleShapes}
-              propertiesByKey={propertiesByKey}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onMoveShape={moveShape}
-              zoom={zoom}
-              pan={pan}
-              setPan={setPan}
-              setZoom={setZoom}
-              mode={mode}
-              variant={variant}
-              drawingBoundaryId={drawingBoundaryId}
-              onAddBoundaryPoint={addBoundaryPoint}
-            />
-          )}
-          {variant !== 'hero' && <div className="town-map-legend">
-            <span><i className="available" /> Available</span>
-            <span><i className="reserved" /> Reserved</span>
-            <span><i className="sold" /> Sold</span>
-            <span><i className="road" /> Road</span>
-          </div>}
+    <div className={`property-board-layout ${variant === 'hero' ? 'property-board-layout--hero' : ''}`}>
+      <div className="property-board-main">
+        <div className="property-board-toolbar">
+          <div>
+            <div className="property-board-kicker">Automatic property board</div>
+            <h3>{townName || 'Town'} Overview</h3>
+          </div>
+          <div className="property-board-filters">
+            {[
+              ['all', `All ${counts.total}`],
+              ['available', `Available ${counts.available}`],
+              ['sold', `Sold ${counts.sold}`],
+              ['due', `Due ${counts.due}`],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={filter === key ? 'active' : ''}
+                onClick={() => setFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {variant !== 'hero' && <aside className="town-map-side">
-          {selected ? (
-            <>
-              <div className="town-map-side-title">Selected Shape</div>
-              <label>Label<input value={selected.label} onChange={(e) => updateSelected({ label: e.target.value })} disabled={mode !== 'designer'} /></label>
-              <label>Type<select value={selected.type} onChange={(e) => updateSelected({ type: e.target.value, style: defaultStyle[e.target.value] || {} })} disabled={mode !== 'designer'}>
-                <option value="plot">Plot</option>
-                <option value="shop">Shop</option>
-                <option value="road">Road</option>
-                <option value="boundary">Boundary</option>
-                <option value="label">Label</option>
-              </select></label>
-              <label>Status<select value={selected.status} onChange={(e) => updateSelected({ status: e.target.value })} disabled={mode !== 'designer'}>
-                <option value="available">Available</option>
-                <option value="reserved">Reserved</option>
-                <option value="sold">Sold</option>
-              </select></label>
-              {selected.type !== 'road' && selected.type !== 'boundary' && selected.type !== 'label' && (
-                <label>Linked Property<select
-                  value={selected.propertyType && selected.propertyNumber ? propertyKey(selected.propertyType, selected.propertyNumber) : ''}
-                  onChange={(e) => {
-                    const [type, number] = e.target.value.split('::');
-                    updateSelected({ propertyType: type ? type[0].toUpperCase() + type.slice(1) : '', propertyNumber: number || '' });
-                  }}
-                  disabled={mode !== 'designer'}
-                >
-                  <option value="">Not linked</option>
-                  {properties.map((p) => {
-                    const type = p.Property_Type;
-                    const number = p.Property_Number || p.Plot_Number || p.Shop_Number;
-                    return <option key={propertyKey(type, number)} value={propertyKey(type, number)}>{type} #{number} - {p.Status || 'Available'}</option>;
-                  })}
-                </select></label>
-              )}
-              {selected.type === 'road' ? (
-                <div className="town-map-field-grid">
-                  {['x1', 'y1', 'x2', 'y2', 'strokeWidth'].map((k) => (
-                    <label key={k}>{k}<input type="number" value={selected.geometry?.[k] ?? ''} onChange={(e) => updateGeometry({ [k]: Number(e.target.value) })} disabled={mode !== 'designer'} /></label>
-                  ))}
-                </div>
-              ) : selected.type === 'boundary' ? (
-                <div className="town-map-field-grid">
-                  <label>Line Width<input type="number" value={selected.geometry?.strokeWidth ?? 5} onChange={(e) => updateGeometry({ strokeWidth: Number(e.target.value) })} disabled={mode !== 'designer'} /></label>
-                  <button type="button" className="btn btn-secondary" onClick={() => setDrawingBoundaryId(selected.id)} disabled={mode !== 'designer'}>
-                    Add More Points
-                  </button>
-                  <button type="button" className="btn btn-ghost" onClick={() => updateGeometry({ points: (selected.geometry?.points || []).slice(0, -1) })} disabled={mode !== 'designer'}>
-                    Undo Last Point
-                  </button>
-                  <div className="town-map-help" style={{ gridColumn: '1 / -1', marginTop: 0 }}>
-                    Click on the black map to add boundary points. Finish Boundary stops drawing.
-                  </div>
-                </div>
-              ) : selected.type === 'label' ? (
-                <div className="town-map-field-grid">
-                  {['x', 'y', 'fontSize'].map((k) => (
-                    <label key={k}>{k}<input type="number" value={selected.geometry?.[k] ?? ''} onChange={(e) => updateGeometry({ [k]: Number(e.target.value) })} disabled={mode !== 'designer'} /></label>
+        <div className="property-board-canvas" style={{ '--property-tile-size': `${tileSize}px` }}>
+          {Object.entries(groups).map(([group, items]) => (
+            <section key={group} className="property-board-section">
+              <div className="property-board-section-title">
+                <span>{group}</span>
+                <b>{items.length}</b>
+              </div>
+              {items.length ? (
+                <div className="property-board-grid">
+                  {items.map((item) => (
+                    <button
+                      type="button"
+                      key={item.key}
+                      className={`property-tile ${selected?.key === item.key ? 'selected' : ''} ${item.sold ? 'sold' : 'available'} ${item.overdue ? 'overdue' : ''}`}
+                      onClick={() => setSelectedKey(item.key)}
+                      style={{ '--paid': `${Math.round(item.progress)}%` }}
+                    >
+                      <span className="property-tile-fill" />
+                      {(item.dueSoon || item.overdue) && <span className="property-tile-badge">{item.overdue ? '!' : '7d'}</span>}
+                      <span className="property-tile-type">{item.property.Property_Type}</span>
+                      <strong>{item.property.Property_Number}</strong>
+                      <small>{item.sold ? `${Math.round(item.progress)}% paid` : 'Available'}</small>
+                    </button>
                   ))}
                 </div>
               ) : (
-                <div className="town-map-field-grid">
-                  {['x', 'y', 'width', 'height'].map((k) => (
-                    <label key={k}>
-                      {k}
-                      <div className="town-map-stepper">
-                        <button type="button" onClick={() => updateGeometry({ [k]: toNumber(selected.geometry?.[k]) - 10 })} disabled={mode !== 'designer'}>-</button>
-                        <input type="number" value={selected.geometry?.[k] ?? ''} onChange={(e) => updateGeometry({ [k]: Number(e.target.value) })} disabled={mode !== 'designer'} />
-                        <button type="button" onClick={() => updateGeometry({ [k]: toNumber(selected.geometry?.[k]) + 10 })} disabled={mode !== 'designer'}>+</button>
-                      </div>
-                    </label>
-                  ))}
-                </div>
+                <div className="property-board-empty">No {group.toLowerCase()} properties yet.</div>
               )}
-              {selectedProperty && (
-                <div className="town-map-property-card">
-                  <div><CheckIcon size={13}/> Linked property</div>
-                  <b>{selectedProperty.Property_Type} #{selectedProperty.Property_Number}</b>
-                  <span>Status: {selectedProperty.Status || 'Available'}</span>
-                  <span>Customer: {selectedProperty.Customer_Name || '-'}</span>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="town-map-help">
-              <CrossIcon size={18}/>
-              <h3>No shape selected</h3>
-              <p>Click any plot, shop, road or label to inspect it. In Designer mode you can move and edit shapes.</p>
-            </div>
-          )}
-        </aside>}
+            </section>
+          ))}
+        </div>
       </div>
+
+      <aside className="property-detail-panel">
+        {selected ? (
+          <>
+            <div className="property-detail-head">
+              <div>
+                <span>{selected.property.Property_Type}</span>
+                <h3>{selected.property.Property_Number}</h3>
+              </div>
+              <b className={selected.sold ? 'sold' : 'available'}>{selected.sold ? 'Sold' : 'Available'}</b>
+            </div>
+            <div className="property-detail-list">
+              <div><span>Category</span><b>{selected.property.Property_Category || 'Residential'}</b></div>
+              <div><span>Size</span><b>{selected.property.Property_Size || selected.property.Plot_Size || selected.property.Shop_Size || '-'}</b></div>
+              <div><span>Owner</span><b>{selected.property.Owner_Name || '-'}</b></div>
+              <div><span>Buyer</span><b>{selected.sale?.Customer_Name || selected.property.Customer_Name || '-'}</b></div>
+              <div><span>Phone</span><b>{selected.sale?.Phone_Number || selected.property.Phone_Number || '-'}</b></div>
+              <div><span>Total</span><b>{money(selected.total)}</b></div>
+              <div><span>Received</span><b>{money(selected.received)}</b></div>
+              <div><span>Remaining</span><b>{money(selected.remaining)}</b></div>
+              <div><span>Resell count</span><b>{selected.history.length}</b></div>
+            </div>
+            <div className="property-detail-progress">
+              <span style={{ width: `${Math.round(selected.progress)}%` }} />
+            </div>
+            <div className="property-detail-subhead">Installments</div>
+            <div className="property-detail-mini-list">
+              {selected.rows.slice(0, 6).map((row) => (
+                <div key={row.Tracker_ID || `${row.Month_Number}-${row.Due_Date}`}>
+                  <span>{row.Month_Number || '-'} / {row.Total_Months || '-'}</span>
+                  <b>{row.Due_Date || '-'} - {row.Status || 'Pending'}</b>
+                </div>
+              ))}
+              {!selected.rows.length && <p>No installment plan for this property.</p>}
+            </div>
+            <div className="property-detail-subhead">Receipts</div>
+            <div className="property-detail-mini-list">
+              {receipts.filter((r) => String(r.Entity_ID || r.Receipt_Number || '').includes(selected.property.Property_Number)).slice(0, 4).map((row) => (
+                <div key={row.Receipt_ID || row.Receipt_Number}>
+                  <span>{row.Receipt_Type || 'Receipt'}</span>
+                  <b>{row.Receipt_Number}</b>
+                </div>
+              ))}
+              <p>Use Media tab for full receipt and report archive.</p>
+            </div>
+            <div className="property-detail-actions">
+              <button type="button" onClick={() => onNavigate?.('media', selected)}>Open Media</button>
+              <button type="button" onClick={() => onNavigate?.('installments', selected)}>Installments</button>
+              <button type="button" onClick={() => onNavigate?.('accounts', selected)}>Accounts</button>
+            </div>
+          </>
+        ) : (
+          <div className="property-board-empty">Add plots or shops to build this board automatically.</div>
+        )}
+      </aside>
     </div>
   );
 }

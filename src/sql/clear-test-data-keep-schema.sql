@@ -17,6 +17,7 @@ DECLARE
     'town_financial_summary',
     'money_ledger',
     'receipt_archive',
+    'media_library',
     'commission_receipts',
     'commissions',
     'construction_payments',
