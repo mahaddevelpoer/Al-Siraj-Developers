@@ -50,8 +50,11 @@ end $$;
 -- If you also want to remove towns, run this separately:
 -- truncate table public.towns restart identity cascade;
 
-delete from storage.objects
-where bucket_id in ('zameen-khata', 'receipts', 'property-files', 'reports');
+-- Supabase blocks direct deletion from storage.objects.
+-- Clear Storage files through the Storage API instead:
+--   $env:SUPABASE_URL="https://YOUR_PROJECT.supabase.co"
+--   $env:SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY"
+--   node scripts/clear-cloud-storage.mjs
 
 notify pgrst, 'reload schema';
 

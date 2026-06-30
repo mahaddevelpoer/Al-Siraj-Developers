@@ -18,6 +18,40 @@ Expected result:
 - financial tables have payment account columns.
 - PostgREST schema reload is triggered by `NOTIFY pgrst, 'reload schema';`.
 
+## 1A. Test Data Reset Before Real Data
+
+Use this guided script when you are ready to remove local/cloud test data while keeping app code, schema, and login users:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\handover-reset-all-test-data.ps1 -All -ConfirmText "DELETE AL SIRAJ TEST DATA"
+```
+
+What it does:
+
+- Clears local Excel/app business data through `scripts/clear-local-business-data.ps1`.
+- Opens `src/sql/clear-all-business-data.sql` so you can run it in Supabase SQL Editor for cloud database cleanup.
+- Clears Supabase Storage through the Storage API only if `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set.
+- CEO Android app reads from Supabase, so old test data disappears after cloud SQL is run and app refresh/relogin.
+
+## 1B. Create / Update CEO Login
+
+Use the admin helper only on your own machine. Do not commit service-role keys.
+
+```powershell
+$env:SUPABASE_URL="https://wdislbdftnwmaexqtfmn.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY"
+$env:CEO_EMAIL="loyal.blood300@gmail.com"
+$env:CEO_PASSWORD="126342"
+$env:CEO_FULL_NAME="AL SIRAJ CEO"
+npm run admin:create-ceo
+```
+
+Expected:
+
+- Auth user exists with confirmed email.
+- `public.users` profile has `role = ceo`.
+- `is_active = true`.
+
 ## 2. Local Build Checks
 
 Run:
@@ -114,4 +148,3 @@ Use these only after checks:
 - `Single Source of Truth: Partially Implemented`
 - `Cash & Banks: Wired for high-risk financial flows`
 - `Remaining Risk: Manual real-data smoke test and Supabase SQL execution required`
-

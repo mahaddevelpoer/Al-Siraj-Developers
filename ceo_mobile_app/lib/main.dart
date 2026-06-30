@@ -341,50 +341,17 @@ class _LoginScreenState extends State<LoginScreen> {
           SafeArea(
             child: CustomScrollView(
               slivers: [
-                const SliverToBoxAdapter(child: SizedBox(height: 18)),
+                const SliverToBoxAdapter(child: SizedBox(height: 10)),
                 SliverPadding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   sliver: SliverList.list(
                     children: [
-                      Hero(
-                            tag: 'ceo-brand-hero',
-                            child: const GradientIconBox(
-                              icon: Icons.apartment_rounded,
-                              size: 78,
-                            ),
-                          )
-                          .animate()
-                          .fadeIn(duration: 520.ms)
-                          .scale(
-                            begin: const Offset(.86, .86),
-                            curve: Curves.easeOutBack,
-                          ),
-                      const SizedBox(height: 22),
-                      Text(
-                            'AL SIRAJ\nDEVELOPERS',
-                            style: GoogleFonts.inter(
-                              fontSize: 32,
-                              height: 1.02,
-                              fontWeight: FontWeight.w900,
-                              color: kText,
-                            ),
-                          )
-                          .animate()
-                          .fadeIn(delay: 90.ms)
-                          .slideY(begin: .16, curve: Curves.easeOutCubic),
-                      const SizedBox(height: 10),
-                      const Text(
-                            'Premium CEO command center for approvals, alerts, balances, and town performance.',
-                            style: TextStyle(
-                              color: kMuted,
-                              height: 1.45,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          )
-                          .animate()
-                          .fadeIn(delay: 150.ms)
-                          .slideY(begin: .12, curve: Curves.easeOutCubic),
-                      const SizedBox(height: 24),
+                      const HeaderBlock(
+                        title: 'AL SIRAJ DEVELOPERS',
+                        subtitle:
+                            'CEO command center for approvals, live teams, daily ledgers and town balances.',
+                        icon: Icons.apartment_rounded,
+                      ),
                       GlassCard(
                             padding: const EdgeInsets.all(18),
                             child: Column(
@@ -1423,7 +1390,7 @@ class _OverviewPageState extends State<OverviewPage> {
   }
 
   Future<Map<String, dynamic>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 220));
+    await Future<void>.delayed(const Duration(milliseconds: 40));
     final results = await Future.wait<dynamic>([
       loadTownPulses(),
       loadOperatorPresence(),
@@ -1658,7 +1625,7 @@ class ExecutiveSummaryCard extends StatelessWidget {
                 const Text(
                   'Portfolio cash balance',
                   style: TextStyle(
-                    color: Color(0xDDEFFFFFF),
+                    color: Color(0xDDFFFFFF),
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
                   ),
@@ -2395,7 +2362,7 @@ class ActivityPage extends StatelessWidget {
   const ActivityPage({super.key});
 
   Future<Map<String, List<Map<String, dynamic>>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 40));
     final sales = await supabase
         .from('all_sales')
         .select('*')
@@ -2493,7 +2460,7 @@ class _AppealsPageState extends State<AppealsPage> {
   }
 
   Future<List<Map<String, dynamic>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 40));
     final data = await supabase
         .from('appeals')
         .select(
@@ -2673,7 +2640,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   }
 
   Future<List<Map<String, dynamic>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 40));
     final query = supabase.from('daily_entries').select('*');
     final data = await query.eq('review_status', _filter).limit(80);
     final rows = List<Map<String, dynamic>>.from(data)
@@ -2857,7 +2824,7 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
   DateTime _date = DateTime.now();
 
   Future<List<LedgerReceipt>> _loadReceipts() async {
-    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await Future<void>.delayed(const Duration(milliseconds: 40));
     final day = DateFormat('yyyy-MM-dd').format(_date);
     final results = await Future.wait<dynamic>([
       supabase
@@ -3209,7 +3176,7 @@ class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
 
   Future<List<Map<String, dynamic>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 40));
     final data = await supabase
         .from('notifications')
         .select('*')
@@ -3252,7 +3219,7 @@ class TownsPage extends StatelessWidget {
   const TownsPage({super.key});
 
   Future<List<Map<String, dynamic>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 40));
     final data = await supabase.from('towns').select('*').order('town_name');
     return List<Map<String, dynamic>>.from(data).where(isActiveTownRow).toList();
   }
@@ -3533,56 +3500,115 @@ class DetailScaffold extends StatelessWidget {
 }
 
 class HeaderBlock extends StatelessWidget {
-  const HeaderBlock({super.key, required this.title, required this.subtitle});
+  const HeaderBlock({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    this.icon = Icons.auto_graph_rounded,
+  });
   final String title;
   final String subtitle;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final titleSize = width < 340 ? 24.0 : 28.0;
+    final compact = width < 370;
     return Hero(
           tag: 'header-$title',
           child: Material(
             color: Colors.transparent,
             child: Padding(
               padding: const EdgeInsets.only(bottom: 18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 44,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(999),
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF2563EB), kSecondary],
+              child: Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(compact ? 18 : 22),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(30),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFF101C3D),
+                      Color(0xFF2563EB),
+                      Color(0xFF00A889),
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withValues(alpha: .22),
+                      blurRadius: 34,
+                      offset: const Offset(0, 16),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .18),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: .22),
+                            ),
+                          ),
+                          child: Icon(icon, color: Colors.white),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .14),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: .16),
+                            ),
+                          ),
+                          child: const Text(
+                            'CEO',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: compact ? 25 : 30,
+                        fontWeight: FontWeight.w900,
+                        height: 1.02,
+                        color: Colors.white,
                       ),
                     ),
-                  ),
-                  Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(
-                      fontSize: titleSize,
-                      fontWeight: FontWeight.w900,
-                      height: 1.02,
-                      color: kText,
+                    const SizedBox(height: 10),
+                    Text(
+                      subtitle,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xDDFFFFFF),
+                        height: 1.45,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: kMuted,
-                      height: 1.45,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

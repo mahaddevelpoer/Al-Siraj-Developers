@@ -13,6 +13,7 @@
     "audit:business": "node scripts/audit-business-data.mjs",
     "audit:wiring": "node scripts/audit-wiring-coverage.mjs",
     "smoke:money": "node scripts/populated-money-flow-smoke.mjs",
+    "admin:create-ceo": "node scripts/create-ceo-user.mjs",
     "vite:dev": "vite",
     "electron:dev": "electron .",
     "electron:ceo": "electron . --panel=ceo",
