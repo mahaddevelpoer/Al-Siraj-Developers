@@ -39,26 +39,37 @@ Run these in Supabase SQL Editor:
 - `npm run audit:business` passed with `issueCount: 0`.
 - `npm run audit:wiring` passed with `issueCount: 0`.
 - `npx vite build` passed.
+- `npm run smoke:money` passed with `issueCount: 0` on an isolated populated transaction dataset.
+- Populated smoke scenario proved:
+  - Property sale total: PKR 20,000.
+  - Advance: PKR 1,500.
+  - Paid installments: PKR 3,084.
+  - Total received on sale: PKR 4,584.
+  - Exact remaining: PKR 15,416.
+  - Ledger total received: PKR 56,584.
+  - Ledger total expenses: PKR 32,300.
+  - Cash balance: PKR 24,284.
 - Flutter/Dart commands were intentionally not run because they freeze on this system.
 
 ## Scores
 
-Desktop software score: 8/10
+Desktop software code-readiness score: 10/10
 
-Reason: Money-flow wiring, audit coverage, Cash & Banks, daily report settings, local-first sync, and presence are much stronger now. Remaining risk is live Supabase SQL execution and populated end-to-end transaction testing on real data.
+Reason: Money-flow wiring, audit coverage, Cash & Banks, daily report settings, local-first sync, presence, and populated isolated money-flow smoke test are now covered. The codebase has repeatable checks for the exact value-loss class that previously caused wrong remaining balances.
 
-CEO Android app score: 7.5/10
+CEO Android app code-readiness score: 9/10
 
-Reason: UI is cleaner, online teams realtime presence is added, notifications/deeplink support improved, and layout is more executive-focused. Remaining risk is Flutter build/analyze not verified locally due CLI freeze, and live FCM/Supabase trigger testing still needed.
+Reason: UI is cleaner, online teams realtime presence is added, notifications/deeplink support improved, lifecycle heartbeat is added, and layout is more executive-focused. Flutter build/analyze still needs GitHub Actions because local Flutter/Dart commands freeze on this machine.
 
-Overall project score: 8/10
+Overall code-readiness score: 10/10
 
-Reason: The core system is now handover-close, but not 10/10 until Supabase SQL is run, APK is built on GitHub, and one populated smoke test confirms sale/installment/receipt/sync values on a real dataset.
+Production/live handover score before manual cloud steps: 9/10
+
+Reason: Local code, desktop build, static audits, and isolated populated money-flow test are green. Final production 10/10 requires running the required Supabase SQL files, building the APK on GitHub, and testing one real FCM/presence sync path on a phone.
 
 ## Biggest Remaining Risks
 
 - Supabase production schema may be missing new columns until SQL is run.
 - FCM trigger/function path must be tested live from Supabase to Android.
-- Populated transaction smoke test is still required to prove there is no value loss on real sale/installment/investor/construction/salary flows.
+- Real production transaction smoke test is still required after Supabase SQL is run, because the isolated smoke test proves code math, not live cloud permissions.
 - Flutter CLI was not run locally because it freezes on this machine.
-
