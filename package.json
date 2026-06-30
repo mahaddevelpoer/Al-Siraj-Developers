@@ -10,6 +10,8 @@
     "clean": "rimraf dist_electron",
     "prebuild": "taskkill /IM \"AL SIRAJ DEVELOPERS.exe\" /F || echo no process",
     "build": "npm run prebuild && npm run clean && vite build && electron-builder --win",
+    "audit:business": "node scripts/audit-business-data.mjs",
+    "audit:wiring": "node scripts/audit-wiring-coverage.mjs",
     "vite:dev": "vite",
     "electron:dev": "electron .",
     "electron:ceo": "electron . --panel=ceo",

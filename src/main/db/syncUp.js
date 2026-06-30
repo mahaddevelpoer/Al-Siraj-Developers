@@ -139,6 +139,7 @@ async function performFullSyncUp(reportProgress, options = {}) {
     ['collection_payments', 'Collection_Payments.xlsx'],
     ['receipt_archive', 'Receipt_Archive.xlsx'],
     ['media_library', 'Media_Library.xlsx'],
+    ['cash_bank_accounts', 'Cash_Bank_Accounts.xlsx'],
     ['money_ledger', 'Money_Ledger.xlsx'],
     ['town_financial_summary', 'Town_Financial_Summary.xlsx'],
     ['town_map_shapes', 'Town_Map_Shapes.xlsx'],

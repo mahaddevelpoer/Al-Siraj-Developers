@@ -28,6 +28,7 @@ const AGENT_OPERATIONAL_GLOBAL_FILES = new Set([
   'Global/Collection_Payments.xlsx',
   'Global/Receipt_Archive.xlsx',
   'Global/Media_Library.xlsx',
+  'Global/Cash_Bank_Accounts.xlsx',
   'Global/Money_Ledger.xlsx',
   'Global/Town_Financial_Summary.xlsx',
   'Global/Pending_Sync.xlsx',

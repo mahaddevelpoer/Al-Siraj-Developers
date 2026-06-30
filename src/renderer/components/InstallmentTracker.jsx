@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CalendarIcon, PlotIcon, ShopIcon, UsersIcon, BellIcon } from './Icons';
 import { useAuth } from '../contexts/AuthContext';
+import PaymentAccountSelect from './PaymentAccountSelect';
 
 export default function InstallmentTracker({ showToast, townName, panel, refreshKey = 0 }) {
   const { userProfile } = useAuth();
@@ -18,6 +19,7 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
   const [expandedKey, setExpandedKey] = useState(null);
   const [extendModal, setExtendModal] = useState(null); // item being extended
   const [extendDate, setExtendDate] = useState('');
+  const [paymentAccount, setPaymentAccount] = useState(null);
   const notifiedRef = useRef('');
 
   useEffect(() => { loadData(); }, [townName, refreshKey]);
@@ -67,7 +69,7 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
 
   const handlePay = async (item) => {
     try {
-      const r = await window.api.markInstallmentPaid({ Tracker_ID: item.Tracker_ID });
+      const r = await window.api.markInstallmentPaid({ Tracker_ID: item.Tracker_ID, ...paymentAccount });
       if (r?.error) showToast(r.error, 'error');
       else { showToast('Installment marked as paid!'); loadData(); }
     } catch(e) { showToast('Failed', 'error'); }
@@ -201,6 +203,16 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
         <div className="stat-card"><div className="card-label">Due</div><div className="card-value" style={{color:'var(--accent-yellow)'}}>{dueCount}</div></div>
         <div className="stat-card red"><div className="card-label">Overdue</div><div className="card-value loss">{overdueCount}</div></div>
         <div className="stat-card purple"><div className="card-label">Properties</div><div className="card-value">{allGroups.length}</div></div>
+      </div>
+
+      <div style={{ maxWidth: 360, marginBottom: 16 }}>
+        <PaymentAccountSelect
+          townName={townName}
+          value={paymentAccount}
+          onChange={setPaymentAccount}
+          label="Receive Paid Installments Into"
+          compact
+        />
       </div>
 
       <div className="installment-reminder-panel">

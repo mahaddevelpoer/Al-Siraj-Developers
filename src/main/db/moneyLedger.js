@@ -17,7 +17,8 @@ const FILE_NAME = 'Money_Ledger.xlsx';
 const SUMMARY_FILE_NAME = 'Town_Financial_Summary.xlsx';
 const COLUMNS = [
   'Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount',
-  'Debit_Account','Credit_Account','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'
+  'Debit_Account','Credit_Account','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type',
+  'Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'
 ];
 const SUMMARY_COLUMNS = [
   'Town_Name','Total_Received','Total_Expenses','Cash_Balance',
@@ -151,6 +152,9 @@ async function archiveLedgerReceipt(row, receiptType) {
         direction: row.Direction,
         debitAccount: row.Debit_Account,
         creditAccount: row.Credit_Account,
+        paymentAccountId: row.Payment_Account_ID || 'cash-in-hand',
+        paymentAccountName: row.Payment_Account_Name || 'Cash in Hand',
+        paymentAccountType: row.Payment_Account_Type || 'cash',
         description: row.Description,
         sourceId: row.Source_ID,
       },
@@ -236,6 +240,9 @@ async function recordMoneyEvent(data) {
     Amount: amount,
     Debit_Account: accounts.debit,
     Credit_Account: accounts.credit,
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
     Party_Name: data.partyName || data.Party_Name || '',
     Description: data.description || data.Description || '',
     Receipt_Number: data.receiptNumber || data.Receipt_Number || stableReceiptNumber({ sourceType, sourceId, direction, date: data.date || data.Date }),
@@ -266,8 +273,7 @@ function computeLedgerSummary(rows = []) {
 
 async function getMoneySummary(townName) {
   if (townName) {
-    const summary = await getTownFinancialSummary(townName);
-    if (summary) return summary;
+    return await refreshTownFinancialSummary(townName);
   }
   const rows = await getMoneyLedger({ townName });
   return computeLedgerSummary(rows);
@@ -349,7 +355,12 @@ async function getTownFinancialSummary(townName) {
 async function getAllTownFinancialSummaries() {
   const fp = await ensureSummaryFile();
   const rows = await readExcelFile(fp, 'Data');
-  return rows.map((row) => ({
+  const towns = rows.map((row) => String(row.Town_Name || '').trim()).filter(Boolean);
+  for (const town of towns) {
+    await refreshTownFinancialSummary(town).catch(() => {});
+  }
+  const refreshed = await readExcelFile(fp, 'Data');
+  return refreshed.map((row) => ({
     Town_Name: row.Town_Name || '',
     Total_Received: toMoney(row.Total_Received),
     Total_Expenses: toMoney(row.Total_Expenses),

@@ -4,6 +4,7 @@ import { PlotIcon, ShopIcon, CalendarIcon, DollarIcon, CheckIcon, ClockIcon } fr
 import OfficialReceipt from './OfficialReceipt';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import PaymentAccountSelect from './PaymentAccountSelect';
 
 
 export default function SellFlow({ showToast, loadNotifications, panel, lockedTownName = '' }) {
@@ -22,6 +23,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
   const [transactionId, setTransactionId] = useState('');
   const [transferBankName, setTransferBankName] = useState('');
   const [transferImageDataUrl, setTransferImageDataUrl] = useState('');
+  const [paymentAccount, setPaymentAccount] = useState(null);
 
   const handleImageUpload = (e, setter) => {
     const file = e.target.files[0];
@@ -604,6 +606,15 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
             </div>
           </div>
 
+          <div className="form-group full">
+            <PaymentAccountSelect
+              townName={form.townName || lockedTownName}
+              value={paymentAccount}
+              onChange={setPaymentAccount}
+              label="Receive Advance Into"
+            />
+          </div>
+
           {paymentMethod === 'Cheque' && (
             <div className="form-group full" style={{
               background: 'rgba(255,255,255,0.5)', border: '1px solid var(--border-color)',
@@ -733,6 +744,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         Transaction_ID: transactionId || '',
         Transfer_Bank: transferBankName || '',
         Transfer_Image: transferImageDataUrl || '',
+        ...paymentAccount,
       };
       
       const r = await window.api.sellProperty(data);
@@ -827,6 +839,8 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
           transactionId,
           transferBankName,
           transferImageDataUrl,
+          paymentAccountName: paymentAccount?.paymentAccountName,
+          paymentAccountType: paymentAccount?.paymentAccountType,
           Receipt_Number: effectiveReceipt,
           receiptNumber: effectiveReceipt,
           Agent_Name: '',

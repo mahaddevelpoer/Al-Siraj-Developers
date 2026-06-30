@@ -12,13 +12,8 @@ export default function NotificationPanel({ notifications, onRefresh, showToast 
     return true;
   });
 
-  const handleMarkPaid = async (n) => {
-    if (!window.api) return;
-    try {
-      const r = await window.api.markInstallmentPaid({ Tracker_ID: n.Notification_ID });
-      if (r?.error) showToast(r.error, 'error');
-      else { showToast('Marked as paid!'); onRefresh(); }
-    } catch (e) { showToast('Failed', 'error'); }
+  const handleMarkPaid = () => {
+    showToast?.('Open Installment Tracker and select a payment account before receiving installment payment.', 'info');
   };
 
   const handleExtend = async (n) => {
@@ -66,7 +61,7 @@ export default function NotificationPanel({ notifications, onRefresh, showToast 
               {(n.Type === 'Due' || n.Type === 'Overdue') && (
                 <div className="notif-actions">
                   <button className="btn btn-success btn-sm" onClick={() => handleMarkPaid(n)}>
-                    Receive (PKR {(parseFloat(n.Monthly_Amount) || 0).toLocaleString()})
+                    Receive via Installment Tracker
                   </button>
                   <button className="btn btn-ghost btn-sm" onClick={() => handleExtend(n)}>Extend</button>
                 </div>

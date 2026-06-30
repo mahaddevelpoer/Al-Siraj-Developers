@@ -29,6 +29,36 @@ export default function AccountsDashboard({ townName, showToast }) {
   const [selectedId, setSelectedId] = useState('');
   const [query, setQuery] = useState('');
   const [masterAccounts, setMasterAccounts] = useState({ agents: [], investors: [], constructors: [] });
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const onDataChanged = (event) => {
+      const detail = event?.detail || {};
+      const events = Array.isArray(detail.events) ? detail.events : [];
+      const sameTown = !detail.townName || !townName || String(detail.townName) === String(townName);
+      if (!sameTown) return;
+      if (
+        events.some((name) => [
+          'ledger:changed',
+          'account:changed',
+          'remaining:changed',
+          'salary:changed',
+          'commission:changed',
+          'investor:changed',
+          'construction:changed',
+          'summary:rebuild-required',
+        ].includes(name))
+      ) {
+        setRefreshTick((tick) => tick + 1);
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', onDataChanged);
+    window.addEventListener('al-siraj-data-refreshed', onDataChanged);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', onDataChanged);
+      window.removeEventListener('al-siraj-data-refreshed', onDataChanged);
+    };
+  }, [townName]);
 
   useEffect(() => {
     let mounted = true;
@@ -57,7 +87,7 @@ export default function AccountsDashboard({ townName, showToast }) {
     }
     load();
     return () => { mounted = false; };
-  }, [fromDate, showToast, toDate, townName]);
+  }, [fromDate, refreshTick, showToast, toDate, townName]);
 
   const accounts = useMemo(() => {
     const items = [];

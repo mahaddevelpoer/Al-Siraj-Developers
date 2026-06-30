@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import PaymentAccountSelect from '../../components/PaymentAccountSelect';
 
 export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, accountOptions = [] }) {
   const [incomeType, setIncomeType] = useState('general');
@@ -11,6 +12,8 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [selectedInstallment, setSelectedInstallment] = useState(null);
   const [installmentDetails, setInstallmentDetails] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [paymentAccount, setPaymentAccount] = useState(null);
 
   const toMoney = (value) => Number(value) || 0;
 
@@ -18,7 +21,25 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
     if (incomeType === 'installment') {
       loadInstallmentProperties();
     }
-  }, [incomeType, townName]);
+  }, [incomeType, refreshTick, townName]);
+
+  useEffect(() => {
+    const onDataChanged = (event) => {
+      const detail = event?.detail || {};
+      const events = Array.isArray(detail.events) ? detail.events : [];
+      const sameTown = !detail.townName || !townName || String(detail.townName) === String(townName);
+      if (!sameTown) return;
+      if (events.some((name) => ['remaining:changed', 'installment:changed', 'sale:changed', 'ledger:changed'].includes(name))) {
+        setRefreshTick((tick) => tick + 1);
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', onDataChanged);
+    window.addEventListener('al-siraj-data-refreshed', onDataChanged);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', onDataChanged);
+      window.removeEventListener('al-siraj-data-refreshed', onDataChanged);
+    };
+  }, [townName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,7 +54,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
     };
     loadPendingCollections();
     return () => { cancelled = true; };
-  }, [townName]);
+  }, [refreshTick, townName]);
 
   const isInstallmentCollection = (row) => (parseInt(row?.Total_Installments, 10) || 0) > 0 ||
     /installment/i.test(String(row?.Collection_Category || row?.Installment_Status || ''));
@@ -103,6 +124,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
       installmentPaymentPayload: selectedInstallment ? {
         Tracker_ID: selectedInstallment.id,
         Paid_Date: new Date().toISOString().split('T')[0],
+        ...paymentAccount,
       } : null,
       collectionPayload: selectedReceivable ? {
         saleId: selectedReceivable.id,
@@ -116,7 +138,9 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
         agentName: selectedReceivable.Agent_Name,
         totalAmount: selectedReceivable.Total_Amount_PKR,
         currentReceived: selectedReceivable.Received_Amount,
+        ...paymentAccount,
       } : null,
+      ...paymentAccount,
     });
 
     setDescription('');
@@ -172,6 +196,13 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
           </button>
         </div>
       </div>
+
+      <PaymentAccountSelect
+        townName={townName}
+        value={paymentAccount}
+        onChange={setPaymentAccount}
+        label="Receive Into"
+      />
 
       {incomeType === 'general' && (
         <>

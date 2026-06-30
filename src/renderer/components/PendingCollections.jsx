@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import PaymentAccountSelect from './PaymentAccountSelect';
 
 export default function PendingCollections({ roleView, townName, onChanged, onNavigate }) {
   const { userProfile, user } = useAuth();
@@ -15,8 +16,28 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
   const [msg, setMsg] = useState('');
   const [history, setHistory] = useState(null);
   const [installmentMap, setInstallmentMap] = useState({});
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [paymentAccount, setPaymentAccount] = useState(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [refreshTick, roleView, townName]);
+
+  useEffect(() => {
+    const onDataChanged = (event) => {
+      const detail = event?.detail || {};
+      const events = Array.isArray(detail.events) ? detail.events : [];
+      const sameTown = !detail.townName || !townName || String(detail.townName) === String(townName);
+      if (!sameTown) return;
+      if (events.some((name) => ['remaining:changed', 'installment:changed', 'sale:changed', 'ledger:changed', 'property:changed'].includes(name))) {
+        setRefreshTick((tick) => tick + 1);
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', onDataChanged);
+    window.addEventListener('al-siraj-data-refreshed', onDataChanged);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', onDataChanged);
+      window.removeEventListener('al-siraj-data-refreshed', onDataChanged);
+    };
+  }, [townName]);
 
   const loadData = async () => {
     setLoading(true);
@@ -67,6 +88,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
         agentName: payModal.Agent_Name,
         totalAmount: payModal.Total_Amount_PKR,
         currentReceived: payModal.Received_Amount,
+        ...paymentAccount,
       });
       if (res?.error) { setMsg(res.error); return; }
       setMsg('\u2705 PKR ' + parseFloat(payAmount).toLocaleString() + ' collected!');
@@ -339,6 +361,12 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
                 <option>Bank Transfer</option>
               </select>
             </div>
+            <PaymentAccountSelect
+              townName={payModal?.Town_Name || townName}
+              value={paymentAccount}
+              onChange={setPaymentAccount}
+              label="Receive Into"
+            />
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Notes</label>
               <textarea

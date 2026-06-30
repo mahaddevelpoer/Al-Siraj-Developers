@@ -5,7 +5,7 @@ const { getGlobalsPath, readExcelFile, appendToExcel, deleteExcelRow, generateId
 const { updateTownFinancials } = require('./properties');
 const { recordMoneyEvent } = require('./moneyLedger');
 
-const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Account_Name', 'Account_Type', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status', 'Skip_Ledger'];
+const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Account_Name', 'Account_Type', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status', 'Skip_Ledger', 'Payment_Account_ID', 'Payment_Account_Name', 'Payment_Account_Type'];
 
 function getDailyEntriesPath() {
   return path.join(getGlobalsPath(), 'Daily_Entries.xlsx');
@@ -88,6 +88,9 @@ async function addDailyEntry(data) {
     Created_By: createdBy || '',
     Review_Status: reviewStatus || '',
     Skip_Ledger: skipLedger || data.Skip_Ledger || '',
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
   };
   
   await appendToExcel(filePath, 'Data', newEntry);
@@ -110,6 +113,9 @@ async function addDailyEntry(data) {
       receiptNumber: '',
       createdBy: newEntry.Created_By || 'System',
       status: 'approved',
+      paymentAccountId: newEntry.Payment_Account_ID,
+      paymentAccountName: newEntry.Payment_Account_Name,
+      paymentAccountType: newEntry.Payment_Account_Type,
     });
   }
 

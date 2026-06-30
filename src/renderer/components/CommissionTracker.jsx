@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BriefcaseIcon, UsersIcon, WarnIcon } from './Icons';
+import PaymentAccountSelect from './PaymentAccountSelect';
 
 export default function CommissionTracker({ showToast, townName, refreshKey = 0 }) {
   const [sales, setSales] = useState([]);
@@ -12,6 +13,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
   const [payTarget, setPayTarget] = useState(null);
   const [payAmount, setPayAmount] = useState('');
   const [paying, setPaying] = useState(false);
+  const [paymentAccount, setPaymentAccount] = useState(null);
 
   useEffect(() => { loadData(); }, [townName, refreshKey]);
 
@@ -61,7 +63,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
     if (amount <= 0) return showToast?.('Enter valid commission amount', 'error');
     if (amount > remaining) return showToast?.(`Payment exceeds remaining commission: ${fmt(remaining)}`, 'error');
     setPaying(true);
-    const r = await window.api.markCommissionPaid({ commissionId: payTarget.id || payTarget.Commission_ID, amount });
+    const r = await window.api.markCommissionPaid({ commissionId: payTarget.id || payTarget.Commission_ID, amount, ...paymentAccount });
     if (r?.error) {
       showToast?.(r.error, 'error');
       setPaying(false);
@@ -165,6 +167,12 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
                     <input type="number" min="1" max={remaining || undefined} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} autoFocus />
                     <div className="field-helper-text">This creates commission receipt, expense daily entry, and debit/credit money ledger row.</div>
                   </div>
+                  <PaymentAccountSelect
+                    townName={townName || payTarget.Town_Name || payTarget.town_name}
+                    value={paymentAccount}
+                    onChange={setPaymentAccount}
+                    label="Pay Commission From"
+                  />
                   <div className="commission-pay-actions">
                     <button className="btn btn-ghost" onClick={() => setPayAmount(String(remaining || ''))} disabled={paying}>Full Remaining</button>
                     <button className="btn btn-primary" onClick={submitCommissionPayment} disabled={paying || remaining <= 0}>

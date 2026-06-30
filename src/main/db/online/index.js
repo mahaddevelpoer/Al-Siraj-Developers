@@ -65,6 +65,7 @@ const UPSERT_CONFLICT = {
   collection_payments: 'payment_id',
   receipt_archive: 'receipt_id',
   media_library: 'media_id',
+  cash_bank_accounts: 'account_id',
   money_ledger: 'source_type,source_id,direction',
   town_financial_summary: 'town_name',
   town_map_shapes: 'shape_id',
@@ -401,6 +402,9 @@ async function recordMoneyEvent(data) {
     Status: data.status || data.Status || 'approved',
     Created_By: data.createdBy || data.Created_By || 'System',
     Created_At: data.createdAt || data.Created_At || new Date().toISOString(),
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
   };
   const saved = await insert('money_ledger', row);
   const receipt = receiptArchivePayload(row);
@@ -429,6 +433,9 @@ async function addDailyEntry(data) {
       description: data.Description || data.description || data.Category || data.category || 'Daily entry',
       createdBy: data.Created_By || data.createdBy || 'System',
       status: 'approved',
+      paymentAccountId: data.paymentAccountId || data.Payment_Account_ID,
+      paymentAccountName: data.paymentAccountName || data.Payment_Account_Name,
+      paymentAccountType: data.paymentAccountType || data.Payment_Account_Type,
     });
   }
   return row;
@@ -476,6 +483,9 @@ async function markInstallmentPaid(data) {
     receiptNumber: Receipt_Number || '',
     createdBy: data.Created_By || 'Accountant',
     status: 'approved',
+    paymentAccountId: data.paymentAccountId || data.Payment_Account_ID,
+    paymentAccountName: data.paymentAccountName || data.Payment_Account_Name,
+    paymentAccountType: data.paymentAccountType || data.Payment_Account_Type,
   });
 
   // Find the sale and update received_amount
@@ -1075,6 +1085,9 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes, pay
     payment_date: paymentOverride?.Payment_Date || paymentOverride?.payment_date || new Date().toISOString().split('T')[0],
     payment_method: paymentMethod || 'Cash',
     notes: notes || '',
+    payment_account_id: paymentOverride?.Payment_Account_ID || paymentOverride?.paymentAccountId || 'cash-in-hand',
+    payment_account_name: paymentOverride?.Payment_Account_Name || paymentOverride?.paymentAccountName || 'Cash in Hand',
+    payment_account_type: paymentOverride?.Payment_Account_Type || paymentOverride?.paymentAccountType || 'cash',
   };
 
   await insert('collection_payments', paymentRecord);
@@ -1089,6 +1102,9 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes, pay
     description: `${getRowVal(sale, 'Type') || 'Property'} ${getRowVal(sale, 'Plot_Shop_Number') || ''} collection received`,
     createdBy: getRowVal(sale, 'Agent_Name') || 'System',
     status: 'approved',
+    paymentAccountId: paymentRecord.payment_account_id,
+    paymentAccountName: paymentRecord.payment_account_name,
+    paymentAccountType: paymentRecord.payment_account_type,
   });
 
   // If fully paid → auto-create commission record

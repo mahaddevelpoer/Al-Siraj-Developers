@@ -30,3 +30,13 @@ com.mahad.alsiraj.ceo
 ```
 
 `android/app/google-services.json` must belong to the same package.
+
+## Required Supabase SQL
+
+Before testing the online teams feature, run this once in Supabase SQL Editor:
+
+```text
+src/sql/user-presence.sql
+```
+
+Without this SQL, the APK still builds, but realtime online/last-seen status cannot be stored.

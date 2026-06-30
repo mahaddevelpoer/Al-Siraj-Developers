@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PaymentAccountSelect from '../../components/PaymentAccountSelect';
 
 const EXPENSE_CATEGORIES = {
   construction: {
@@ -28,13 +29,14 @@ const EXPENSE_CATEGORIES = {
   },
 };
 
-export default function DailyExpenseEntry({ onSubmit, isAppealMode, accountOptions = [] }) {
+export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, accountOptions = [] }) {
   const [category, setCategory] = useState(null);
   const [subcategory, setSubcategory] = useState(null);
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [showCustom, setShowCustom] = useState(false);
   const [accountKey, setAccountKey] = useState('');
+  const [paymentAccount, setPaymentAccount] = useState(null);
 
   const handleCategorySelect = (cat) => {
     setCategory(cat);
@@ -67,6 +69,7 @@ export default function DailyExpenseEntry({ onSubmit, isAppealMode, accountOptio
       amount: parseFloat(amount),
       accountName: account?.name || '',
       accountType: account?.type || '',
+      ...paymentAccount,
     });
 
     setCategory(null);
@@ -79,6 +82,15 @@ export default function DailyExpenseEntry({ onSubmit, isAppealMode, accountOptio
 
   return (
     <form onSubmit={handleSubmit} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 'var(--radius-md)' }}>
+
+      {category && (
+        <PaymentAccountSelect
+          townName={townName}
+          value={paymentAccount}
+          onChange={setPaymentAccount}
+          label="Pay From"
+        />
+      )}
 
       {!category ? (
         <>

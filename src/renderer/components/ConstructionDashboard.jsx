@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BriefcaseIcon, PlusIcon, DollarIcon } from './Icons';
 import OfficialReceipt from './OfficialReceipt';
+import PaymentAccountSelect from './PaymentAccountSelect';
 
 const CATEGORIES = ['Sewerage', 'Road', 'Office construction', 'Boundary wall', 'Electricity', 'Gate', 'Other'];
 const fmt = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
@@ -12,6 +13,7 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
   const [payment, setPayment] = useState({ Project_ID: '', Amount: '', Payment_Date: new Date().toISOString().split('T')[0], Material_Name: '', Material_Quantity: '', Material_Rate: '', Notes: '' });
   const [loading, setLoading] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
+  const [paymentAccount, setPaymentAccount] = useState(null);
 
   const load = async () => {
     const [p, pay] = await Promise.all([
@@ -57,7 +59,7 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
   const postPayment = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const result = await window.api.recordConstructionPayment(payment);
+    const result = await window.api.recordConstructionPayment({ ...payment, ...paymentAccount });
     setLoading(false);
     if (result?.error) return showToast?.(result.error, 'error');
     showToast?.('Construction payment saved');
@@ -73,6 +75,8 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
       materialRate: result.Material_Rate,
       amount: result.Amount,
       remainingAmount: result.Remaining_After,
+      paymentAccountName: result.Payment_Account_Name || paymentAccount?.paymentAccountName,
+      paymentAccountType: result.Payment_Account_Type || paymentAccount?.paymentAccountType,
       note: result.Notes,
     });
     setPayment({ Project_ID: '', Amount: '', Payment_Date: new Date().toISOString().split('T')[0], Material_Name: '', Material_Quantity: '', Material_Rate: '', Notes: '' });
@@ -162,6 +166,12 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
             <div className="form-group"><label>Rate</label><input value={payment.Material_Rate} onChange={pu('Material_Rate')} /></div>
             <div className="form-group full"><label>Notes</label><input value={payment.Notes} onChange={pu('Notes')} /></div>
           </div>
+          <PaymentAccountSelect
+            townName={townName}
+            value={paymentAccount}
+            onChange={setPaymentAccount}
+            label="Pay Constructor From"
+          />
           <button className="btn btn-primary" disabled={loading} style={{ marginTop: 12 }}>Save Payment</button>
         </form>
       </div>

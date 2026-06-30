@@ -30,10 +30,10 @@ const FILES = {
 const COLUMNS = {
   agents: ['Agent_ID','Town_Name','Agent_Name','Phone_Number','CNIC','Address','Notes','Status','Created_At'],
   investors: ['Investor_ID','Town_Name','Investor_Name','Phone_Number','CNIC','Address','Notes','Balance','Status','Created_At','Approval_Status'],
-  investorTx: ['Transaction_ID','Investor_ID','Town_Name','Investor_Name','Type','Amount','Date','Notes','Balance_After','Receipt_Number','Created_By'],
+  investorTx: ['Transaction_ID','Investor_ID','Town_Name','Investor_Name','Type','Amount','Date','Notes','Balance_After','Receipt_Number','Created_By','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'],
   construction: ['Project_ID','Town_Name','Category','Constructor_Name','Phone_Number','Company_Name','Material_Name','Material_Quantity','Material_Rate','Deal_Amount','Paid_Amount','Remaining_Amount','Status','Start_Date','Notes','Deal_Receipt_Number'],
-  constructionPayments: ['Payment_ID','Project_ID','Town_Name','Category','Constructor_Name','Amount','Payment_Date','Material_Name','Material_Quantity','Material_Rate','Remaining_After','Receipt_Number','Notes','Created_By'],
-  commissionReceipts: ['Receipt_ID','Commission_ID','Sale_ID','Town_Name','Agent_Name','Plot_Shop_Number','Amount','Paid_Date','Receipt_Number','Paid_By'],
+  constructionPayments: ['Payment_ID','Project_ID','Town_Name','Category','Constructor_Name','Amount','Payment_Date','Material_Name','Material_Quantity','Material_Rate','Remaining_After','Receipt_Number','Notes','Created_By','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'],
+  commissionReceipts: ['Receipt_ID','Commission_ID','Sale_ID','Town_Name','Agent_Name','Plot_Shop_Number','Amount','Paid_Date','Receipt_Number','Paid_By','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'],
   receiptArchive: ['Receipt_ID','Receipt_Number','Receipt_Type','Town_Name','Entity_ID','Entity_Name','Amount','Receipt_Date','Payload_JSON','Created_At'],
 };
 
@@ -177,6 +177,9 @@ async function investorTransaction(data) {
     Balance_After: next,
     Receipt_Number: data.Receipt_Number || `INV-${Date.now()}`,
     Created_By: data.Created_By || '',
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
   };
   await appendToExcel(txPath, 'Data', row);
   await saveReceiptArchive({
@@ -196,6 +199,7 @@ async function investorTransaction(data) {
       transactionType: row.Type,
       amount: row.Amount,
       balanceAfter: row.Balance_After,
+      paymentAccountName: row.Payment_Account_Name,
       note: row.Notes,
     },
   });
@@ -210,6 +214,9 @@ async function investorTransaction(data) {
     description: `Investor ${type}`,
     receiptNumber: row.Receipt_Number,
     createdBy: row.Created_By || 'System',
+    paymentAccountId: row.Payment_Account_ID,
+    paymentAccountName: row.Payment_Account_Name,
+    paymentAccountType: row.Payment_Account_Type,
   });
   return row;
 }
@@ -312,6 +319,9 @@ async function recordConstructionPayment(data) {
     Receipt_Number: data.Receipt_Number || `CON-${Date.now()}`,
     Notes: data.Notes || '',
     Created_By: data.Created_By || '',
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
   };
   await appendToExcel(payPath, 'Data', row);
   await saveReceiptArchive({
@@ -334,6 +344,7 @@ async function recordConstructionPayment(data) {
       materialRate: row.Material_Rate,
       amount: row.Amount,
       remainingAmount: row.Remaining_After,
+      paymentAccountName: row.Payment_Account_Name,
       note: row.Notes,
     },
   });
@@ -348,6 +359,9 @@ async function recordConstructionPayment(data) {
     description: `Construction ${row.Category}`,
     receiptNumber: row.Receipt_Number,
     createdBy: row.Created_By || 'System',
+    paymentAccountId: row.Payment_Account_ID,
+    paymentAccountName: row.Payment_Account_Name,
+    paymentAccountType: row.Payment_Account_Type,
   });
   return row;
 }
@@ -373,6 +387,9 @@ async function recordCommissionReceipt(data) {
     Paid_Date: data.Paid_Date || TODAY(),
     Receipt_Number: data.Receipt_Number || `COM-${Date.now()}`,
     Paid_By: data.Paid_By || '',
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
   };
   await appendToExcel(fp, 'Data', row);
   await saveReceiptArchive({
@@ -396,6 +413,9 @@ async function recordCommissionReceipt(data) {
     description: 'Agent commission paid',
     receiptNumber: row.Receipt_Number,
     createdBy: row.Paid_By || 'Accountant',
+    paymentAccountId: row.Payment_Account_ID,
+    paymentAccountName: row.Payment_Account_Name,
+    paymentAccountType: row.Payment_Account_Type,
   });
   return row;
 }

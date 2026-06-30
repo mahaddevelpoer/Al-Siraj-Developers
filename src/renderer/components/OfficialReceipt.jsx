@@ -255,6 +255,9 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                           : data?.paymentMethod === 'Bank Transfer' ? 'بینک ٹرانسفر'
                             : (data?.paymentMethod || 'نقد')
                   }</div>
+                  {(data?.paymentAccountName || data?.Payment_Account_Name) && (
+                    <div><strong>{lang === 'en' ? 'Account:' : 'اکاؤنٹ:'}</strong> {data?.paymentAccountName || data?.Payment_Account_Name}</div>
+                  )}
                   {data?.paymentMethod === 'Cheque' && (
                     <>
                       <div><strong>{lang === 'en' ? 'Cheque No:' : 'چیک نمبر:'}</strong> {data?.chequeNumber || ''}</div>
@@ -930,6 +933,9 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                               : data?.paymentMethod === 'Bank Transfer' ? 'بینک ٹرانسفر'
                                 : (data?.paymentMethod || 'نقد')
                       }</div>
+                      {(data?.paymentAccountName || data?.Payment_Account_Name) && (
+                        <div><strong>{lang === 'en' ? 'Account:' : 'اکاؤنٹ:'}</strong> {data?.paymentAccountName || data?.Payment_Account_Name}</div>
+                      )}
                       {data?.paymentMethod === 'Cheque' && (
                         <>
                           <div><strong>{lang === 'en' ? 'Cheque No:' : 'چیک نمبر:'}</strong> {data?.chequeNumber || ''}</div>

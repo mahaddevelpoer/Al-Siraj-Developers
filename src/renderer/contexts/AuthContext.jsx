@@ -33,6 +33,48 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user?.id || user?.local_offline === true) return undefined;
+    let stopped = false;
+
+    const writePresence = async (status = 'online') => {
+      if (stopped) return;
+      try {
+        await supabase
+          .from('users')
+          .update({
+            online_status: status,
+            last_seen_at: new Date().toISOString(),
+            device_label: 'Desktop ERP',
+            last_active_context: document.hidden ? 'desktop_background' : 'desktop_active',
+          })
+          .eq('id', user.id);
+      } catch (_) {
+        // Presence columns are optional until src/sql/user-presence.sql is applied.
+      }
+    };
+
+    writePresence('online');
+    const timer = window.setInterval(() => writePresence('online'), 30000);
+    const onVisibility = () => writePresence(document.hidden ? 'away' : 'online');
+    window.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      window.removeEventListener('visibilitychange', onVisibility);
+      supabase
+        .from('users')
+        .update({
+          online_status: 'offline',
+          last_seen_at: new Date().toISOString(),
+          last_active_context: 'desktop_signed_out_or_closed',
+        })
+        .eq('id', user.id)
+        .then(() => {}, () => {});
+    };
+  }, [user?.id, user?.local_offline]);
+
   const checkAuth = async () => {
     try {
       const { data: { session } } = await withTimeout(auth.getSession(), 5000, 'Auth session');

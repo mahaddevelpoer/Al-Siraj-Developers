@@ -152,7 +152,14 @@ contextBridge.exposeInMainWorld('api', {
   syncFromCloud: () => ipcRenderer.invoke('sync-from-cloud'),
   syncToCloud: () => ipcRenderer.invoke('sync-to-cloud'),
   getPendingSyncStatus: () => ipcRenderer.invoke('get-pending-sync-status'),
+  runBusinessAudit: () => ipcRenderer.invoke('run-business-audit'),
+  getPaymentAccounts: (townName) => ipcRenderer.invoke('get-payment-accounts', townName),
+  addBankAccount: (data) => ipcRenderer.invoke('add-bank-account', data),
+  updateBankAccount: (params) => ipcRenderer.invoke('update-bank-account', params),
   generateDailyTownReceipts: (date) => ipcRenderer.invoke('generate-daily-town-receipts', date),
+  getDailyReportSettings: () => ipcRenderer.invoke('get-daily-report-settings'),
+  updateDailyReportSettings: (patch) => ipcRenderer.invoke('update-daily-report-settings', patch),
+  resendDailyReportToCeo: (params) => ipcRenderer.invoke('resend-daily-report-to-ceo', params),
   onSyncProgress: (callback) => {
     try { ipcRenderer.removeAllListeners('sync-progress'); } catch {}
     ipcRenderer.on('sync-progress', (_, data) => callback(data.percent, data.msg));
@@ -173,6 +180,13 @@ contextBridge.exposeInMainWorld('api', {
   },
   removeCloudDataRefreshed: () => {
     try { ipcRenderer.removeAllListeners('cloud-data-refreshed'); } catch {}
+  },
+  onBusinessDataChanged: (callback) => {
+    try { ipcRenderer.removeAllListeners('business-data-changed'); } catch {}
+    ipcRenderer.on('business-data-changed', (_, data) => callback(data));
+  },
+  removeBusinessDataChanged: () => {
+    try { ipcRenderer.removeAllListeners('business-data-changed'); } catch {}
   },
   onSyncToCloudProgress: (callback) => {
     try { ipcRenderer.removeAllListeners('sync-progress-to-cloud'); } catch {}

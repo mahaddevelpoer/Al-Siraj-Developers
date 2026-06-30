@@ -353,7 +353,7 @@ async function sellProperty(data) {
   await updatePropertyFile(type, number, townName, updates);
 
   // Add to All_Sales.xlsx
-  await ensureSheetColumns(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', ['Received_Amount','Remaining_Amount','Sale_Type','Expected_Amount_PKR','Deal_Amount_PKR','Discount_Amount_PKR','Payment_Method','Cheque_Number','Cheque_Bank','Cheque_Image','Transaction_ID','Transfer_Bank','Transfer_Image']);
+  await ensureSheetColumns(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', ['Received_Amount','Remaining_Amount','Sale_Type','Expected_Amount_PKR','Deal_Amount_PKR','Discount_Amount_PKR','Payment_Method','Cheque_Number','Cheque_Bank','Cheque_Image','Transaction_ID','Transfer_Bank','Transfer_Image','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type']);
   const saleId = generateId();
   const saleData = {
     Sale_ID: saleId,
@@ -392,6 +392,9 @@ async function sellProperty(data) {
     Transaction_ID: data.Transaction_ID || '',
     Transfer_Bank: data.Transfer_Bank || '',
     Transfer_Image: data.Transfer_Image || '',
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
   };
   await appendToExcel(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', saleData);
   if (data.Receipt_Number) {
@@ -415,6 +418,7 @@ async function sellProperty(data) {
         advanceAmount,
         remainingAmount: remaining,
         paymentMethod: data.Payment_Method || 'Cash',
+        paymentAccountName: saleData.Payment_Account_Name,
         receiptNumber: data.Receipt_Number,
       },
     }));
@@ -431,6 +435,9 @@ async function sellProperty(data) {
       description: `${type} ${number} advance received`,
       receiptNumber: data.Receipt_Number,
       createdBy: data.Agent_Name || 'System',
+      paymentAccountId: saleData.Payment_Account_ID,
+      paymentAccountName: saleData.Payment_Account_Name,
+      paymentAccountType: saleData.Payment_Account_Type,
     });
   }
   if (remaining <= 0) await upsertCommissionForSaleLocal(saleData);
@@ -832,7 +839,7 @@ async function resellProperty(data) {
   }
 
   const saleId = resellId;
-  await ensureSheetColumns(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', ['Sale_ID', 'Received_Amount','Remaining_Amount','Payment_Method','Cheque_Number','Cheque_Bank','Transaction_ID','Transfer_Bank', 'Sale_Type']);
+  await ensureSheetColumns(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', ['Sale_ID', 'Received_Amount','Remaining_Amount','Payment_Method','Cheque_Number','Cheque_Bank','Transaction_ID','Transfer_Bank', 'Sale_Type','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type']);
   await appendToExcel(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', {
     Sale_ID: saleId,
     Plot_Shop_Number: number,
@@ -866,6 +873,9 @@ async function resellProperty(data) {
     Cheque_Bank: Cheque_Bank || '',
     Transaction_ID: Transaction_ID || '',
     Transfer_Bank: Transfer_Bank || '',
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
   });
   if (advanceAmount > 0) {
     await recordMoneyEvent({
@@ -878,6 +888,9 @@ async function resellProperty(data) {
       partyName: Customer_Name || property.Customer_Name || '',
       description: `${type} ${number} resell advance received`,
       receiptNumber: Receipt_Number || '',
+      paymentAccountId: data.paymentAccountId || data.Payment_Account_ID,
+      paymentAccountName: data.paymentAccountName || data.Payment_Account_Name,
+      paymentAccountType: data.paymentAccountType || data.Payment_Account_Type,
     });
   }
   if (remaining <= 0) {

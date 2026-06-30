@@ -1,5 +1,5 @@
 const dataLayer = require('./db/dataLayer');
-const { BrowserWindow, shell } = require('electron');
+const { BrowserWindow, shell, app } = require('electron');
 const { addTown, getTowns, getTownDetails, getTownPrices, setTownPrices, addCeoExpense, deleteCeoExpense, editCeoExpense, updateTown, deleteTown } = require('./db/towns');
 const { addPlot, addShop, getPropertyFile, getAllPropertiesByTown, getAllProperties, sellProperty, updateFileStatus, resellProperty, getSoldProperties, cancelDeal } = require('./db/properties');
 const { getDailyEntries, addDailyEntry, deleteDailyEntry } = require('./db/dailyEntries');
@@ -12,6 +12,7 @@ const { showDesktopNotification } = require('./notificationService');
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 const onlineDb = require('./db/online');
 const storage = require('./db/storage');
 const businessExtras = require('./db/businessExtras');
@@ -19,6 +20,8 @@ const townMapDb = require('./db/townMap');
 const accountantAuth = require('./db/accountantAuth');
 const pendingSync = require('./db/pendingSync');
 const mediaLibrary = require('./db/mediaLibrary');
+const cashBanks = require('./db/cashBanks');
+const dailyReportSettings = require('./db/dailyReportSettings');
 const { getGlobalsPath } = require('./db/core');
 const { buildTownLedgerReport, exportTownLedgerReport, buildDueInstallmentsReport, exportDueInstallmentsReport } = require('./db/townReport');
 
@@ -49,6 +52,72 @@ function sendCloudDataRefreshed(detail = {}) {
   if (win && !win.isDestroyed()) {
     try { win.webContents.send('cloud-data-refreshed', { at: new Date().toISOString(), ...detail }); } catch {}
   }
+}
+
+function businessEventsForTable(tableName, operation = 'upsert') {
+  const table = String(tableName || 'mixed').toLowerCase();
+  const map = {
+    towns: ['town:changed', 'summary:rebuild-required'],
+    properties: ['property:changed', 'property-board:changed'],
+    all_sales: ['sale:changed', 'property:changed', 'remaining:changed', 'ledger:changed', 'summary:rebuild-required'],
+    installments: ['installment:changed', 'remaining:changed', 'ledger:changed', 'summary:rebuild-required'],
+    daily_entries: ['daily-entry:changed', 'ledger:changed', 'summary:rebuild-required'],
+    expenses: ['expense:changed', 'ledger:changed', 'summary:rebuild-required'],
+    ceo_expenses: ['expense:changed', 'ledger:changed', 'summary:rebuild-required'],
+    ceo_salary: ['salary:changed', 'ledger:changed', 'summary:rebuild-required'],
+    employees: ['employee:changed', 'account:changed'],
+    employees_v2: ['employee:changed', 'account:changed'],
+    salary_payments: ['salary:changed', 'account:changed', 'ledger:changed', 'summary:rebuild-required'],
+    advance_salaries: ['salary:changed', 'account:changed', 'ledger:changed'],
+    commissions: ['commission:changed', 'account:changed', 'ledger:changed', 'summary:rebuild-required'],
+    commission_receipts: ['commission:changed', 'receipt:created', 'ledger:changed'],
+    town_agents: ['agent:changed', 'account:changed'],
+    investors: ['investor:changed', 'account:changed'],
+    investor_transactions: ['investor:changed', 'account:changed', 'receipt:created', 'ledger:changed', 'summary:rebuild-required'],
+    construction_projects: ['construction:changed', 'account:changed'],
+    construction_payments: ['construction:changed', 'receipt:created', 'ledger:changed', 'summary:rebuild-required'],
+    receipt_archive: ['receipt:created', 'media:changed'],
+    media_library: ['media:changed', 'report:created'],
+    appeals: ['approval:changed'],
+    notifications: ['notification:changed'],
+    cash_bank_accounts: ['cash-bank:changed', 'account:changed', 'ledger:changed', 'summary:rebuild-required'],
+    money_ledger: ['ledger:changed', 'summary:rebuild-required'],
+    town_financial_summary: ['summary:rebuilt'],
+  };
+  const events = new Set(map[table] || ['business-data:changed']);
+  if (operation === 'delete') events.add('delete:changed');
+  return Array.from(events);
+}
+
+function inferTownName(...sources) {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    const value = source.Town_Name || source.townName || source.town_name || source.town || source.assignedTown;
+    if (isNonEmpty(value)) return String(value).trim();
+  }
+  return '';
+}
+
+function sendBusinessDataChanged(detail = {}) {
+  const win = getActiveWindow();
+  if (win && !win.isDestroyed()) {
+    try {
+      win.webContents.send('business-data-changed', {
+        at: new Date().toISOString(),
+        ...detail,
+      });
+    } catch {}
+  }
+}
+
+function sendMediaChanged(detail = {}) {
+  sendBusinessDataChanged({
+    tableName: 'media_library',
+    operation: 'insert',
+    status: 'local-saved',
+    events: ['media:changed', 'report:created'],
+    ...detail,
+  });
 }
 
 function sendCloudUploadProgress(percent, msg, detail = {}) {
@@ -115,6 +184,29 @@ function reportEscape(value) {
 
 function reportMoney(value) {
   return `PKR ${(Number(value) || 0).toLocaleString()}`;
+}
+
+function reportRowDate(row = {}) {
+  const keys = ['date', 'Date', 'Sell_Date', 'Payment_Date', 'Paid_Date', 'Receipt_Date', 'Created_At', 'created_at'];
+  for (const key of keys) {
+    const value = row[key];
+    if (!value) continue;
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    const text = String(value).slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  }
+  return '';
+}
+
+function reportRowsInRange(rows = [], fromDate = '', toDate = '') {
+  const from = String(fromDate || '').slice(0, 10);
+  const to = String(toDate || '').slice(0, 10);
+  return (Array.isArray(rows) ? rows : []).filter((row) => {
+    const date = reportRowDate(row);
+    if (!date) return !from && !to;
+    return (!from || date >= from) && (!to || date <= to);
+  });
 }
 
 function buildPropertyReceiptArchive(data = {}, mode = 'property_sale') {
@@ -238,11 +330,15 @@ function startPeriodicCloudSync(intervalMs = 120000) {
   }, intervalMs);
 }
 
-async function generateDailyTownReceiptBundle(date = new Date().toISOString().slice(0, 10), eventSender = null) {
+async function generateDailyTownReceiptBundle(date = new Date().toISOString().slice(0, 10), eventSender = null, options = {}) {
+  const settings = options.settings || dailyReportSettings.getDailyReportSettings();
   const towns = await getTowns();
-  const townRows = Array.isArray(towns) ? towns.filter((t) => t?.Town_Name) : [];
+  const selectedSet = new Set((settings.selectedTowns || []).map((town) => String(town || '').trim()).filter(Boolean));
+  const townRows = (Array.isArray(towns) ? towns.filter((t) => t?.Town_Name) : [])
+    .filter((town) => settings.selectedTownsMode !== 'selected' || selectedSet.has(String(town.Town_Name || '').trim()));
   const generated = [];
   const failed = [];
+  const startedAt = new Date().toISOString();
   const sendProgress = (percent, msg) => {
     const payload = { percent, msg };
     try {
@@ -253,7 +349,16 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
       if (win && !win.isDestroyed()) win.webContents.send('sync-progress-to-cloud', payload);
     } catch (_) {}
   };
-  if (!townRows.length) return { success: true, date, generated, failed, message: 'No towns found' };
+  if (!townRows.length) {
+    const result = { success: true, date, generated, failed, message: 'No towns selected/found' };
+    dailyReportSettings.recordDailyReportStatus({
+      lastGeneratedAt: startedAt,
+      lastReportDate: date,
+      lastStatus: result.message,
+      lastResult: result,
+    });
+    return result;
+  }
   for (let i = 0; i < townRows.length; i += 1) {
     const townName = townRows[i].Town_Name;
     sendProgress(Math.round((i / townRows.length) * 80), `Creating daily receipt: ${townName}`);
@@ -284,24 +389,45 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
       failed.push({ townName, error: e.message || 'Receipt generation failed' });
     }
   }
-  const notificationId = `DAILY-${date.replace(/-/g, '')}-${Date.now()}`;
+  const notificationId = `DAILY-${date.replace(/-/g, '')}`;
+  const reportId = `daily-ledger-${date.replace(/-/g, '')}`;
   const message = failed.length
     ? `${generated.length} town daily receipts ready. ${failed.map((f) => `${f.townName} not online/wake him`).join(', ')}`
     : `${generated.length} town daily receipts ready for ${date}`;
+  const payload = {
+    notificationId,
+    eventType: 'daily_ledger_report_ready',
+    townId: 'all',
+    townName: 'All Towns',
+    reportId,
+    receiptId: reportId,
+    reportDate: date,
+    title: failed.length ? 'Daily ledger reports need attention' : 'Daily ledger reports ready',
+    body: message,
+    deepLinkTarget: 'daily_ledger_receipts',
+    createdAt: new Date().toISOString(),
+    priority: failed.length ? 'high' : 'normal',
+    readStatus: 'unread',
+    deliveryStatus: failed.length ? 'partial' : 'ready',
+    generated,
+    failed,
+  };
   const notification = {
     Notification_ID: notificationId,
     Type: 'Daily Ledger Receipt',
-    Message: message,
+    Message: payload.body,
     Plot_Shop_Number: '',
     Town_Name: 'All Towns',
-    Customer_Name: JSON.stringify({ date, generated, failed }),
+    Customer_Name: JSON.stringify(payload),
     Due_Date: date,
-    Created_Date: date,
+    Created_Date: payload.createdAt.slice(0, 10),
     Status: 'Active',
     Dismissed: 'No',
   };
+  let notificationSynced = false;
   try {
     await onlineDb.insert('notifications', notification);
+    notificationSynced = true;
   } catch (e) {
     await pendingSync.addPendingSync({
       operation: 'upsert',
@@ -313,8 +439,16 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
     sendSyncWarning('Daily receipt cloud notification queued: ' + (e.message || 'offline'));
   }
   if (generated.length) storage.queueAllLocalFiles();
+  dailyReportSettings.recordDailyReportStatus({
+    lastGeneratedAt: startedAt,
+    lastSyncedAt: notificationSynced ? new Date().toISOString() : settings.lastSyncedAt,
+    lastNotificationAt: notificationSynced ? new Date().toISOString() : settings.lastNotificationAt,
+    lastStatus: failed.length ? `Partial: ${message}` : 'Ready and sent to CEO app route',
+    lastReportDate: date,
+    lastResult: { date, generated, failed, notificationId, reportId, notificationSynced },
+  });
   sendProgress(100, 'Daily town receipts complete');
-  return { success: true, date, generated, failed, notification };
+  return { success: true, date, generated, failed, notification, payload };
 }
 
 function startDailyReceiptScheduler() {
@@ -323,9 +457,17 @@ function startDailyReceiptScheduler() {
     const now = new Date();
     const date = now.toISOString().slice(0, 10);
     if (_lastDailyReceiptDate === date) return;
-    if (now.getHours() < 20) return;
+    const settings = dailyReportSettings.getDailyReportSettings();
+    if (!dailyReportSettings.shouldRunAt(now, settings)) return;
     _lastDailyReceiptDate = date;
-    generateDailyTownReceiptBundle(date).catch((e) => {
+    generateDailyTownReceiptBundle(date, null, { settings }).catch((e) => {
+      _lastDailyReceiptDate = '';
+      dailyReportSettings.recordDailyReportStatus({
+        lastGeneratedAt: new Date().toISOString(),
+        lastReportDate: date,
+        lastStatus: 'Failed: ' + (e.message || 'Unknown'),
+        lastResult: { date, error: e.message || 'Unknown' },
+      });
       sendSyncWarning('Daily receipt generation failed: ' + (e.message || 'Unknown'));
     });
   }, 5 * 60 * 1000);
@@ -341,35 +483,49 @@ function withTimeout(promise, ms, label) {
 async function syncOnline(localFn, supabaseFn, options = {}) {
   let syncWarning = '';
   const clientWriteId = options.clientWriteId || `${options.tableName || 'write'}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const tableName = options.tableName || 'mixed';
+  const operation = options.operation || 'upsert';
 
   const localResult = await localFn();
+  const baseChange = {
+    tableName,
+    operation,
+    clientWriteId,
+    townName: inferTownName(options.payload, localResult),
+    events: businessEventsForTable(tableName, operation),
+  };
+
+  sendBusinessDataChanged({ ...baseChange, status: 'local-saved' });
 
   if (typeof supabaseFn === 'function') {
     try {
       await pendingSync.addPendingSync({
-        operation: options.operation || 'upsert',
-        tableName: options.tableName || 'mixed',
+        operation,
+        tableName,
         clientWriteId,
         payload: options.payload || localResult || {},
         error: '',
       });
     } catch (e) {
       sendSyncWarning('Pending sync queue failed: ' + (e.message || 'Unknown'));
+      sendBusinessDataChanged({ ...baseChange, status: 'sync-queue-failed', error: e.message || 'Unknown' });
     }
 
     try {
       await withTimeout(supabaseFn(localResult), 4000, 'Cloud quick sync');
       await pendingSync.markPendingSynced(clientWriteId);
+      sendBusinessDataChanged({ ...baseChange, status: 'cloud-saved', events: [...baseChange.events, 'sync:success'] });
       sendCloudDataRefreshed({
         source: 'quick-write',
-        tableName: options.tableName || 'mixed',
-        operation: options.operation || 'upsert',
+        tableName,
+        operation,
         clientWriteId,
       });
       scheduleCloudDownload(900);
     } catch (e) {
       syncWarning = 'Cloud quick sync failed: ' + (e.message || 'Unknown');
       sendSyncWarning(syncWarning);
+      sendBusinessDataChanged({ ...baseChange, status: 'sync-queued', events: [...baseChange.events, 'sync:queued'], error: e.message || 'Unknown' });
     }
   }
 
@@ -683,7 +839,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(townName)) throw new Error('Town name is required');
       assertTownAccess(townName);
       assertObjectPayload(data, 'update payload');
-      return await syncOnline(() => updateTown(townName, data), () => onlineDb.updateWhere('towns', { Town_Name: townName }, data));
+      return await syncOnline(
+        () => updateTown(townName, data),
+        () => onlineDb.updateWhere('towns', { Town_Name: townName }, data),
+        { tableName: 'towns', operation: 'update', payload: { ...data, Town_Name: townName }, clientWriteId: `town-update-${String(townName).trim().toLowerCase()}-${Date.now()}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('delete-town', async (_, townName) => {
@@ -717,7 +877,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(townName)) throw new Error('Town name is required');
       assertTownAccess(townName);
       assertObjectPayload(prices, 'prices payload');
-      return await syncOnline(() => setTownPrices(townName, prices), () => onlineDb.updateWhere('towns', { Town_Name: townName }, prices));
+      return await syncOnline(
+        () => setTownPrices(townName, prices),
+        () => onlineDb.updateWhere('towns', { Town_Name: townName }, prices),
+        { tableName: 'towns', operation: 'update', payload: { ...prices, Town_Name: townName }, clientWriteId: `town-prices-${String(townName).trim().toLowerCase()}-${Date.now()}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -728,7 +892,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(data.Plot_Number)) throw new Error('Plot_Number is required');
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
       assertTownAccess(data.Town_Name);
-      return await syncOnline(() => addPlot(data), () => onlineDb.insert('properties', { Property_Type: 'Plot', Property_Number: data.Plot_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }));
+      return await syncOnline(
+        () => addPlot(data),
+        () => onlineDb.insert('properties', { Property_Type: 'Plot', Property_Number: data.Plot_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }),
+        { tableName: 'properties', operation: 'insert', payload: { ...data, Property_Type: 'Plot', Property_Number: data.Plot_Number }, clientWriteId: `property-plot-${data.Town_Name}-${data.Plot_Number}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('add-shop', async (_, data) => {
@@ -737,7 +905,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(data.Shop_Number)) throw new Error('Shop_Number is required');
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
       assertTownAccess(data.Town_Name);
-      return await syncOnline(() => addShop(data), () => onlineDb.insert('properties', { Property_Type: 'Shop', Property_Number: data.Shop_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }));
+      return await syncOnline(
+        () => addShop(data),
+        () => onlineDb.insert('properties', { Property_Type: 'Shop', Property_Number: data.Shop_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }),
+        { tableName: 'properties', operation: 'insert', payload: { ...data, Property_Type: 'Shop', Property_Number: data.Shop_Number }, clientWriteId: `property-shop-${data.Town_Name}-${data.Shop_Number}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-plot', async (_, num, town) => { try { if (!isNonEmpty(num)) throw new Error('Plot number is required'); const scoped = scopedTown(town, true); return await dataLayer.read(() => getPropertyFile('Plot', num, scoped), () => onlineDb.getProperty('Plot', num, scoped)); } catch(e) { return { error: e.message }; } });
@@ -849,7 +1021,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(data.townName)) throw new Error('Town name is required');
       assertTownAccess(data.townName);
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
-      return await syncOnline(() => cancelDeal(data), () => onlineDb.cancelDeal(data));
+      return await syncOnline(
+        () => cancelDeal(data),
+        () => onlineDb.cancelDeal(data),
+        { tableName: 'all_sales', operation: 'delete', payload: data, clientWriteId: `cancel-deal-${data.townName}-${data.type}-${data.number}-${Date.now()}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -857,7 +1033,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertObjectPayload(params, 'updateFileStatus payload');
       assertTownAccess(params.townName || params.Town_Name);
-      return await syncOnline(() => updateFileStatus(params), () => onlineDb.updateFileStatus(params));
+      return await syncOnline(
+        () => updateFileStatus(params),
+        () => onlineDb.updateFileStatus(params),
+        { tableName: 'properties', operation: 'update', payload: params, clientWriteId: `file-status-${params.townName || params.Town_Name}-${params.type || params.Type}-${params.number || params.Property_Number}-${Date.now()}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-sold-properties', async () => {
@@ -908,7 +1088,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertObjectPayload(data, 'installment payload');
       if (!isNonEmpty(data.Tracker_ID)) throw new Error('Tracker_ID is required');
       if (!isNonEmpty(data.New_Due_Date)) throw new Error('New_Due_Date is required');
-      return await syncOnline(() => extendInstallmentDate(data), () => onlineDb.extendInstallmentDueDate(data));
+      return await syncOnline(
+        () => extendInstallmentDate(data),
+        () => onlineDb.extendInstallmentDueDate(data),
+        { tableName: 'installments', operation: 'update', payload: data, clientWriteId: `installment-extend-${data.Tracker_ID}-${Date.now()}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -956,7 +1140,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         description: expData.Expense_Name,
         createdBy: expData.Added_By,
       });
-      return await syncOnline(() => expData, () => onlineDb.insert('expenses', expData));
+      return await syncOnline(
+        () => expData,
+        () => onlineDb.insert('expenses', expData),
+        { tableName: 'expenses', operation: 'insert', payload: expData, clientWriteId: expData.Expense_ID }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-expenses', async (_, town) => { try { const scoped = scopedTown(town, isAccountantScoped()); return await dataLayer.read(() => { const all = getAllExpenses(); return scoped ? all.filter(e => e.Town_Name === scoped) : all; }, async () => { const all = await onlineDb.getAll('expenses'); return scoped ? (all || []).filter(e => e.Town_Name === scoped) : (all || []); }); } catch(e) { return { error: e.message }; } });
@@ -968,14 +1156,22 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
       assertTownAccess(data.Town_Name);
       if (!isNonEmpty(data.Expense_Name)) throw new Error('Expense_Name is required');
-      return await syncOnline(() => addCeoExpense(data), () => onlineDb.insert('ceo_expenses', { Expense_ID: onlineDb.generateId(), Town_Name: data.Town_Name, Expense_Name: data.Expense_Name, Amount_PKR: parseFloat(data.Amount_PKR)||0, Description: data.Description||'', Category: data.Category||'General', Date: data.Date||new Date().toISOString().split('T')[0] }));
+      return await syncOnline(
+        () => addCeoExpense(data),
+        () => onlineDb.insert('ceo_expenses', { Expense_ID: onlineDb.generateId(), Town_Name: data.Town_Name, Expense_Name: data.Expense_Name, Amount_PKR: parseFloat(data.Amount_PKR)||0, Description: data.Description||'', Category: data.Category||'General', Date: data.Date||new Date().toISOString().split('T')[0] }),
+        { tableName: 'ceo_expenses', operation: 'insert', payload: data }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('delete-ceo-expense', async (_, id) => {
     try {
       assertPermanentDeleteAllowed();
       if (!isNonEmpty(id)) throw new Error('Expense id is required');
-      return await syncOnline(() => deleteCeoExpense(id), () => onlineDb.deleteWhere('ceo_expenses', { Expense_ID: id }));
+      return await syncOnline(
+        () => deleteCeoExpense(id),
+        () => onlineDb.deleteWhere('ceo_expenses', { Expense_ID: id }),
+        { tableName: 'ceo_expenses', operation: 'delete', payload: { Expense_ID: id }, clientWriteId: `ceo-expense-delete-${id}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('edit-ceo-expense', async (_, data) => {
@@ -983,7 +1179,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertObjectPayload(data, 'ceo expense payload');
       if (!isNonEmpty(data.Expense_ID)) throw new Error('Expense_ID is required');
       if (data.Town_Name) assertTownAccess(data.Town_Name);
-      return await syncOnline(() => editCeoExpense(data), () => onlineDb.updateWhere('ceo_expenses', { Expense_ID: data.Expense_ID }, data));
+      return await syncOnline(
+        () => editCeoExpense(data),
+        () => onlineDb.updateWhere('ceo_expenses', { Expense_ID: data.Expense_ID }, data),
+        { tableName: 'ceo_expenses', operation: 'update', payload: data, clientWriteId: `ceo-expense-update-${data.Expense_ID}-${Date.now()}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -995,14 +1195,22 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
       assertTownAccess(data.Town_Name);
       if (!isNonEmpty(data.Month_Year)) throw new Error('Month_Year is required');
-      return await syncOnline(() => addCeoSalary(data), () => onlineDb.insert('ceo_salary', { Salary_ID: onlineDb.generateId(), Town_Name: data.Town_Name, Month_Year: data.Month_Year, Amount_PKR: parseFloat(data.Amount_PKR)||0, Date: data.Date||new Date().toISOString().split('T')[0] }));
+      return await syncOnline(
+        () => addCeoSalary(data),
+        () => onlineDb.insert('ceo_salary', { Salary_ID: onlineDb.generateId(), Town_Name: data.Town_Name, Month_Year: data.Month_Year, Amount_PKR: parseFloat(data.Amount_PKR)||0, Date: data.Date||new Date().toISOString().split('T')[0] }),
+        { tableName: 'ceo_salary', operation: 'insert', payload: data }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('delete-ceo-salary', async (_, id) => {
     try {
       assertPermanentDeleteAllowed();
       if (!isNonEmpty(id)) throw new Error('Salary id is required');
-      return await syncOnline(() => deleteCeoSalary(id), () => onlineDb.deleteWhere('ceo_salary', { Salary_ID: id }));
+      return await syncOnline(
+        () => deleteCeoSalary(id),
+        () => onlineDb.deleteWhere('ceo_salary', { Salary_ID: id }),
+        { tableName: 'ceo_salary', operation: 'delete', payload: { Salary_ID: id }, clientWriteId: `ceo-salary-delete-${id}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -1012,7 +1220,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertObjectPayload(data, 'employee payload');
       if (!isNonEmpty(data.Employee_Name)) throw new Error('Employee_Name is required');
       if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
-      return await syncOnline(() => addEmployee(data), () => onlineDb.insert('employees', { Employee_ID: onlineDb.generateId(), Employee_Name: data.Employee_Name, CNIC: data.CNIC||'', Phone: data.Phone || data.Phone_Number || '', Role: data.Role||'', Town_Name: data.Town_Name||'', Salary: parseFloat(data.Salary)||0 }));
+      return await syncOnline(
+        () => addEmployee(data),
+        () => onlineDb.insert('employees', { Employee_ID: onlineDb.generateId(), Employee_Name: data.Employee_Name, CNIC: data.CNIC||'', Phone: data.Phone || data.Phone_Number || '', Role: data.Role||'', Town_Name: data.Town_Name||'', Salary: parseFloat(data.Salary)||0 }),
+        { tableName: 'employees', operation: 'insert', payload: data }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('get-employees', async () => { try { const rows = await dataLayer.read(() => getEmployees(), () => onlineDb.getAll('employees')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
@@ -1020,7 +1232,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       assertPermanentDeleteAllowed();
       if (!isNonEmpty(id)) throw new Error('Employee id is required');
-      return await syncOnline(() => deleteEmployee(id), () => onlineDb.deleteWhere('employees', { Employee_ID: id }));
+      return await syncOnline(
+        () => deleteEmployee(id),
+        () => onlineDb.deleteWhere('employees', { Employee_ID: id }),
+        { tableName: 'employees', operation: 'delete', payload: { Employee_ID: id }, clientWriteId: `employee-delete-${id}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -1069,7 +1285,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('dismiss-notification', async (_, id) => {
     try {
       if (!isNonEmpty(id)) throw new Error('Notification id is required');
-      return await syncOnline(() => dismissNotification(id), () => onlineDb.updateWhere('notifications', { Notification_ID: id }, { Dismissed: 'Yes', Status: 'Dismissed' }));
+      return await syncOnline(
+        () => dismissNotification(id),
+        () => onlineDb.updateWhere('notifications', { Notification_ID: id }, { Dismissed: 'Yes', Status: 'Dismissed' }),
+        { tableName: 'notifications', operation: 'update', payload: { Notification_ID: id, Dismissed: 'Yes', Status: 'Dismissed' }, clientWriteId: `notification-dismiss-${id}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -1156,9 +1376,80 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     } catch(e) { return { error: e.message }; }
   });
 
+  ipcMain.handle('run-business-audit', async () => {
+    try {
+      const rootPath = fs.existsSync(path.join(process.cwd(), 'Global')) ? process.cwd() : app.getAppPath();
+      const scriptPath = fs.existsSync(path.join(rootPath, 'scripts', 'audit-business-data.mjs'))
+        ? path.join(rootPath, 'scripts', 'audit-business-data.mjs')
+        : path.join(process.cwd(), 'scripts', 'audit-business-data.mjs');
+      const auditModule = await import(pathToFileURL(scriptPath).href);
+      const result = await auditModule.runBusinessAudit({ rootPath });
+      return result;
+    } catch(e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('get-payment-accounts', async (_, townName) => {
+    try {
+      const town = scopedTown(townName, isAccountantScoped());
+      return await cashBanks.getPaymentAccounts(town);
+    } catch(e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('add-bank-account', async (_, data = {}) => {
+    try {
+      assertObjectPayload(data, 'bank account payload');
+      if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name || data.townName, true);
+      assertTownAccess(data.Town_Name || data.townName);
+      return await syncOnline(
+        () => cashBanks.addBankAccount(data),
+        (account) => onlineDb.insert('cash_bank_accounts', account),
+        { tableName: 'cash_bank_accounts', operation: 'insert', payload: data, clientWriteId: `cash-bank-${data.Town_Name || data.townName}-${data.Account_Name || data.accountName || Date.now()}` }
+      );
+    } catch(e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('update-bank-account', async (_, { accountId, updates } = {}) => {
+    try {
+      if (!isNonEmpty(accountId)) throw new Error('Account ID is required');
+      assertObjectPayload(updates, 'bank account updates');
+      return await syncOnline(
+        () => cashBanks.updateBankAccount(accountId, updates),
+        (account) => onlineDb.updateWhere('cash_bank_accounts', { Account_ID: accountId }, account),
+        { tableName: 'cash_bank_accounts', operation: 'update', payload: { Account_ID: accountId, ...(updates || {}) }, clientWriteId: `cash-bank-update-${accountId}-${Date.now()}` }
+      );
+    } catch(e) { return { error: e.message }; }
+  });
+
   ipcMain.handle('generate-daily-town-receipts', async (event, date) => {
     try {
       return await generateDailyTownReceiptBundle(date || new Date().toISOString().slice(0, 10), event.sender);
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('get-daily-report-settings', async () => {
+    try {
+      return dailyReportSettings.getDailyReportSettings();
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('update-daily-report-settings', async (_, patch) => {
+    try {
+      return dailyReportSettings.updateDailyReportSettings(patch || {});
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('resend-daily-report-to-ceo', async (event, params = {}) => {
+    try {
+      const date = params.date || new Date().toISOString().slice(0, 10);
+      return await generateDailyTownReceiptBundle(date, event.sender, { force: true });
     } catch (e) {
       return { error: e.message };
     }
@@ -1210,6 +1501,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         fromDate: params.fromDate || '',
         toDate: params.toDate || '',
       });
+      sendMediaChanged({ townName: town, title: `${town} ledger report`, path: pdfPath });
       return { ...result, pdfPath };
     } catch(e) { return { error: e.message }; }
   });
@@ -1221,7 +1513,12 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!accountName) throw new Error('Account name is required');
       const fromDate = params.fromDate || '';
       const toDate = params.toDate || '';
-      const rows = Array.isArray(account.rows) ? account.rows : [];
+      const rows = reportRowsInRange(Array.isArray(account.rows) ? account.rows : [], fromDate, toDate);
+      const filteredReceived = rows.reduce((sum, row) => sum + (Number(row.received || row.credit || 0) || 0), 0);
+      const filteredPaid = rows.reduce((sum, row) => sum + (Number(row.paid || row.debit || row.cashDisbursed || 0) || 0), 0);
+      const displayReceived = rows.length ? filteredReceived : (Number(account.received) || 0);
+      const displayPaid = rows.length ? filteredPaid : (Number(account.paid) || 0);
+      const displayBalance = rows.length ? rows.reduce((sum, row) => sum + (Number(row.balance ?? row.remaining ?? row.amount ?? 0) || 0), 0) : (Number(account.balance) || 0);
       const reportsDir = path.join(getGlobalsPath(), 'Reports', reportSafePart(town), 'Accounts');
       fs.mkdirSync(reportsDir, { recursive: true });
       const base = `${reportSafePart(accountName)}_${fromDate || 'from'}_${toDate || 'to'}_${Date.now()}`;
@@ -1236,7 +1533,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
 body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h1{margin:0 0 4px;font-size:24px}.meta{color:#64748b;margin-bottom:18px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px}.card span{display:block;font-size:11px;color:#64748b;text-transform:uppercase}.card strong{font-size:18px}table{width:100%;border-collapse:collapse;background:#fff;margin-top:16px}th,td{border:1px solid #e5e7eb;padding:8px;text-align:left;font-size:12px}th{background:#eff6ff}@media print{body{background:#fff;margin:12mm}.cards{grid-template-columns:1fr 1fr 1fr}}</style></head><body>
 <h1>AL SIRAJ DEVELOPERS - Account Ledger Report</h1>
 <div class="meta">${reportEscape(town)} | ${reportEscape(account.type || 'Account')} | ${reportEscape(accountName)} | ${reportEscape(fromDate)} to ${reportEscape(toDate)} | Generated ${new Date().toLocaleString()}</div>
-<div class="cards"><div class="card"><span>Total Received</span><strong>${reportMoney(account.received)}</strong></div><div class="card"><span>Total Paid</span><strong>${reportMoney(account.paid)}</strong></div><div class="card"><span>Balance</span><strong>${reportMoney(account.balance)}</strong></div></div>
+<div class="cards"><div class="card"><span>Total Received</span><strong>${reportMoney(displayReceived)}</strong></div><div class="card"><span>Total Paid</span><strong>${reportMoney(displayPaid)}</strong></div><div class="card"><span>Balance</span><strong>${reportMoney(displayBalance)}</strong></div></div>
 <table><thead><tr><th>Date / Source</th><th>Detail</th><th>Amount</th></tr></thead><tbody>${rowsHtml}</tbody></table>
 </body></html>`;
       fs.writeFileSync(htmlPath, html, 'utf8');
@@ -1251,6 +1548,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         fromDate,
         toDate,
       });
+      sendMediaChanged({ townName: town, title: `${accountName} account report`, path: pdfPath });
       return { success: true, htmlPath, pdfPath };
     } catch(e) { return { error: e.message }; }
   });
@@ -1275,6 +1573,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         fromDate: params.fromDate || '',
         toDate: params.toDate || '',
       });
+      sendMediaChanged({ townName: town || params.townName || '', title: 'Due installment report', path: pdfPath });
       return { ...result, pdfPath };
     } catch(e) { return { error: e.message }; }
   });
@@ -1326,6 +1625,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         htmlPath,
         reportDate: receipt.Receipt_Date || new Date().toISOString().slice(0, 10),
       });
+      sendMediaChanged({ townName: town || receipt.Town_Name || '', title: `${receiptNumber} receipt`, path: pdfPath, events: ['media:changed', 'report:created', 'receipt:created'] });
       return { success: true, pdfPath, htmlPath };
     } catch(e) { return { error: e.message }; }
   });
@@ -1364,7 +1664,11 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
     try {
       assertPermanentDeleteAllowed();
       assertObjectPayload(params, 'deleteDailyEntry payload');
-      return await syncOnline(() => deleteDailyEntry(params), () => onlineDb.deleteWhere('daily_entries', { Entry_ID: params.Entry_ID }));
+      return await syncOnline(
+        () => deleteDailyEntry(params),
+        () => onlineDb.deleteWhere('daily_entries', { Entry_ID: params.Entry_ID }),
+        { tableName: 'daily_entries', operation: 'delete', payload: params, clientWriteId: `daily-entry-delete-${params.Entry_ID}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -1429,7 +1733,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             createdBy: 'Accountant',
           });
         }
-      });
+      }, { tableName: 'salary_payments', operation: 'insert', payload: data });
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('getSalaryRecords', async (_, params) => {
@@ -1478,7 +1782,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         Town_Name: townName,
         Role: designation,
         Salary: parseFloat(baseSalary) || 0
-      }));
+      }), { tableName: 'employees_v2', operation: 'insert', payload: { ...normalizedData, Town_Name: townName } });
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('updateEmployeeV2', async (_, { employeeId, data }) => {
@@ -1491,7 +1795,11 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       if (data.cnic !== undefined) onlineUpdates.CNIC = data.cnic;
       if (data.baseSalary !== undefined) onlineUpdates.Salary = parseFloat(data.baseSalary) || 0;
       if (data.status !== undefined) onlineUpdates.Status = data.status;
-      return await syncOnline(() => ({ success: true }), () => onlineDb.updateWhere('employees_v2', { Employee_ID: String(employeeId) }, onlineUpdates));
+      return await syncOnline(
+        () => ({ success: true }),
+        () => onlineDb.updateWhere('employees_v2', { Employee_ID: String(employeeId) }, onlineUpdates),
+        { tableName: 'employees_v2', operation: 'update', payload: { Employee_ID: employeeId, ...data }, clientWriteId: `employee-v2-update-${employeeId}-${Date.now()}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('addAdvanceSalary', async (_, data) => {
@@ -1505,7 +1813,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         Date: new Date().toISOString().split('T')[0],
         Status: 'Active',
         Notes: data.advanceType === 'installment' ? `Installments: ${data.totalInstallments}, Monthly: ${data.monthlyDeduction}` : 'Lump Sum',
-      }));
+      }), { tableName: 'advance_salaries', operation: 'insert', payload: data });
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('getAdvanceSalaries', async (_, { townName, employeeName }) => {
@@ -1517,7 +1825,11 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
   ipcMain.handle('updateAdvanceSalary', async (_, advanceId) => {
     try {
       await employeeDB.updateAdvanceSalary(advanceId);
-      return await syncOnline(() => ({ success: true }), () => onlineDb.updateWhere('advance_salaries', { Advance_ID: advanceId }, { Status: 'Paid' }));
+      return await syncOnline(
+        () => ({ success: true }),
+        () => onlineDb.updateWhere('advance_salaries', { Advance_ID: advanceId }, { Status: 'Paid' }),
+        { tableName: 'advance_salaries', operation: 'update', payload: { Advance_ID: advanceId, Status: 'Paid' }, clientWriteId: `advance-salary-paid-${advanceId}` }
+      );
     } catch(e) { return { error: e.message }; }
   });
 
@@ -1552,7 +1864,11 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       assertPermanentDeleteAllowed();
       assertTownAccess(townName);
       await employeeDB.updateEmployee(employeeId, { status: 'Deleted' });
-      return await syncOnline(() => ({ success: true }), () => onlineDb.updateWhere('employees_v2', { Employee_ID: String(employeeId) }, { Status: 'Deleted' }));
+      return await syncOnline(
+        () => ({ success: true }),
+        () => onlineDb.updateWhere('employees_v2', { Employee_ID: String(employeeId) }, { Status: 'Deleted' }),
+        { tableName: 'employees_v2', operation: 'delete', payload: { Employee_ID: employeeId, Town_Name: townName, Status: 'Deleted' }, clientWriteId: `employee-v2-delete-${employeeId}` }
+      );
     } catch (e) { return { error: e.message }; }
   });
 
@@ -2023,7 +2339,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       return await syncOnline(
         () => businessExtras.addTownAgent(data),
         (localAgent) => onlineDb.insert('town_agents', localAgent),
-        { tableName: 'town_agents', payload: data }
+        { tableName: 'town_agents', operation: 'insert', payload: data, clientWriteId: `town-agent-${data.Town_Name || ''}-${data.Agent_Name || data.name || Date.now()}` }
       );
     } catch (e) { return { error: e.message }; }
   });
@@ -2040,7 +2356,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       return await syncOnline(
         () => businessExtras.addInvestor(data),
         (localInvestor) => onlineDb.insert('investors', localInvestor),
-        { tableName: 'investors', payload: data }
+        { tableName: 'investors', operation: 'insert', payload: data, clientWriteId: `investor-${data.Town_Name || ''}-${data.Investor_Name || data.name || Date.now()}` }
       );
     } catch (e) { return { error: e.message }; }
   });
@@ -2081,6 +2397,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             Reference: tx.Transaction_ID,
             Created_By: tx.Created_By || 'System',
             Review_Status: 'approved',
+            Payment_Account_ID: tx.Payment_Account_ID,
+            Payment_Account_Name: tx.Payment_Account_Name,
+            Payment_Account_Type: tx.Payment_Account_Type,
           });
           await onlineDb.recordMoneyEvent({
             sourceType: 'investor_transaction',
@@ -2094,9 +2413,12 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             receiptNumber: tx.Receipt_Number,
             createdBy: tx.Created_By || 'System',
             status: 'approved',
+            paymentAccountId: tx.Payment_Account_ID,
+            paymentAccountName: tx.Payment_Account_Name,
+            paymentAccountType: tx.Payment_Account_Type,
           });
         },
-        { tableName: 'investor_transactions', payload: data }
+        { tableName: 'investor_transactions', operation: 'insert', payload: data, clientWriteId: `investor-tx-${data.Transaction_ID || data.Investor_ID || data.investorId || Date.now()}` }
       );
       return result;
     } catch (e) { return { error: e.message }; }
@@ -2138,7 +2460,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
           await onlineDb.insert('construction_projects', project);
           await onlineDb.insert('receipt_archive', buildConstructionDealReceiptPayload(project));
         },
-        { tableName: 'construction_projects', payload: data }
+        { tableName: 'construction_projects', operation: 'insert', payload: data, clientWriteId: `construction-project-${data.Town_Name || ''}-${data.Category || ''}-${data.Constructor_Name || Date.now()}` }
       );
     } catch (e) { return { error: e.message }; }
   });
@@ -2161,6 +2483,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             reference: payment.Payment_ID,
             createdBy: payment.Created_By || 'System',
             reviewStatus: 'approved',
+            paymentAccountId: payment.Payment_Account_ID,
+            paymentAccountName: payment.Payment_Account_Name,
+            paymentAccountType: payment.Payment_Account_Type,
           });
           return payment;
         },
@@ -2189,6 +2514,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             Reference: payment.Payment_ID,
             Created_By: payment.Created_By || 'System',
             Review_Status: 'approved',
+            Payment_Account_ID: payment.Payment_Account_ID,
+            Payment_Account_Name: payment.Payment_Account_Name,
+            Payment_Account_Type: payment.Payment_Account_Type,
           });
           await onlineDb.recordMoneyEvent({
             sourceType: 'construction_payment',
@@ -2202,9 +2530,12 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             receiptNumber: payment.Receipt_Number,
             createdBy: payment.Created_By || 'System',
             status: 'approved',
+            paymentAccountId: payment.Payment_Account_ID,
+            paymentAccountName: payment.Payment_Account_Name,
+            paymentAccountType: payment.Payment_Account_Type,
           });
         },
-        { tableName: 'construction_payments', payload: data }
+        { tableName: 'construction_payments', operation: 'insert', payload: data, clientWriteId: `construction-payment-${data.Payment_ID || data.Project_ID || Date.now()}` }
       );
       return result;
     } catch (e) { return { error: e.message }; }
@@ -2523,7 +2854,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       if (!isNonEmpty(commissionId)) throw new Error('Commission ID is required');
       const { readExcelFile, updateExcelRow, getGlobalsPath, ensureSheetColumns } = require('./db/core');
       const commissionPath = path.join(getGlobalsPath(), 'Commissions.xlsx');
-      await ensureSheetColumns(commissionPath, 'Data', ['Paid_Amount','Remaining_Amount','Last_Paid_Date']);
+      await ensureSheetColumns(commissionPath, 'Data', ['Paid_Amount','Remaining_Amount','Last_Paid_Date','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type']);
       const rows = await readExcelFile(commissionPath, 'Data');
       const row = (rows || []).find((c) => String(c.Commission_ID || c.id) === String(commissionId));
       if (row) assertTownAccess(row.Town_Name || row.town_name);
@@ -2556,6 +2887,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         Remaining_After: remainingAfter,
         Paid_Date: paidDate,
         Paid_By: 'Accountant',
+        Payment_Account_ID: payload?.paymentAccountId || payload?.Payment_Account_ID || 'cash-in-hand',
+        Payment_Account_Name: payload?.paymentAccountName || payload?.Payment_Account_Name || 'Cash in Hand',
+        Payment_Account_Type: payload?.paymentAccountType || payload?.Payment_Account_Type || 'cash',
       };
       return await syncOnline(
         async () => {
@@ -2565,6 +2899,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             Last_Paid_Date: paidDate,
             Paid_Amount: paidAfter,
             Remaining_Amount: remainingAfter,
+            Payment_Account_ID: localPayload.Payment_Account_ID,
+            Payment_Account_Name: localPayload.Payment_Account_Name,
+            Payment_Account_Type: localPayload.Payment_Account_Type,
           });
           const receipt = await businessExtras.recordCommissionReceipt(localPayload);
           await addDailyEntry({
@@ -2577,6 +2914,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             reference: localPayload.Commission_ID,
             createdBy: 'Accountant',
             reviewStatus: 'approved',
+            paymentAccountId: localPayload.Payment_Account_ID,
+            paymentAccountName: localPayload.Payment_Account_Name,
+            paymentAccountType: localPayload.Payment_Account_Type,
           });
           return { success: true, receipt, commission: localPayload };
         },
@@ -2604,6 +2944,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             Reference: localPayload.Commission_ID,
             Created_By: 'Accountant',
             Review_Status: 'approved',
+            Payment_Account_ID: localPayload.Payment_Account_ID,
+            Payment_Account_Name: localPayload.Payment_Account_Name,
+            Payment_Account_Type: localPayload.Payment_Account_Type,
           });
           await onlineDb.recordMoneyEvent({
             sourceType: 'commission_payment',
@@ -2617,6 +2960,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             receiptNumber: receipt.Receipt_Number || '',
             createdBy: 'Accountant',
             status: 'approved',
+            paymentAccountId: localPayload.Payment_Account_ID,
+            paymentAccountName: localPayload.Payment_Account_Name,
+            paymentAccountType: localPayload.Payment_Account_Type,
           });
         },
         { tableName: 'commissions', operation: 'update', payload: localPayload }
@@ -2675,7 +3021,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
     catch (e) { return { error: e.message }; }
   });
 
-  ipcMain.handle('record-pending-collection', async (_, { saleId, amount, paymentMethod, notes, type, plotShopNumber, townName, customerName, agentName, totalAmount, currentReceived }) => {
+  ipcMain.handle('record-pending-collection', async (_, { saleId, amount, paymentMethod, notes, type, plotShopNumber, townName, customerName, agentName, totalAmount, currentReceived, paymentAccountId, paymentAccountName, paymentAccountType }) => {
     try {
       let allowedTown = townName;
       if (!allowedTown) {
@@ -2688,7 +3034,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       }
       allowedTown = scopedTown(allowedTown, true);
       const result = await syncOnline(
-        () => recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName: allowedTown, amount, paymentMethod, notes }),
+        () => recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName: allowedTown, amount, paymentMethod, notes, paymentAccountId, paymentAccountName, paymentAccountType }),
         (localResult) => onlineDb.recordCollectionPayment(
           saleId || localResult?.payment?.Sale_ID,
           amount,
@@ -2696,7 +3042,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
           notes,
           localResult?.payment || null
         ),
-        { tableName: 'collection_payments', operation: 'upsert', payload: { saleId, amount, paymentMethod, notes, townName: allowedTown } }
+        { tableName: 'collection_payments', operation: 'upsert', payload: { saleId, amount, paymentMethod, notes, townName: allowedTown, paymentAccountId, paymentAccountName, paymentAccountType } }
       );
       return { success: true, ...result };
     } catch (e) { return { error: e.message }; }
@@ -2742,7 +3088,18 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
           townName: sale.Town_Name,
           status: 'Delivered',
         }),
-        () => Promise.resolve({ success: true })
+        () => Promise.resolve({ success: true }),
+        {
+          tableName: 'properties',
+          operation: 'update',
+          payload: {
+            type: sale.Type,
+            number: sale.Plot_Shop_Number,
+            Town_Name: sale.Town_Name,
+            status: 'Delivered',
+          },
+          clientWriteId: `deliver-file-${sale.Sale_ID || `${sale.Type}-${sale.Plot_Shop_Number}-${sale.Town_Name}`}`,
+        }
       );
       return { success: true, ...result };
     }

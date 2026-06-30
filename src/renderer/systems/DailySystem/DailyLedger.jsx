@@ -338,7 +338,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
             <DailyIncomeEntry townName={townName} onSubmit={handleAddEntry} isAppealMode={isNonToday} accountOptions={accountOptions} />
           </div>
           <div style={{ display: activeTab === 'expense' ? 'block' : 'none' }}>
-            <DailyExpenseEntry onSubmit={handleAddEntry} isAppealMode={isNonToday} accountOptions={accountOptions} />
+            <DailyExpenseEntry townName={townName} onSubmit={handleAddEntry} isAppealMode={isNonToday} accountOptions={accountOptions} />
           </div>
           {isNonToday && (
             <div style={{ padding: '10px 14px', background: '#fff7ed', border: '1px dashed #f59e0b', borderRadius: 10, fontSize: 11, color: '#92400e', lineHeight: 1.6 }}>

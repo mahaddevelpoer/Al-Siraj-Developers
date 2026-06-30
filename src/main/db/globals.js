@@ -357,6 +357,9 @@ async function markInstallmentPaid(data) {
     description: `${item.Type || 'Property'} ${item.Plot_Shop_Number || ''} installment ${item.Month_Number || ''}`,
     receiptNumber,
     createdBy: item.Agent_Name || 'System',
+    paymentAccountId: data.paymentAccountId || data.Payment_Account_ID,
+    paymentAccountName: data.paymentAccountName || data.Payment_Account_Name,
+    paymentAccountType: data.paymentAccountType || data.Payment_Account_Type,
   });
 
   const receiptPayload = {
@@ -589,7 +592,7 @@ async function recordSalaryPayment(data) {
   await ensureSheetColumns(recordsPath, 'Data', [
     'Receipt_Number','Date','Payment_Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By',
     'Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After',
-    'Salary_Remaining_After','Is_Advance_Salary'
+    'Salary_Remaining_After','Is_Advance_Salary','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'
   ]);
   const previousRows = await readExcelFile(recordsPath, 'Data').catch(() => []);
   const cleanName = String(employeeName || '').trim().toLowerCase();
@@ -637,6 +640,9 @@ async function recordSalaryPayment(data) {
     Salary_Paid_After: paidAfter,
     Salary_Remaining_After: remainingAfter,
     Is_Advance_Salary: isAdvanceSalary || extraAdvance > 0 ? 'Yes' : 'No',
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
   };
   await appendToExcel(recordsPath, 'Data', salaryData);
 
@@ -665,6 +671,9 @@ async function recordSalaryPayment(data) {
       description: `${type || 'Employee'} salary applied ${month || ''}`,
       receiptNumber,
       createdBy: 'CEO',
+      paymentAccountId: salaryData.Payment_Account_ID,
+      paymentAccountName: salaryData.Payment_Account_Name,
+      paymentAccountType: salaryData.Payment_Account_Type,
     });
   }
   if (extraAdvance > 0) {
@@ -681,6 +690,9 @@ async function recordSalaryPayment(data) {
       debitAccount: 'Employee Advance Receivable',
       creditAccount: 'Cash / Bank',
       createdBy: 'CEO',
+      paymentAccountId: salaryData.Payment_Account_ID,
+      paymentAccountName: salaryData.Payment_Account_Name,
+      paymentAccountType: salaryData.Payment_Account_Type,
     });
   }
 
@@ -869,7 +881,7 @@ async function getPropertyInstallments(propertyId) {
   }));
 }
 
-async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName, amount, paymentMethod, notes }) {
+async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName, amount, paymentMethod, notes, paymentAccountId, paymentAccountName, paymentAccountType }) {
   const filePath = path.join(getGlobalsPath(), 'All_Sales.xlsx');
   const all = await readExcelFile(filePath, 'Data');
   const item = all.find(i =>
@@ -909,7 +921,7 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
 
   const historyPath = path.join(getGlobalsPath(), 'Collection_Payments.xlsx');
   await ensureCollectionPaymentsFile(historyPath);
-  await ensureSheetColumns(historyPath, 'Data', ['Payment_ID','Sale_ID','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes']);
+  await ensureSheetColumns(historyPath, 'Data', ['Payment_ID','Sale_ID','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type']);
   const paymentId = generateId();
   const paymentRow = {
     Payment_ID: paymentId,
@@ -927,6 +939,9 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
     Payment_Date: new Date().toISOString().split('T')[0],
     Payment_Method: paymentMethod || 'Cash',
     Notes: notes || '',
+    Payment_Account_ID: paymentAccountId || 'cash-in-hand',
+    Payment_Account_Name: paymentAccountName || 'Cash in Hand',
+    Payment_Account_Type: paymentAccountType || 'cash',
   };
   await appendToExcel(historyPath, 'Data', paymentRow);
   await recordMoneyEvent({
@@ -939,6 +954,9 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
     partyName: item.Customer_Name || '',
     description: `${item.Type || type} ${item.Plot_Shop_Number || plotShopNumber} collection received`,
     createdBy: item.Agent_Name || 'System',
+    paymentAccountId: paymentRow.Payment_Account_ID,
+    paymentAccountName: paymentRow.Payment_Account_Name,
+    paymentAccountType: paymentRow.Payment_Account_Type,
   });
 
   if (newRemaining <= 0) {

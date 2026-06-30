@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ResellIcon, ClockIcon, SearchIcon, SoldIcon, EditIcon, CheckIcon } from './Icons';
 import OfficialReceipt from './OfficialReceipt';
+import PaymentAccountSelect from './PaymentAccountSelect';
 
 export default function ResellProperty({ showToast, loadNotifications, townName }) {
   const [towns, setTowns] = useState([]);
@@ -49,6 +50,7 @@ export default function ResellProperty({ showToast, loadNotifications, townName 
   const [transactionId, setTransactionId] = useState('');
   const [transferBankName, setTransferBankName] = useState('');
   const [transferImageDataUrl, setTransferImageDataUrl] = useState('');
+  const [paymentAccount, setPaymentAccount] = useState(null);
 
   const handleImageUpload = (e, setter) => {
     const file = e.target.files[0];
@@ -121,6 +123,7 @@ export default function ResellProperty({ showToast, loadNotifications, townName 
         Cheque_Bank: chequeBankName,
         Transaction_ID: transactionId,
         Transfer_Bank: transferBankName,
+        ...paymentAccount,
       });
       if (r?.error) showToast(r.error, 'error');
       else {
@@ -157,6 +160,8 @@ export default function ResellProperty({ showToast, loadNotifications, townName 
           transactionId,
           transferBankName,
           transferImageDataUrl,
+          paymentAccountName: paymentAccount?.paymentAccountName,
+          paymentAccountType: paymentAccount?.paymentAccountType,
         });
         setShowReceipt(true);
         setProperty(null);
@@ -301,6 +306,13 @@ export default function ResellProperty({ showToast, loadNotifications, townName 
                 ))}
               </div>
             </div>
+
+            <PaymentAccountSelect
+              townName={selectedTown || townName}
+              value={paymentAccount}
+              onChange={setPaymentAccount}
+              label="Receive Resell Advance Into / Pay Refund From"
+            />
 
             {paymentMethod === 'Cheque' && (
               <div style={{

@@ -26,6 +26,7 @@ const pushFreshnessWindow = Duration(minutes: 5);
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 final selectedTabNotifier = ValueNotifier<int>(0);
+final liveRefreshNotifier = ValueNotifier<int>(0);
 final appStartedAt = DateTime.now();
 
 @pragma('vm:entry-point')
@@ -82,6 +83,28 @@ class TownPulse {
   final num todayIncome;
   final num todayExpense;
   final int salesCount;
+}
+
+class OperatorPresence {
+  const OperatorPresence({
+    required this.id,
+    required this.name,
+    required this.role,
+    required this.townName,
+    required this.isOnline,
+    this.lastSeenAt,
+    this.deviceLabel = '',
+    this.activeContext = '',
+  });
+
+  final String id;
+  final String name;
+  final String role;
+  final String townName;
+  final bool isOnline;
+  final DateTime? lastSeenAt;
+  final String deviceLabel;
+  final String activeContext;
 }
 
 class LedgerReceipt {
@@ -678,7 +701,7 @@ class CeoShell extends StatefulWidget {
   State<CeoShell> createState() => _CeoShellState();
 }
 
-class _CeoShellState extends State<CeoShell> {
+class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
   int _tab = 0;
   double _fabTurns = 0;
   String _pushStatus = 'Checking push setup...';
@@ -694,16 +717,34 @@ class _CeoShellState extends State<CeoShell> {
   StreamSubscription<RemoteMessage>? _foregroundPushSub;
   StreamSubscription<RemoteMessage>? _openedPushSub;
   Timer? _liveRefreshTimer;
+  Timer? _presenceHeartbeatTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     selectedTabNotifier.addListener(_applySelectedTab);
     _tab = selectedTabNotifier.value;
     _verifyCeoAndEnablePush();
     _listenForFcmMessages();
     _routeInitialPushMessage();
     _subscribeToLiveAlerts();
+    _startPresenceHeartbeat();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _writePresence('online', contextLabel: 'ceo_mobile_app');
+      return;
+    }
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      _writePresence('away', contextLabel: 'ceo_mobile_app_background');
+      return;
+    }
+    if (state == AppLifecycleState.detached) {
+      _writePresence('offline', contextLabel: 'ceo_mobile_app_closed');
+    }
   }
 
   void _applySelectedTab() {
@@ -775,6 +816,7 @@ class _CeoShellState extends State<CeoShell> {
     void scheduleLiveRefresh() {
       if (_liveRefreshTimer?.isActive == true) return;
       _liveRefreshTimer = Timer(const Duration(milliseconds: 900), () {
+        liveRefreshNotifier.value++;
         if (mounted) setState(() {});
       });
     }
@@ -837,6 +879,14 @@ class _CeoShellState extends State<CeoShell> {
             scheduleLiveRefresh();
           },
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'users',
+          callback: (payload) {
+            scheduleLiveRefresh();
+          },
+        )
         .subscribe((status, error) {
           if (!mounted) return;
           setState(() {
@@ -848,10 +898,36 @@ class _CeoShellState extends State<CeoShell> {
     _channels.add(channel);
   }
 
+  void _startPresenceHeartbeat() {
+    _writePresence('online', contextLabel: 'ceo_mobile_app');
+    _presenceHeartbeatTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _writePresence('online', contextLabel: 'ceo_mobile_app'),
+    );
+  }
+
+  Future<void> _writePresence(String status, {String contextLabel = 'ceo_mobile_app'}) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) return;
+    try {
+      await supabase.from('users').update({
+        'online_status': status,
+        'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+        'device_label': 'CEO Android',
+        'last_active_context': contextLabel,
+      }).eq('id', userId);
+    } catch (_) {
+      // Presence columns are added by src/sql/user-presence.sql.
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     selectedTabNotifier.removeListener(_applySelectedTab);
     _liveRefreshTimer?.cancel();
+    _presenceHeartbeatTimer?.cancel();
+    _writePresence('offline', contextLabel: 'ceo_mobile_app_closed');
     _foregroundPushSub?.cancel();
     _openedPushSub?.cancel();
     for (final channel in _channels) {
@@ -1264,6 +1340,54 @@ Future<List<TownPulse>> loadTownPulses() async {
   }).toList()..sort((a, b) => a.name.compareTo(b.name));
 }
 
+Future<List<OperatorPresence>> loadOperatorPresence() async {
+  List<Map<String, dynamic>> rows;
+  try {
+    rows = List<Map<String, dynamic>>.from(
+      await supabase
+          .from('users')
+          .select(
+            'id,email,full_name,role,town_name,town_id,online_status,last_seen_at,device_label,last_active_context',
+          ),
+    );
+  } catch (_) {
+    rows = List<Map<String, dynamic>>.from(
+      await supabase
+          .from('users')
+          .select('id,email,full_name,role,town_name,town_id'),
+    );
+  }
+
+  final now = DateTime.now().toUtc();
+  return rows
+      .where((row) {
+        final role = '${row['role'] ?? ''}'.toLowerCase();
+        return role == 'ceo' || role == 'accountant';
+      })
+      .map((row) {
+        final lastSeen = parseDateTime(row['last_seen_at']);
+        final status = '${row['online_status'] ?? ''}'.toLowerCase();
+        final recent = lastSeen != null && now.difference(lastSeen.toUtc()) <= const Duration(seconds: 90);
+        final name = '${row['full_name'] ?? row['email'] ?? 'Unknown user'}'.trim();
+        final townName = '${row['town_name'] ?? row['town_id'] ?? 'All towns'}'.trim();
+        return OperatorPresence(
+          id: '${row['id'] ?? row['email'] ?? name}',
+          name: name.isEmpty ? 'Unknown user' : name,
+          role: '${row['role'] ?? 'user'}'.trim(),
+          townName: townName.isEmpty || townName == 'null' ? 'All towns' : townName,
+          isOnline: status == 'online' && recent,
+          lastSeenAt: lastSeen,
+          deviceLabel: '${row['device_label'] ?? ''}'.trim(),
+          activeContext: '${row['last_active_context'] ?? ''}'.trim(),
+        );
+      })
+      .toList()
+    ..sort((a, b) {
+      if (a.isOnline != b.isOnline) return a.isOnline ? -1 : 1;
+      return a.townName.compareTo(b.townName);
+    });
+}
+
 class OverviewPage extends StatefulWidget {
   const OverviewPage({
     super.key,
@@ -1284,13 +1408,31 @@ class _OverviewPageState extends State<OverviewPage> {
   void initState() {
     super.initState();
     _future = _load();
+    liveRefreshNotifier.addListener(_handleLiveRefresh);
+  }
+
+  @override
+  void dispose() {
+    liveRefreshNotifier.removeListener(_handleLiveRefresh);
+    super.dispose();
+  }
+
+  void _handleLiveRefresh() {
+    if (!mounted) return;
+    setState(() => _future = _load());
   }
 
   Future<Map<String, dynamic>> _load() async {
     await Future<void>.delayed(const Duration(milliseconds: 220));
-    final towns = await loadTownPulses();
+    final results = await Future.wait<dynamic>([
+      loadTownPulses(),
+      loadOperatorPresence(),
+    ]);
+    final towns = results[0] as List<TownPulse>;
+    final operators = results[1] as List<OperatorPresence>;
     return {
       'towns': towns,
+      'operators': operators,
       'appeals': towns.fold<num>(0, (sum, t) => sum + t.pendingAppeals),
       'received': towns.fold<num>(0, (sum, t) => sum + t.totalReceived),
       'expenses': towns.fold<num>(0, (sum, t) => sum + t.totalExpenses),
@@ -1316,6 +1458,9 @@ class _OverviewPageState extends State<OverviewPage> {
           final d = snap.data;
           final towns =
               (d?['towns'] as List<TownPulse>?) ?? const <TownPulse>[];
+          final operators =
+              (d?['operators'] as List<OperatorPresence>?) ??
+              const <OperatorPresence>[];
           final received = asNum(d?['received']);
           final expenses = asNum(d?['expenses']);
           final pending = asNum(d?['pending']);
@@ -1339,12 +1484,20 @@ class _OverviewPageState extends State<OverviewPage> {
                 subtitle:
                     'One clean command center for every town, accountant request, ledger and balance.',
               ),
+              ExecutiveSummaryCard(
+                received: received,
+                cash: asNum(d?['cash']),
+                pending: pending,
+                onlineCount: operators.where((op) => op.isOnline).length,
+                totalOperators: operators.length,
+              ),
               StatusStrip(
                 items: [
                   widget.pushStatus,
                   widget.realtimeStatus,
                 ].where((e) => e.trim().isNotEmpty).toList(),
               ),
+              OnlinePresencePreview(operators: operators),
               MetricGrid(
                 metrics: [
                   Metric(
@@ -1423,6 +1576,502 @@ void openTownDashboard(BuildContext context, TownPulse town) {
       ),
     ),
   );
+}
+
+class ExecutiveSummaryCard extends StatelessWidget {
+  const ExecutiveSummaryCard({
+    super.key,
+    required this.received,
+    required this.cash,
+    required this.pending,
+    required this.onlineCount,
+    required this.totalOperators,
+  });
+
+  final num received;
+  final num cash;
+  final num pending;
+  final int onlineCount;
+  final int totalOperators;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = width < 370;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Hero(
+        tag: 'executive-summary-card',
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(compact ? 18 : 22),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(30),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF101C3D),
+                  Color(0xFF2563EB),
+                  Color(0xFF00A889),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF2563EB).withValues(alpha: .24),
+                  blurRadius: 36,
+                  offset: const Offset(0, 18),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .18),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: .22),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.account_balance_wallet_rounded,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const Spacer(),
+                    PresencePill(
+                      label: '$onlineCount/$totalOperators online',
+                      active: onlineCount > 0,
+                      bright: true,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Portfolio cash balance',
+                  style: TextStyle(
+                    color: Color(0xDDEFFFFFF),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    money.format(cash),
+                    maxLines: 1,
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: compact ? 30 : 36,
+                      fontWeight: FontWeight.w900,
+                      height: 1,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _ExecutiveMiniStat(
+                        label: 'Received',
+                        value: money.format(received),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _ExecutiveMiniStat(
+                        label: 'Receivable',
+                        value: money.format(pending),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      )
+          .animate()
+          .fadeIn(duration: 420.ms)
+          .slideY(begin: .10, curve: Curves.easeOutCubic),
+    );
+  }
+}
+
+class _ExecutiveMiniStat extends StatelessWidget {
+  const _ExecutiveMiniStat({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .15),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: .18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xCCFFFFFF),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class OnlinePresencePreview extends StatelessWidget {
+  const OnlinePresencePreview({super.key, required this.operators});
+  final List<OperatorPresence> operators;
+
+  @override
+  Widget build(BuildContext context) {
+    final online = operators.where((op) => op.isOnline).toList();
+    final preview = operators.take(5).toList();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: GlassCard(
+        padding: const EdgeInsets.fromLTRB(16, 15, 16, 14),
+        onTap: () {
+          Navigator.of(context).push(
+            premiumRoute(
+              const DetailScaffold(
+                title: 'Online teams',
+                child: OnlinePresencePage(),
+              ),
+            ),
+          );
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const GradientIconBox(
+                  icon: Icons.groups_2_rounded,
+                  colors: [Color(0xFF2563EB), Color(0xFF00A889)],
+                  size: 42,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Live town teams',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: kText,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        '${online.length} online now. Tap to see last seen by town.',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: kMuted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: kMuted),
+              ],
+            ),
+            if (preview.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              SizedBox(
+                height: 42,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: preview.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) => PresenceAvatar(
+                    operator: preview[index],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PresenceAvatar extends StatelessWidget {
+  const PresenceAvatar({super.key, required this.operator});
+  final OperatorPresence operator;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = operator.name.trim().isEmpty
+        ? '?'
+        : operator.name.trim().substring(0, 1).toUpperCase();
+    return Tooltip(
+      message: '${operator.name} - ${operator.townName} - ${relativeTime(operator.lastSeenAt)}',
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: operator.isOnline
+                    ? const [Color(0xFF00C9A7), Color(0xFF2563EB)]
+                    : const [Color(0xFFCBD5E1), Color(0xFF94A3B8)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (operator.isOnline ? kSecondary : kMuted)
+                      .withValues(alpha: .16),
+                  blurRadius: 14,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Text(
+              initial,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          Positioned(
+            right: -1,
+            bottom: 0,
+            child: Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: operator.isOnline
+                    ? const Color(0xFF22C55E)
+                    : const Color(0xFF94A3B8),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PresencePill extends StatelessWidget {
+  const PresencePill({
+    super.key,
+    required this.label,
+    required this.active,
+    this.bright = false,
+  });
+  final String label;
+  final bool active;
+  final bool bright;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? const Color(0xFF22C55E) : const Color(0xFF94A3B8);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: bright
+            ? Colors.white.withValues(alpha: .14)
+            : color.withValues(alpha: .10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: bright
+              ? Colors.white.withValues(alpha: .18)
+              : color.withValues(alpha: .22),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: bright ? Colors.white : color,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class OnlinePresencePage extends StatefulWidget {
+  const OnlinePresencePage({super.key});
+
+  @override
+  State<OnlinePresencePage> createState() => _OnlinePresencePageState();
+}
+
+class _OnlinePresencePageState extends State<OnlinePresencePage> {
+  late Future<List<OperatorPresence>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = loadOperatorPresence();
+    liveRefreshNotifier.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    liveRefreshNotifier.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() {
+    if (mounted) setState(() => _future = loadOperatorPresence());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<OperatorPresence>>(
+      future: _future,
+      builder: (context, snap) {
+        final operators = snap.data ?? const <OperatorPresence>[];
+        final grouped = <String, List<OperatorPresence>>{};
+        for (final op in operators) {
+          grouped.putIfAbsent(op.townName, () => []).add(op);
+        }
+        return PremiumScrollView(
+          appBarTitle: 'Online teams',
+          children: [
+            const HeaderBlock(
+              title: 'Who is online?',
+              subtitle:
+                  'Realtime presence for CEO, town accountants and last activity.',
+            ),
+            if (!snap.hasData && !snap.hasError) const SkeletonList(),
+            if (snap.hasError) ErrorBlock(error: friendlyDbError(snap.error!)),
+            if (snap.hasData && operators.isEmpty)
+              const EmptyBlock(
+                text:
+                    'No team presence yet. Run src/sql/user-presence.sql and open desktop app once.',
+              ),
+            for (final entry in grouped.entries) ...[
+              SectionLabel(entry.key),
+              for (var i = 0; i < entry.value.length; i++)
+                AnimatedEntry(
+                  index: i,
+                  child: OperatorPresenceCard(operator: entry.value[i]),
+                ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class OperatorPresenceCard extends StatelessWidget {
+  const OperatorPresenceCard({super.key, required this.operator});
+  final OperatorPresence operator;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: GlassCard(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            PresenceAvatar(operator: operator),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    operator.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: kText,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${pretty(operator.role)} - ${operator.deviceLabel.isEmpty ? 'Desktop/mobile app' : operator.deviceLabel}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: kMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            PresencePill(
+              label: operator.isOnline
+                  ? 'Online'
+                  : relativeTime(operator.lastSeenAt),
+              active: operator.isOnline,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class TownPulseCard extends StatelessWidget {
@@ -2676,6 +3325,21 @@ class MorePage extends StatelessWidget {
         },
       ),
       MoreItem(
+        'Online teams',
+        'See who is online and last seen across all towns.',
+        const VectorBadge(kind: BadgeKind.town),
+        () {
+          Navigator.of(context).push(
+            premiumRoute(
+              const DetailScaffold(
+                title: 'Online teams',
+                child: OnlinePresencePage(),
+              ),
+            ),
+          );
+        },
+      ),
+      MoreItem(
         'Daily entries review',
         'Approve or reject accountant income and expense entries.',
         const VectorBadge(kind: BadgeKind.entry),
@@ -3920,8 +4584,8 @@ String routeForTable(dynamic table) {
 }
 
 void routeFromPushData(Map<String, dynamic> data) {
-  final route = data['route'] ?? routeForTable(data['table']);
-  if ('$route' == 'daily_report') {
+  final route = data['route'] ?? data['deepLinkTarget'] ?? routeForTable(data['table']);
+  if ('$route' == 'daily_report' || '$route' == 'daily_ledger_receipts') {
     selectedTabNotifier.value = 3;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final nav = appNavigatorKey.currentState;
@@ -3958,6 +4622,20 @@ String formatDate(dynamic value) {
   if (value == null) return '';
   final parsed = DateTime.tryParse('$value');
   return parsed == null ? '$value' : shortDate.format(parsed);
+}
+
+DateTime? parseDateTime(dynamic value) {
+  if (value == null) return null;
+  return DateTime.tryParse('$value');
+}
+
+String relativeTime(DateTime? value) {
+  if (value == null) return 'Never online';
+  final diff = DateTime.now().toUtc().difference(value.toUtc());
+  if (diff.inSeconds < 60) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+  if (diff.inHours < 24) return '${diff.inHours} hr ago';
+  return shortDate.format(value.toLocal());
 }
 
 String friendlyDbError(Object error) {

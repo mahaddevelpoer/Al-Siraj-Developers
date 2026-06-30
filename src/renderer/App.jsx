@@ -423,6 +423,26 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
+    if (!window.api?.onBusinessDataChanged) return undefined;
+    window.api.onBusinessDataChanged((change = {}) => {
+      setDataRefreshKey((k) => k + 1);
+      try {
+        localStorage.setItem('al_siraj_last_business_change', JSON.stringify(change));
+        window.dispatchEvent(new CustomEvent('al-siraj-business-data-changed', { detail: change }));
+        window.dispatchEvent(new CustomEvent('al-siraj-data-refreshed', { detail: change }));
+      } catch {}
+      const events = Array.isArray(change.events) ? change.events : [];
+      if (events.includes('receipt:created') || events.includes('report:created')) {
+        pushBell('Document ready', 'A receipt or report was updated. Related screens are refreshing now.', 'success');
+      }
+      if (events.includes('sync:queued')) {
+        pushBell('Saved locally', 'Cloud sync will retry automatically. Your local Excel data is safe.', 'warning');
+      }
+    });
+    return () => window.api?.removeBusinessDataChanged?.();
+  }, [pushBell]);
+
+  useEffect(() => {
     if (!loggedIn || !window.api?.syncToCloud) return undefined;
     let busy = false;
     let mounted = true;
@@ -521,53 +541,25 @@ function AppInner() {
   }, [loggedIn, userRole, assignedAccountantTown, showToast, pushBell]);
 
   useEffect(() => {
-    if (!loggedIn || !window.api?.exportTownLedgerReport) return undefined;
-    let running = false;
+    if (!loggedIn) return undefined;
     const runDailyReportReminder = async (force = false) => {
       const now = new Date();
       const today = now.toISOString().slice(0, 10);
       const key = `daily_ceo_reports_${today}`;
       const state = localStorage.getItem(key);
-      if (!force && (now.getHours() < 19 || state === 'done' || state === 'uploading')) return;
-      if (force && now.getHours() < 19 && state !== 'pending') return;
-      localStorage.setItem(key, navigator.onLine ? 'uploading' : 'pending');
-      pushBell('Please use internet for CEO daily reports', '7:00 PM daily town reports are ready to upload. Connect internet so CEO app can receive the report notification.', 'warning');
-      window.api?.showNotification?.('CEO daily reports', 'Please use internet for CEO daily reports.');
-      if (!navigator.onLine || running) return;
-      running = true;
+      let reportHour = 20;
       try {
-        const towns = await window.api.getTowns?.();
-        const townRows = Array.isArray(towns) ? towns.filter((town) => town.Town_Name) : [];
-        const total = Math.max(1, townRows.length);
-        setCloudRefresh({ visible: true, percent: 5, msg: 'Preparing CEO daily reports...' });
-        const failed = [];
-        for (let i = 0; i < townRows.length; i += 1) {
-          const townName = townRows[i].Town_Name;
-          setCloudRefresh({ visible: true, percent: Math.round(10 + (i / total) * 65), msg: `Creating daily ledger receipt: ${townName}` });
-          const report = await window.api.exportTownLedgerReport({ townName, fromDate: today, toDate: today });
-          if (report?.error) failed.push(townName);
-        }
-        setCloudRefresh({ visible: true, percent: 82, msg: 'Uploading daily reports to cloud...' });
-        const sync = await window.api.syncToCloud?.();
-        if (sync?.error) failed.push('Cloud sync');
-        setCloudRefresh({ visible: true, percent: 100, msg: failed.length ? `Reports created, failed: ${failed.join(', ')}` : 'All CEO daily reports uploaded.' });
-        localStorage.setItem(key, failed.length ? 'pending' : 'done');
-        pushBell(
-          failed.length ? 'Some daily reports need attention' : 'CEO daily reports uploaded',
-          failed.length ? `Not uploaded: ${failed.join(', ')}` : 'All town daily ledger receipts were created and synced.',
-          failed.length ? 'error' : 'success'
-        );
-        window.api?.showNotification?.(
-          failed.length ? 'Daily reports need attention' : 'CEO daily reports uploaded',
-          failed.length ? `Not uploaded: ${failed.join(', ')}` : 'All town reports are ready.'
-        );
-        setTimeout(() => setCloudRefresh((s) => ({ ...s, visible: false })), 2500);
-      } catch (error) {
-        localStorage.setItem(key, 'pending');
-        pushBell('Daily report upload failed', error?.message || 'Report generation failed.', 'error');
-      } finally {
-        running = false;
-      }
+        const settings = await window.api?.getDailyReportSettings?.();
+        if (settings?.enabled === false) return;
+        const parsedHour = Number(String(settings?.reportTime || '20:00').split(':')[0]);
+        if (!Number.isNaN(parsedHour)) reportHour = parsedHour;
+      } catch (_) {}
+      const reminderHour = Math.max(0, reportHour - 1);
+      if (!force && (now.getHours() < reminderHour || state === 'reminded')) return;
+      if (force && now.getHours() < reminderHour && state !== 'pending') return;
+      localStorage.setItem(key, navigator.onLine ? 'reminded' : 'pending');
+      pushBell('Please use internet for CEO daily reports', 'Daily town reports need internet so CEO app can receive the final receipt notification.', 'warning');
+      window.api?.showNotification?.('CEO daily reports', 'Please use internet for CEO daily reports.');
     };
     runDailyReportReminder();
     const timer = setInterval(runDailyReportReminder, 60 * 1000);

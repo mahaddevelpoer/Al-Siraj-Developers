@@ -16,6 +16,7 @@ import TownMap from './TownMap';
 import AccountingReports from './AccountingReports';
 import AccountsDashboard from './AccountsDashboard';
 import MediaDashboard from './MediaDashboard';
+import CashBanksDashboard from './CashBanksDashboard';
 import DailyLedger from '../systems/DailySystem/DailyLedger';
 import TownExpenses from './TownExpenses';
 import { EmployeeSalary } from '../systems/ExpenseSystem';
@@ -52,6 +53,7 @@ const menuItems = [
   { key: 'prices',        Icon: WalletIcon,     label: 'Town Prices',            color: '#f59e0b' },
   { key: 'addPlot',       Icon: PlotIcon,       label: 'Add Plot',               color: '#10b981' },
   { key: 'addShop',       Icon: ShopIcon,       label: 'Add Shop',               color: '#8b5cf6' },
+  { key: 'cashBanks',     Icon: WalletIcon,     label: 'Cash & Banks',           color: '#0f766e' },
 ].map((item, index) => ({ ...item, displayLabel: `${index + 1}. ${item.label}` }));
 
 // ─── Reusable Components ────────────────────────────────────────────────────
@@ -461,6 +463,7 @@ export default function TownDashboard({
       case 'prices': return <TownPrices townName={townData.Town_Name} showToast={showToast} />;
       case 'addPlot': return <AddProperty type="Plot" townName={townData.Town_Name} showToast={showToast} />;
       case 'addShop': return <AddProperty type="Shop" townName={townData.Town_Name} showToast={showToast} />;
+      case 'cashBanks': return <CashBanksDashboard townName={townData.Town_Name} showToast={showToast} />;
       case 'sellFlow': return <SellFlow showToast={showToast} lockedTownName={townData.Town_Name} panel={isAccountant ? 'employee' : 'ceo'} refreshKey={overviewRefreshKey} />;
       case 'sold': return <SoldProperties townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'resell': return <ResellProperty townName={townData.Town_Name} showToast={showToast} />;

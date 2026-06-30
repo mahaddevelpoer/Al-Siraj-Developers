@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UsersIcon, BriefcaseIcon, IconExpense, IconMoney } from './Icons';
 import OfficialReceipt from './OfficialReceipt';
+import PaymentAccountSelect from './PaymentAccountSelect';
 
 export default function TownExpenses({ townName, showToast }) {
   const [activeSubTab, setActiveSubTab] = useState('employee'); // 'employee' or 'ceo'
@@ -12,6 +13,7 @@ export default function TownExpenses({ townName, showToast }) {
   const [ceoName, setCeoName] = useState('');
   const [loading, setLoading] = useState(false);
   const [salaryRecords, setSalaryRecords] = useState([]);
+  const [paymentAccount, setPaymentAccount] = useState(null);
   
   // Receipt Modal State
   const [showReceipt, setShowReceipt] = useState(false);
@@ -130,6 +132,7 @@ export default function TownExpenses({ townName, showToast }) {
         townName,
         type,
         note,
+        ...paymentAccount,
         ...salaryPayload,
       };
       
@@ -148,6 +151,8 @@ export default function TownExpenses({ townName, showToast }) {
           salaryAppliedAmount: salaryApplied,
           newAdvanceGiven: advanceGiven,
           salaryRemainingBefore: remainingBefore,
+          paymentAccountName: res.Payment_Account_Name || paymentAccount?.paymentAccountName,
+          paymentAccountType: res.Payment_Account_Type || paymentAccount?.paymentAccountType,
           townName,
           note
         });
@@ -291,6 +296,14 @@ export default function TownExpenses({ townName, showToast }) {
                   <label>Note (Optional)</label>
                   <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add any notes..." />
                 </div>
+                <div className="form-group full">
+                  <PaymentAccountSelect
+                    townName={townName}
+                    value={paymentAccount}
+                    onChange={setPaymentAccount}
+                    label="Pay Salary From"
+                  />
+                </div>
                 <div className="form-group full" style={{ marginTop: 10 }}>
                    <button className="btn btn-success btn-lg" onClick={() => handleGiveSalary('Employee')} disabled={loading}>
                      <IconMoney size={14} /> Give Salary & Print Receipt
@@ -324,6 +337,14 @@ export default function TownExpenses({ townName, showToast }) {
             <div className="form-group">
               <label>Note (Optional)</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add any notes..." />
+            </div>
+            <div className="form-group full">
+              <PaymentAccountSelect
+                townName={townName}
+                value={paymentAccount}
+                onChange={setPaymentAccount}
+                label="Pay Salary From"
+              />
             </div>
             <div className="form-group full" style={{ marginTop: 15 }}>
                <button className="btn btn-primary btn-lg" onClick={() => handleGiveSalary('CEO')} disabled={loading}>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { WalletIcon, PlusIcon, DollarIcon } from './Icons';
 import OfficialReceipt from './OfficialReceipt';
+import PaymentAccountSelect from './PaymentAccountSelect';
 
 const fmt = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
 
@@ -13,6 +14,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
   const [selectedInvestorId, setSelectedInvestorId] = useState('');
   const [receiptData, setReceiptData] = useState(null);
   const [showAddInvestor, setShowAddInvestor] = useState(false);
+  const [paymentAccount, setPaymentAccount] = useState(null);
 
   const load = async () => {
     const [inv, ledger] = await Promise.all([
@@ -45,7 +47,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
     e.preventDefault();
     if (!tx.Investor_ID) return showToast?.('Select investor', 'error');
     setLoading(true);
-    const result = await window.api.recordInvestorTransaction(tx);
+    const result = await window.api.recordInvestorTransaction({ ...tx, ...paymentAccount });
     setLoading(false);
     if (result?.error) return showToast?.(result.error, 'error');
     showToast?.(`Investor ${tx.Type.toLowerCase()} saved`);
@@ -58,6 +60,8 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
       transactionType: result.Type,
       amount: result.Amount,
       balanceAfter: result.Balance_After,
+      paymentAccountName: result.Payment_Account_Name || paymentAccount?.paymentAccountName,
+      paymentAccountType: result.Payment_Account_Type || paymentAccount?.paymentAccountType,
       note: result.Notes || tx.Notes,
     });
     setTx({ Investor_ID: '', Type: 'Credit', Amount: '', Date: new Date().toISOString().split('T')[0], Notes: '' });
@@ -198,6 +202,12 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
             <div className="form-group"><label>Date</label><input type="date" value={tx.Date} onChange={tu('Date')} /></div>
             <div className="form-group full"><label>Notes</label><input value={tx.Notes} onChange={tu('Notes')} /></div>
           </div>
+          <PaymentAccountSelect
+            townName={townName}
+            value={paymentAccount}
+            onChange={setPaymentAccount}
+            label={tx.Type === 'Debit' ? 'Pay Investor From' : 'Receive Investment Into'}
+          />
           <button className="btn btn-primary" disabled={loading} style={{ marginTop: 12 }}>Save Transaction</button>
         </form>
       </div>

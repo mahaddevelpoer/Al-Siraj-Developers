@@ -7,6 +7,7 @@ export default function MediaDashboard({ townName, showToast }) {
   const [type, setType] = useState('all');
   const [query, setQuery] = useState('');
   const [selectedReceipt, setSelectedReceipt] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const load = async () => {
     if (!window.api?.getMediaLibrary) return;
@@ -24,7 +25,25 @@ export default function MediaDashboard({ townName, showToast }) {
     }
   };
 
-  useEffect(() => { load(); }, [townName]);
+  useEffect(() => { load(); }, [refreshTick, townName]);
+
+  useEffect(() => {
+    const onDataChanged = (event) => {
+      const detail = event?.detail || {};
+      const events = Array.isArray(detail.events) ? detail.events : [];
+      const sameTown = !detail.townName || !townName || String(detail.townName) === String(townName);
+      if (!sameTown) return;
+      if (events.some((name) => ['media:changed', 'report:created', 'receipt:created'].includes(name))) {
+        setRefreshTick((tick) => tick + 1);
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', onDataChanged);
+    window.addEventListener('al-siraj-data-refreshed', onDataChanged);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', onDataChanged);
+      window.removeEventListener('al-siraj-data-refreshed', onDataChanged);
+    };
+  }, [townName]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

@@ -6,6 +6,7 @@ Flutter Android dashboard for the CEO.
 
 - CEO login only.
 - Read-only balance, notification, and town performance views.
+- Realtime online teams view: CEO can see which CEO/accountant devices are online and when they were last seen.
 - Pending appeals can be approved or rejected.
 - Daily income/expense entries can be marked approved or rejected.
 - Town prices, plots, shops, and inventory cannot be edited from mobile.
@@ -25,7 +26,10 @@ No paid subscription is required for the normal FCM + Supabase free-tier setup, 
 
 ## Setup
 
-Run `src/sql/ceo-mobile-app.sql` once in Supabase SQL Editor before using daily entry review actions.
+Run these SQL files once in Supabase SQL Editor:
+
+1. `src/sql/ceo-mobile-app.sql` for daily entry review actions.
+2. `src/sql/user-presence.sql` for realtime online/last-seen status.
 
 For FCM push:
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import OfficialReceipt from '../../components/OfficialReceipt';
+import PaymentAccountSelect from '../../components/PaymentAccountSelect';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { IconChartUp, IconHourglass, IconUpload, IconCheck, IconTrash, IconEmail, IconClipboard, IconPhone, IconIdCard, IconMoney, IconBanknote, IconProhibited, IconZap, IconCalendar, IconTimer, IconWorker, IconPlus, IconUser, IconPin, IconMailbox, IconFile, IconWarning, IconClose } from '../../components/Icons';
@@ -524,6 +525,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
 
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
+  const [paymentAccount, setPaymentAccount] = useState(null);
 
   useEffect(() => {
     loadActiveAdvance();
@@ -617,6 +619,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
         advanceDeduction,
         newAdvanceGiven: advAmt + advanceFromOverpay,
         isAdvanceSalary: advanceFromOverpay > 0,
+        ...paymentAccount,
       });
 
       if (res && !res.error) {
@@ -638,6 +641,8 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
           newAdvanceGiven: advAmt + advanceFromOverpay,
           netAmount,
         totalDisbursed: actualCashDisbursed,
+          paymentAccountName: res.Payment_Account_Name || paymentAccount?.paymentAccountName,
+          paymentAccountType: res.Payment_Account_Type || paymentAccount?.paymentAccountType,
           paidBefore: monthPaid,
           paidAfter: Math.min(numericBaseSalary, monthPaid + salaryAppliedAmount),
           remainingAfter: Math.max(0, numericBaseSalary - monthPaid - salaryAppliedAmount),
@@ -757,6 +762,13 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
               </div>
             )}
           </div>
+
+          <PaymentAccountSelect
+            townName={townName}
+            value={paymentAccount}
+            onChange={setPaymentAccount}
+            label="Pay Salary From"
+          />
 
           {/* Active advance badge */}
           {advanceDeduction > 0 && (
