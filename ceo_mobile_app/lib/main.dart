@@ -28,6 +28,7 @@ final appNavigatorKey = GlobalKey<NavigatorState>();
 final selectedTabNotifier = ValueNotifier<int>(0);
 final liveRefreshNotifier = ValueNotifier<int>(0);
 final appStartedAt = DateTime.now();
+const startupSplashDuration = Duration(seconds: 3);
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -130,6 +131,28 @@ class LedgerReceipt {
   int get count => incomeRows.length + expenseRows.length;
 }
 
+class CeoInboxItem {
+  const CeoInboxItem({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.meta,
+    required this.body,
+    required this.route,
+    required this.createdAt,
+    this.icon = const VectorBadge(kind: BadgeKind.alert, size: 24),
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final String meta;
+  final String body;
+  final String route;
+  final DateTime createdAt;
+  final Widget icon;
+}
+
 class CeoMobileApp extends StatelessWidget {
   const CeoMobileApp({super.key});
 
@@ -218,7 +241,7 @@ class CeoMobileApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const AuthGate(),
+      home: const StartupSplashGate(),
       scrollBehavior: const SmoothAppScrollBehavior(),
       builder: (context, child) {
         final media = MediaQuery.of(context);
@@ -283,6 +306,111 @@ class _AuthGateState extends State<AuthGate> {
   @override
   Widget build(BuildContext context) {
     return _session == null ? const LoginScreen() : const CeoShell();
+  }
+}
+
+class StartupSplashGate extends StatefulWidget {
+  const StartupSplashGate({super.key});
+
+  @override
+  State<StartupSplashGate> createState() => _StartupSplashGateState();
+}
+
+class _StartupSplashGateState extends State<StartupSplashGate> {
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Timer(startupSplashDuration, () {
+      if (mounted) setState(() => _done = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 380),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: _done ? const AuthGate() : const StartupSplashScreen(),
+    );
+  }
+}
+
+class StartupSplashScreen extends StatelessWidget {
+  const StartupSplashScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const PremiumBackground(),
+          SafeArea(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Hero(
+                    tag: 'app-brand-mark',
+                    child: Container(
+                      width: 104,
+                      height: 104,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(30),
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF0B214A), Color(0xFF0F766E)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF0B214A).withValues(alpha: .22),
+                            blurRadius: 32,
+                            offset: const Offset(0, 18),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.apartment_rounded,
+                        color: Colors.white,
+                        size: 52,
+                      ),
+                    ),
+                  ).animate().scale(
+                        duration: 520.ms,
+                        curve: Curves.easeOutBack,
+                        begin: const Offset(.88, .88),
+                        end: const Offset(1, 1),
+                      ),
+                  const SizedBox(height: 22),
+                  const Text(
+                    'AL SIRAJ DEVELOPERS',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: kText,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'CEO command center',
+                    style: TextStyle(
+                      color: kMuted,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -782,7 +910,7 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
   void _subscribeToLiveAlerts() {
     void scheduleLiveRefresh() {
       if (_liveRefreshTimer?.isActive == true) return;
-      _liveRefreshTimer = Timer(const Duration(milliseconds: 900), () {
+      _liveRefreshTimer = Timer(const Duration(milliseconds: 250), () {
         liveRefreshNotifier.value++;
         if (mounted) setState(() {});
       });
@@ -1185,7 +1313,16 @@ class PremiumScrollView extends StatelessWidget {
                         alignment: Alignment.topRight,
                         children: [
                           IconButton(
-                            onPressed: () => selectedTabNotifier.value = 4,
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                premiumRoute(
+                                  const DetailScaffold(
+                                    title: 'Notifications',
+                                    child: NotificationsPage(),
+                                  ),
+                                ),
+                              );
+                            },
                             icon: const Icon(
                               Icons.notifications_rounded,
                               color: kText,
@@ -1194,13 +1331,39 @@ class PremiumScrollView extends StatelessWidget {
                           Positioned(
                             right: 10,
                             top: 10,
-                            child: Container(
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                color: kSecondary,
-                                shape: BoxShape.circle,
-                              ),
+                            child: ValueListenableBuilder<int>(
+                              valueListenable: liveRefreshNotifier,
+                              builder: (context, _, __) {
+                                return FutureBuilder<int>(
+                                  future: loadNotificationBadgeCount(),
+                                  builder: (context, snap) {
+                                    final count = snap.data ?? 0;
+                                    if (count <= 0) return const SizedBox.shrink();
+                                    return Container(
+                                      constraints: const BoxConstraints(
+                                        minWidth: 18,
+                                        minHeight: 18,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                      ),
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFFEF4444),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        count > 99 ? '99+' : '$count',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
                             ),
                           ),
                         ],
@@ -1216,6 +1379,174 @@ class PremiumScrollView extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<List<Map<String, dynamic>>> safeSelectRows(
+  Future<dynamic> Function() loader,
+) async {
+  try {
+    final data = await loader();
+    return List<Map<String, dynamic>>.from(data);
+  } catch (_) {
+    return const <Map<String, dynamic>>[];
+  }
+}
+
+Future<int> loadNotificationBadgeCount() async {
+  final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  final rows = await Future.wait<List<Map<String, dynamic>>>([
+    safeSelectRows(
+      () => supabase
+          .from('appeals')
+          .select('id,status')
+          .eq('status', 'pending')
+          .limit(120),
+    ),
+    safeSelectRows(
+      () => supabase
+          .from('daily_entries')
+          .select('id,review_status')
+          .eq('review_status', 'pending')
+          .limit(120),
+    ),
+    safeSelectRows(
+      () => supabase
+          .from('notifications')
+          .select('id,dismissed')
+          .eq('dismissed', 'No')
+          .limit(120),
+    ),
+    safeSelectRows(
+      () => supabase
+          .from('media_library')
+          .select('id,type,report_date')
+          .eq('type', 'daily_ledger_receipt')
+          .eq('report_date', today)
+          .limit(80),
+    ),
+  ]);
+  return rows.fold<int>(0, (sum, list) => sum + list.length);
+}
+
+Future<List<CeoInboxItem>> loadCeoInboxItems() async {
+  final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  final results = await Future.wait<List<Map<String, dynamic>>>([
+    safeSelectRows(
+      () => supabase
+          .from('appeals')
+          .select(
+            'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id(full_name,email,town_name)',
+          )
+          .eq('status', 'pending')
+          .order('created_at', ascending: false)
+          .limit(60),
+    ),
+    safeSelectRows(
+      () => supabase
+          .from('daily_entries')
+          .select('*')
+          .eq('review_status', 'pending')
+          .order('created_at', ascending: false)
+          .limit(60),
+    ),
+    safeSelectRows(
+      () => supabase
+          .from('notifications')
+          .select('*')
+          .eq('dismissed', 'No')
+          .order('created_date', ascending: false)
+          .limit(60),
+    ),
+    safeSelectRows(
+      () => supabase
+          .from('media_library')
+          .select('*')
+          .eq('type', 'daily_ledger_receipt')
+          .eq('report_date', today)
+          .order('created_at', ascending: false)
+          .limit(60),
+    ),
+  ]);
+
+  final items = <CeoInboxItem>[];
+  for (final row in results[0]) {
+    final user = row['requested_by_user_id'];
+    final userMap = user is Map ? Map<String, dynamic>.from(user) : null;
+    final town = appealTownName(row).isNotEmpty
+        ? appealTownName(row)
+        : '${userMap?['town_name'] ?? 'No town'}';
+    final created = parseAnyDate(row['created_at']) ?? DateTime.now();
+    items.add(
+      CeoInboxItem(
+        id: 'appeal-${row['id']}',
+        title: 'Pending appeal',
+        subtitle: '${pretty(row['appeal_type'])} - $town',
+        meta: formatDate(created),
+        body: 'Requested by ${userMap?['full_name'] ?? userMap?['email'] ?? 'Accountant'}',
+        route: 'appeals',
+        createdAt: created,
+        icon: const VectorBadge(kind: BadgeKind.pending, size: 24),
+      ),
+    );
+  }
+
+  for (final row in results[1]) {
+    final created = parseAnyDate(row['created_at'] ?? rowVal(row, 'Date')) ??
+        DateTime.now();
+    final amount = asNum(rowVal(row, 'Amount'));
+    items.add(
+      CeoInboxItem(
+        id: 'entry-${dailyEntryStableKey(row)}',
+        title: 'Daily entry review',
+        subtitle:
+            '${rowVal(row, 'Town_Name') ?? 'No town'} - ${pretty(rowVal(row, 'Type'))}',
+        meta: '${formatDate(rowVal(row, 'Date') ?? created)} - ${money.format(amount)}',
+        body: '${rowVal(row, 'Description') ?? rowVal(row, 'Category') ?? 'Entry pending CEO review'}',
+        route: 'entries',
+        createdAt: created,
+        icon: const VectorBadge(kind: BadgeKind.entry, size: 24),
+      ),
+    );
+  }
+
+  for (final row in results[2]) {
+    final created = parseAnyDate(
+          rowVal(row, 'Created_Date') ?? row['created_at'],
+        ) ??
+        DateTime.now();
+    items.add(
+      CeoInboxItem(
+        id: 'notification-${row['id'] ?? rowVal(row, 'Notification_ID') ?? created.millisecondsSinceEpoch}',
+        title: '${rowVal(row, 'Type') ?? 'Business notification'}',
+        subtitle:
+            '${rowVal(row, 'Town_Name') ?? ''} ${rowVal(row, 'Plot_Shop_Number') ?? ''}'.trim(),
+        meta: formatDate(created),
+        body: '${rowVal(row, 'Message') ?? 'Open for details'}',
+        route: 'notifications',
+        createdAt: created,
+      ),
+    );
+  }
+
+  for (final row in results[3]) {
+    final created = parseAnyDate(row['created_at'] ?? row['report_date']) ??
+        DateTime.now();
+    items.add(
+      CeoInboxItem(
+        id: 'daily-ledger-${row['id'] ?? row['town_name'] ?? created.millisecondsSinceEpoch}',
+        title: 'Daily ledger receipt ready',
+        subtitle: '${row['town_name'] ?? rowVal(row, 'Town_Name') ?? 'Town receipt'}',
+        meta: '${row['report_date'] ?? today}',
+        body: 'Today income and expense receipt is ready for CEO review.',
+        route: 'daily_report',
+        createdAt: created,
+        icon: const VectorBadge(kind: BadgeKind.money, size: 24),
+      ),
+    );
+  }
+
+  items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  return items;
 }
 
 Future<List<TownPulse>> loadTownPulses() async {
@@ -3175,42 +3506,48 @@ class _LedgerEntryCard extends StatelessWidget {
 class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
 
-  Future<List<Map<String, dynamic>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 40));
-    final data = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('dismissed', 'No')
-        .order('created_date', ascending: false)
-        .limit(80);
-    return List<Map<String, dynamic>>.from(data);
-  }
-
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _load(),
-      builder: (context, snap) => PremiumScrollView(
-        showAppBar: false,
-        children: [
-          const HeaderBlock(
-            title: 'Notifications',
-            subtitle:
-                'Installment, file, and business alerts for CEO attention.',
-          ),
-          if (!snap.hasData) const SkeletonList(),
-          for (final n in snap.data ?? [])
-            InfoCard(
-              title: '${rowVal(n, 'Type') ?? 'Alert'}',
-              subtitle:
-                  '${rowVal(n, 'Town_Name') ?? ''} ${rowVal(n, 'Plot_Shop_Number') ?? ''}',
-              meta: formatDate(rowVal(n, 'Created_Date')),
-              body: '${rowVal(n, 'Message') ?? ''}',
+    return ValueListenableBuilder<int>(
+      valueListenable: liveRefreshNotifier,
+      builder: (context, _, __) {
+        return FutureBuilder<List<CeoInboxItem>>(
+          future: loadCeoInboxItems(),
+          builder: (context, snap) => RefreshIndicator(
+            onRefresh: () async => liveRefreshNotifier.value++,
+            child: PremiumScrollView(
+              showAppBar: false,
+              children: [
+                const HeaderBlock(
+                  title: 'Notifications',
+                  subtitle:
+                      'Real CEO inbox for pending approvals, daily ledger receipts, and business alerts.',
+                ),
+                if (!snap.hasData && !snap.hasError) const SkeletonList(),
+                if (snap.hasError)
+                  ErrorBlock(error: friendlyDbError(snap.error!)),
+                for (final item in snap.data ?? const <CeoInboxItem>[])
+                  InfoCard(
+                    icon: item.icon,
+                    title: item.title,
+                    subtitle: item.subtitle,
+                    meta: item.meta,
+                    body: item.body,
+                    actions: [
+                      OutlinedButton.icon(
+                        onPressed: () => routeFromPushData({'route': item.route}),
+                        icon: const Icon(Icons.open_in_new_rounded),
+                        label: const Text('Open'),
+                      ),
+                    ],
+                  ),
+                if (snap.hasData && snap.data!.isEmpty)
+                  const EmptyBlock(text: 'No active notifications.'),
+              ],
             ),
-          if (snap.hasData && snap.data!.isEmpty)
-            const EmptyBlock(text: 'No active notifications.'),
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -4496,7 +4833,7 @@ class CeoNotificationService {
       importance: Importance.high,
       priority: Priority.high,
       icon: 'ic_stat_ceo_notification',
-      largeIcon: DrawableResourceAndroidBitmap('app_icon'),
+      largeIcon: DrawableResourceAndroidBitmap('ic_launcher'),
     );
     const details = NotificationDetails(android: android);
     final id = DateTime.now().millisecondsSinceEpoch.remainder(1000000);
@@ -4511,7 +4848,7 @@ class CeoNotificationService {
       importance: Importance.high,
       priority: Priority.high,
       icon: 'ic_stat_ceo_notification',
-      largeIcon: DrawableResourceAndroidBitmap('app_icon'),
+      largeIcon: DrawableResourceAndroidBitmap('ic_launcher'),
       category: AndroidNotificationCategory.reminder,
     );
     const details = NotificationDetails(android: android);
@@ -4653,6 +4990,24 @@ String formatDate(dynamic value) {
 DateTime? parseDateTime(dynamic value) {
   if (value == null) return null;
   return DateTime.tryParse('$value');
+}
+
+DateTime? parseAnyDate(dynamic value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  final text = '$value'.trim();
+  if (text.isEmpty || text.toLowerCase() == 'null') return null;
+  return DateTime.tryParse(text) ??
+      tryDateFormat('yyyy-MM-dd', text) ??
+      tryDateFormat('dd MMM yyyy', text);
+}
+
+DateTime? tryDateFormat(String pattern, String value) {
+  try {
+    return DateFormat(pattern).parseStrict(value);
+  } catch (_) {
+    return null;
+  }
 }
 
 String relativeTime(DateTime? value) {
