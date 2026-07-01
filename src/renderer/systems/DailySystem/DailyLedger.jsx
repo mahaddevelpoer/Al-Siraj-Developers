@@ -285,8 +285,12 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   const totalIncome = entries.filter(e => e.Type === 'Income').reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
   const totalExpense = entries.filter(e => e.Type === 'Expense').reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
   const netAmount = totalIncome - totalExpense;
-  const entryTime = (e) => e.Time || e.time || (e.Created_At ? new Date(e.Created_At).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-');
-  const entryAccount = (e) => e.Account_Name || e.accountName || e.Payment_Account_Name || e.paymentAccountName || 'Cash in Hand';
+  const cleanCell = (value) => {
+    const text = String(value ?? '').trim();
+    return text && text !== '-' && text !== '—' ? text : '';
+  };
+  const entryTime = (e) => cleanCell(e.Time) || cleanCell(e.time) || (e.Created_At ? new Date(e.Created_At).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-');
+  const entryAccount = (e) => cleanCell(e.Account_Name) || cleanCell(e.accountName) || cleanCell(e.Payment_Account_Name) || cleanCell(e.paymentAccountName) || 'Cash in Hand';
 
   // Shared entry summary pill used in multiple modals
   const EntrySummary = ({ payload }) => (

@@ -3,6 +3,7 @@ import { BookIcon, PlusIcon, TrashIcon, ClockIcon } from './Icons';
 import DailyReceipt from '../systems/DailySystem/DailyReceipt';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { createBusinessAppeal } from '../lib/appeals';
 
 export default function DailyEntries({ showToast, townName }) {
   const { userRole, user } = useAuth();
@@ -69,9 +70,7 @@ export default function DailyEntries({ showToast, townName }) {
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
         const isFuture = form.Date > todayStr;
-        const { data: appealData, error: appealError } = await supabase
-          .from('appeals')
-          .insert([{
+        const { data: appealData, error: appealError } = await createBusinessAppeal({
             requested_by_user_id: user?.id,
             requested_by_role: 'accountant',
             appeal_type: isFuture ? 'future_daily_entry' : 'backdated_daily_entry',
@@ -82,8 +81,7 @@ export default function DailyEntries({ showToast, townName }) {
             status: 'pending',
             otp_code: generatedOtp,
             otp_expires_at: expiresAt.toISOString(),
-          }])
-          .select().single();
+          });
 
         if (appealError) throw appealError;
 
@@ -212,6 +210,17 @@ export default function DailyEntries({ showToast, townName }) {
   const netAmount = totalIncome - totalExpense;
 
   const fmtPkr = (val) => `PKR ${(val || 0).toLocaleString()}`;
+  const cleanCell = (value) => {
+    const text = String(value ?? '').trim();
+    return text && text !== '-' && text !== '—' ? text : '';
+  };
+  const entryTime = (entry) => cleanCell(entry.Time) || cleanCell(entry.time) || '-';
+  const entryAccount = (entry) =>
+    cleanCell(entry.Account_Name) ||
+    cleanCell(entry.accountName) ||
+    cleanCell(entry.Payment_Account_Name) ||
+    cleanCell(entry.paymentAccountName) ||
+    'Cash in Hand';
 
   const todayForBanner = new Date().toISOString().split('T')[0];
   const isNonTodayAccountant = userRole === 'accountant' && form.Date !== todayForBanner;
@@ -414,6 +423,7 @@ export default function DailyEntries({ showToast, townName }) {
                     <tr>
                       <th style={{ width: '80px' }}>Time</th>
                       <th style={{ width: '100px' }}>Type</th>
+                      <th style={{ width: '160px' }}>Account</th>
                       <th>Description</th>
                       <th style={{ width: '150px' }}>Amount</th>
                       <th style={{ width: '80px' }}>Actions</th>
@@ -422,7 +432,7 @@ export default function DailyEntries({ showToast, townName }) {
                   <tbody>
                     {entries.map((e, idx) => (
                       <tr key={idx}>
-                        <td style={{ fontWeight: '600' }}>{e.Time || '—'}</td>
+                        <td style={{ fontWeight: '600' }}>{entryTime(e)}</td>
                         <td>
                           <span style={{
                             padding: '2px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: '700',
@@ -433,6 +443,7 @@ export default function DailyEntries({ showToast, townName }) {
                             {e.Type}
                           </span>
                         </td>
+                        <td style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{entryAccount(e)}</td>
                         <td>{e.Description}</td>
                         <td className={e.Type === 'Income' ? 'text-green' : 'text-red'} style={{ fontWeight: '700' }}>
                           {fmtPkr(e.Amount)}
