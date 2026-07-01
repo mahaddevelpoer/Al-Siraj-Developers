@@ -176,7 +176,7 @@ async function main() {
     [{ Receipt_ID: 'COM-REC-1', Commission_ID: 'COM-SMOKE-001', Town_Name: townName, Amount: commissionPaid, Date: today, Receipt_Number: 'COM-REC-1', Payment_Account_ID: 'cash-in-hand' }],
   );
 
-  const receiptRows = ['SAL-SMOKE-001', 'INV-CREDIT-1', 'INV-DEBIT-1', 'CON-PAY-1', 'COM-REC-1', 'SALE-SMOKE-001', 'INS-SMOKE-001', 'INS-SMOKE-002'].map((receipt) => ({
+  const receiptRows = ['SAL-SMOKE-001', 'INV-CREDIT-1', 'INV-DEBIT-1', 'CON-PAY-1', 'COM-REC-1', 'SALE-SMOKE-001', 'INS-SMOKE-001', 'INS-SMOKE-002', 'DE-IN-REC-1', 'DE-EX-REC-1'].map((receipt) => ({
     Receipt_ID: receipt,
     Town_Name: townName,
     Type: 'Smoke Test',
@@ -201,8 +201,8 @@ async function main() {
       ledgerRow({ id: 'L-SALE-ADV', sourceType: 'sale_advance', sourceId: 'SALE-SMOKE-001', direction: 'income', amount: advance, party: 'Smoke Customer', description: 'Sale advance', receipt: 'SALE-SMOKE-001' }),
       ledgerRow({ id: 'L-INS-1', sourceType: 'installment_payment', sourceId: 'INS-SMOKE-001', direction: 'income', amount: installmentOne, party: 'Smoke Customer', description: 'Installment 1', receipt: 'INS-SMOKE-001' }),
       ledgerRow({ id: 'L-INS-2', sourceType: 'installment_payment', sourceId: 'INS-SMOKE-002', direction: 'income', amount: installmentTwo, party: 'Smoke Customer', description: 'Installment 2', receipt: 'INS-SMOKE-002' }),
-      ledgerRow({ id: 'L-DE-IN', sourceType: 'daily_entry', sourceId: 'DE-IN-1', direction: 'income', amount: dailyIncome, party: 'General Income', description: 'Daily income' }),
-      ledgerRow({ id: 'L-DE-EX', sourceType: 'daily_entry', sourceId: 'DE-EX-1', direction: 'expense', amount: dailyExpense, party: 'General Expense', description: 'Daily expense' }),
+      ledgerRow({ id: 'L-DE-IN', sourceType: 'daily_entry', sourceId: 'DE-IN-1', direction: 'income', amount: dailyIncome, party: 'General Income', description: 'Daily income', receipt: 'DE-IN-REC-1' }),
+      ledgerRow({ id: 'L-DE-EX', sourceType: 'daily_entry', sourceId: 'DE-EX-1', direction: 'expense', amount: dailyExpense, party: 'General Expense', description: 'Daily expense', receipt: 'DE-EX-REC-1' }),
       ledgerRow({ id: 'L-COM', sourceType: 'commission_paid', sourceId: 'COM-REC-1', direction: 'expense', amount: commissionPaid, party: 'Smoke Agent', description: 'Commission paid', receipt: 'COM-REC-1' }),
       ledgerRow({ id: 'L-INV-C', sourceType: 'investor_credit', sourceId: 'INV-CREDIT-1', direction: 'income', amount: investorCredit, party: 'Smoke Investor', description: 'Investor credit', receipt: 'INV-CREDIT-1' }),
       ledgerRow({ id: 'L-INV-D', sourceType: 'investor_debit', sourceId: 'INV-DEBIT-1', direction: 'expense', amount: investorDebit, party: 'Smoke Investor', description: 'Investor debit', receipt: 'INV-DEBIT-1' }),

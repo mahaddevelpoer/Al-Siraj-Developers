@@ -141,6 +141,14 @@ export async function runBusinessAudit(options = {}) {
       addIssue(issues, 'error', 'money_ledger', 'Ledger direction must be income or expense', row);
     }
     if (!isValidIsoDate(row.Date)) addIssue(issues, 'warning', 'money_ledger', 'Ledger row has missing/invalid date', row);
+    if (text(row.Status || 'approved').toLowerCase() === 'approved') {
+      const receiptNumber = text(row.Receipt_Number);
+      if (!receiptNumber) {
+        addIssue(issues, 'warning', 'receipts', 'Approved ledger row is missing receipt number', row);
+      } else if (!receiptNumbers.has(receiptNumber)) {
+        addIssue(issues, 'warning', 'receipts', 'Approved ledger receipt is missing from Receipt_Archive', row);
+      }
+    }
   }
 
   for (const [key, rows] of groupBy(ledger, (row) => [

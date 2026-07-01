@@ -101,6 +101,40 @@ export default function MediaDashboard({ townName, showToast }) {
   };
 
   const types = ['all', ...Array.from(new Set([...rows, ...receiptRows].map((row) => String(row.Type || row.Receipt_Type || '').toLowerCase()).filter(Boolean)))];
+  const selectedPayload = useMemo(() => {
+    if (!selectedReceipt) return {};
+    try {
+      const parsed = JSON.parse(selectedReceipt.Payload_JSON || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }, [selectedReceipt]);
+
+  const receiptDetailRows = useMemo(() => {
+    if (!selectedReceipt) return [];
+    const p = selectedPayload || {};
+    const entries = [
+      ['Payment Account', p.paymentAccountName || p.Payment_Account_Name],
+      ['Direction', p.direction || p.transactionType],
+      ['Debit Account', p.debitAccount],
+      ['Credit Account', p.creditAccount],
+      ['Party', p.partyName || p.customerName || p.investorName || p.constructorName || p.Entity_Name],
+      ['Property', [p.propertyType, p.propertyNumber].filter(Boolean).join(' ')],
+      ['Installment', p.installmentNumber && p.totalInstallments ? `${p.installmentNumber} of ${p.totalInstallments}` : p.installmentNumber],
+      ['Due Date', p.dueDate],
+      ['Total Amount', p.totalAmount],
+      ['Advance Amount', p.advanceAmount],
+      ['Remaining Amount', p.remainingAmount],
+      ['Balance After', p.balanceAfter],
+      ['Category', p.category],
+      ['Material', [p.materialName, p.materialQuantity, p.materialRate].filter(Boolean).join(' / ')],
+      ['Description', p.description || p.note || p.notes],
+    ];
+    return entries
+      .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
+      .map(([label, value]) => [label, typeof value === 'number' ? `PKR ${Number(value).toLocaleString()}` : String(value)]);
+  }, [selectedPayload, selectedReceipt]);
 
   return (
     <div className="media-workspace">
@@ -144,6 +178,19 @@ export default function MediaDashboard({ townName, showToast }) {
               <div><span>Date</span><b>{selectedReceipt.Receipt_Date || '-'}</b></div>
               <div><span>Amount</span><b>PKR {Number(selectedReceipt.Amount || 0).toLocaleString()}</b></div>
             </div>
+            {receiptDetailRows.length > 0 && (
+              <>
+                <div className="property-detail-subhead">Receipt details</div>
+                <div className="media-receipt-detail-grid">
+                  {receiptDetailRows.map(([label, value]) => (
+                    <div key={label}>
+                      <span>{label}</span>
+                      <b>{value}</b>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
             <pre className="media-receipt-json">
               {(() => {
                 try { return JSON.stringify(JSON.parse(selectedReceipt.Payload_JSON || '{}'), null, 2); }
