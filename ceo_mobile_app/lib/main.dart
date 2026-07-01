@@ -29,6 +29,7 @@ final selectedTabNotifier = ValueNotifier<int>(0);
 final liveRefreshNotifier = ValueNotifier<int>(0);
 final appStartedAt = DateTime.now();
 const startupSplashDuration = Duration(seconds: 3);
+Future<void>? _firebaseStartupFuture;
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -37,11 +38,34 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  await Supabase.initialize(url: supabaseUrl, publishableKey: _fullAnonKey);
-  await CeoNotificationService.init();
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+  };
+  try {
+    await Supabase.initialize(
+      url: supabaseUrl,
+      publishableKey: _fullAnonKey,
+    ).timeout(const Duration(seconds: 4));
+  } catch (e) {
+    runApp(StartupFailureApp(error: e));
+    return;
+  }
+  _firebaseStartupFuture = _initFirebaseAndNotifications();
   runApp(const CeoMobileApp());
+}
+
+Future<void> _initFirebaseAndNotifications() async {
+  try {
+    await Firebase.initializeApp().timeout(const Duration(seconds: 4));
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    await CeoNotificationService.init().timeout(const Duration(seconds: 4));
+  } catch (_) {
+    // Push is best-effort. The app must still open for CEO login and reviews.
+  }
+}
+
+Future<void> ensureFirebaseReady() {
+  return _firebaseStartupFuture ?? Future<void>.value();
 }
 
 final supabase = Supabase.instance.client;
@@ -59,6 +83,53 @@ const kSecondary = Color(0xFF00C9A7);
 const kText = Color(0xFF1A1D2E);
 const kMuted = Color(0xFF8A94A6);
 const kBorder = Color(0x12000000);
+
+class StartupFailureApp extends StatelessWidget {
+  const StartupFailureApp({super.key, required this.error});
+  final Object error;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: kBg,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const AppBrandMark(size: 92),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Startup check failed',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: kText,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    friendlyDbError(error),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: kMuted,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class TownPulse {
   const TownPulse({
@@ -355,36 +426,8 @@ class StartupSplashScreen extends StatelessWidget {
                 children: [
                   Hero(
                     tag: 'app-brand-mark',
-                    child: Container(
-                      width: 104,
-                      height: 104,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(30),
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF0B214A), Color(0xFF0F766E)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF0B214A).withValues(alpha: .22),
-                            blurRadius: 32,
-                            offset: const Offset(0, 18),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.apartment_rounded,
-                        color: Colors.white,
-                        size: 52,
-                      ),
-                    ),
-                  ).animate().scale(
-                        duration: 520.ms,
-                        curve: Curves.easeOutBack,
-                        begin: const Offset(.88, .88),
-                        end: const Offset(1, 1),
-                      ),
+                    child: const AppBrandMark(size: 108),
+                  ),
                   const SizedBox(height: 22),
                   const Text(
                     'AL SIRAJ DEVELOPERS',
@@ -412,6 +455,76 @@ class StartupSplashScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class AppBrandMark extends StatelessWidget {
+  const AppBrandMark({super.key, this.size = 64});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A),
+          borderRadius: BorderRadius.circular(size * .22),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0F172A).withValues(alpha: .18),
+              blurRadius: size * .22,
+              offset: Offset(0, size * .10),
+            ),
+          ],
+        ),
+        child: CustomPaint(painter: AppBrandMarkPainter()),
+      ),
+    );
+  }
+}
+
+class AppBrandMarkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final teal = Paint()..color = const Color(0xFF14B8A6);
+    final white = Paint()..color = Colors.white;
+    final blue = Paint()..color = const Color(0xFF60A5FA);
+    final whiteSoft = Paint()..color = Colors.white.withValues(alpha: .85);
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(w * .18, h * .72, w * .64, h * .075),
+        Radius.circular(w * .012),
+      ),
+      teal,
+    );
+    canvas.drawRect(Rect.fromLTWH(w * .26, h * .44, w * .11, h * .24), white);
+    canvas.drawRect(Rect.fromLTWH(w * .45, h * .32, w * .11, h * .36), white);
+    canvas.drawRect(Rect.fromLTWH(w * .64, h * .38, w * .11, h * .30), white);
+
+    final roof = Path()
+      ..moveTo(w * .20, h * .42)
+      ..lineTo(w * .50, h * .20)
+      ..lineTo(w * .80, h * .42)
+      ..lineTo(w * .75, h * .50)
+      ..lineTo(w * .50, h * .33)
+      ..lineTo(w * .25, h * .50)
+      ..close();
+    canvas.drawPath(roof, blue);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(w * .29, h * .83, w * .42, h * .04),
+        Radius.circular(w * .01),
+      ),
+      whiteSoft,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class LoginScreen extends StatefulWidget {
@@ -474,12 +587,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   sliver: SliverList.list(
                     children: [
-                      const HeaderBlock(
-                        title: 'AL SIRAJ DEVELOPERS',
-                        subtitle:
-                            'CEO command center for approvals, live teams, daily ledgers and town balances.',
-                        icon: Icons.apartment_rounded,
-                      ),
+                      const LoginHeroCard(),
                       GlassCard(
                             padding: const EdgeInsets.all(18),
                             child: Column(
@@ -547,10 +655,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ],
                             ),
-                          )
-                          .animate()
-                          .fadeIn(delay: 220.ms)
-                          .slideY(begin: .18, curve: Curves.easeOutCubic),
+                          ),
                       const SizedBox(height: 18),
                       const SecureNoticeCard(),
                     ],
@@ -560,6 +665,68 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class LoginHeroCard extends StatelessWidget {
+  const LoginHeroCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: kSurface,
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: kBorder),
+          boxShadow: [
+            BoxShadow(
+              color: kPrimary.withValues(alpha: .07),
+              blurRadius: 22,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Hero(tag: 'app-brand-mark', child: AppBrandMark(size: 62)),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    'AL SIRAJ DEVELOPERS',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: kText,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'CEO approvals, daily ledgers and town balances.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: kMuted,
+                      fontWeight: FontWeight.w700,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -592,10 +759,7 @@ class SecureNoticeCard extends StatelessWidget {
               ),
             ],
           ),
-        )
-        .animate()
-        .fadeIn(delay: 300.ms)
-        .slideY(begin: .12, curve: Curves.easeOutCubic);
+        );
   }
 }
 
@@ -820,11 +984,23 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     selectedTabNotifier.addListener(_applySelectedTab);
     _tab = selectedTabNotifier.value;
-    _verifyCeoAndEnablePush();
-    _listenForFcmMessages();
-    _routeInitialPushMessage();
+    unawaited(_startPushServices());
     _subscribeToLiveAlerts();
     _startPresenceHeartbeat();
+  }
+
+  Future<void> _startPushServices() async {
+    try {
+      await ensureFirebaseReady().timeout(const Duration(seconds: 5));
+      if (!mounted) return;
+      _listenForFcmMessages();
+      await _routeInitialPushMessage();
+      await _verifyCeoAndEnablePush();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _pushStatus = 'Push will retry after re-login.');
+      }
+    }
   }
 
   @override
@@ -1145,26 +1321,22 @@ class PremiumBottomNav extends StatelessWidget {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(28),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Container(
-              height: 72,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: .92),
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: Colors.white.withValues(alpha: .8)),
-                boxShadow: [
-                  BoxShadow(
-                    color: kPrimary.withValues(alpha: .14),
-                    blurRadius: 30,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
+        child: Container(
+          height: 72,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: kBorder),
+            boxShadow: [
+              BoxShadow(
+                color: kPrimary.withValues(alpha: .12),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
               ),
-              child: Row(
+            ],
+          ),
+          child: Row(
                 children: [
                   for (var i = 0; i < items.length; i++)
                     Expanded(
@@ -1239,10 +1411,8 @@ class PremiumBottomNav extends StatelessWidget {
                       ),
                     ),
                 ],
-              ),
             ),
           ),
-        ),
       ),
     );
   }

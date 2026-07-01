@@ -3,6 +3,6 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/splash_background" />
     <item
-        android:drawable="@drawable/splash_logo"
+        android:drawable="@drawable/app_icon"
         android:gravity="center" />
 </layer-list>
