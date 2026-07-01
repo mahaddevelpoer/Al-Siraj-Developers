@@ -17,7 +17,7 @@ const {
   getRowVal,
 } = require('./syncHelpers');
 
-const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Account_Name', 'Account_Type', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status'];
+const DAILY_ENTRIES_COLUMNS = ['Entry_ID', 'Date', 'Time', 'Type', 'Description', 'Amount', 'Town_Name', 'Account_Name', 'Account_Type', 'Income_Type', 'Category', 'Subcategory', 'Property_ID', 'Installment_ID', 'Property_Details', 'Installment_Details', 'Reference', 'Created_By', 'Review_Status', 'Payment_Account_ID', 'Payment_Account_Name', 'Payment_Account_Type'];
 
 function safeFolderName(name) {
   return String(name || '')

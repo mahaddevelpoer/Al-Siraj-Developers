@@ -67,8 +67,8 @@ export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, ac
       subcategoryLabel,
       description: description || categoryLabel,
       amount: parseFloat(amount),
-      accountName: account?.name || '',
-      accountType: account?.type || '',
+      accountName: account?.name || paymentAccount?.paymentAccountName || 'Cash in Hand',
+      accountType: account?.type || paymentAccount?.paymentAccountType || 'cash',
       ...paymentAccount,
     });
 

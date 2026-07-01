@@ -4,6 +4,7 @@ import DailyExpenseEntry from './DailyExpenseEntry';
 import DailyReceipt from './DailyReceipt';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { createBusinessAppeal, setBusinessAppealOtp } from '../../lib/appeals';
 import { IconCalendar, IconIncome, IconExpenseType, IconNote, IconMoney, IconWarning, IconMail, IconLock, IconClipboard, IconHourglass, IconUpload, IconCheck, IconRefresh } from '../../components/Icons';
 
 const fmtPkr = (val) => `PKR ${(val || 0).toLocaleString()}`;
@@ -29,6 +30,27 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
 
   const todayStr = new Date().toISOString().split('T')[0];
   const isNonToday = userRole === 'accountant' && selectedDate !== todayStr;
+  const pendingAppealsKey = `al_siraj_pending_appeals_${townName || 'global'}`;
+
+  const queueLocalPendingAppeal = (payload) => {
+    const now = new Date();
+    const item = {
+      id: `local-${now.getTime()}`,
+      townName,
+      type: 'daily_entry_date_change',
+      payload,
+      status: 'pending',
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      nextReminderAt: new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    };
+    const old = JSON.parse(localStorage.getItem(pendingAppealsKey) || '[]');
+    localStorage.setItem(pendingAppealsKey, JSON.stringify([item, ...old].slice(0, 100)));
+    window.dispatchEvent(new CustomEvent('al-siraj-business-data-changed', {
+      detail: { townName, events: ['appeal:pending-local'] },
+    }));
+    showToast?.('Offline: entry saved in Pending Appeals. It will not affect balance until CEO approval.', 'warning');
+  };
 
   useEffect(() => { loadEntries(); }, [selectedDate, townName, refreshKey]);
   useEffect(() => { loadAccountOptions(); }, [townName, refreshKey]);
@@ -140,6 +162,10 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
     const payload = { ...data, townName, date: selectedDate, time: timeStr };
 
     if (userRole === 'accountant' && selectedDate !== todayStr) {
+      if (!navigator.onLine) {
+        queueLocalPendingAppeal(payload);
+        return;
+      }
       setPendingPayload(payload);
       setModalStep('choose');
       setOtpInput('');
@@ -155,7 +181,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
     setBusy(true);
     try {
       const isFuture = selectedDate > todayStr;
-      const { data, error } = await supabase.from('appeals').insert([{
+      const { data, error } = await createBusinessAppeal({
         requested_by_user_id: user?.id,
         requested_by_role: 'accountant',
         appeal_type: isFuture ? 'future_daily_entry' : 'backdated_daily_entry',
@@ -164,7 +190,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
         town_name: townName,
         requested_data: { ...pendingPayload, townName },
         status: 'pending',
-      }]).select().single();
+      });
       if (error) throw error;
       setAppealId(data.id);
       setModalStep('otp');
@@ -177,7 +203,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
     setBusy(true);
     try {
       const isFuture = selectedDate > todayStr;
-      const { data, error } = await supabase.from('appeals').insert([{
+      const { data, error } = await createBusinessAppeal({
         requested_by_user_id: user?.id,
         requested_by_role: 'accountant',
         appeal_type: isFuture ? 'future_daily_entry' : 'backdated_daily_entry',
@@ -186,7 +212,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
         town_name: townName,
         requested_data: { ...pendingPayload, townName },
         status: 'pending',
-      }]).select().single();
+      });
       if (error) throw error;
       setAppealId(data.id);
       setModalStep('dashboard');
@@ -202,9 +228,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
       const code = String(Math.floor(100000 + Math.random() * 900000)); // 6-digit
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-      const { error } = await supabase.from('appeals')
-        .update({ otp_code: code, otp_expires_at: expiresAt.toISOString() })
-        .eq('id', appealId);
+      const { error } = await setBusinessAppealOtp(appealId, code, expiresAt.toISOString());
       if (error) throw error;
 
       // Send email to CEO
@@ -261,6 +285,8 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   const totalIncome = entries.filter(e => e.Type === 'Income').reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
   const totalExpense = entries.filter(e => e.Type === 'Expense').reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
   const netAmount = totalIncome - totalExpense;
+  const entryTime = (e) => e.Time || e.time || (e.Created_At ? new Date(e.Created_At).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-');
+  const entryAccount = (e) => e.Account_Name || e.accountName || e.Payment_Account_Name || e.paymentAccountName || 'Cash in Hand';
 
   // Shared entry summary pill used in multiple modals
   const EntrySummary = ({ payload }) => (
@@ -379,12 +405,12 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
                       <tr key={i} style={{ borderBottom: '1px solid var(--border-color)', transition: 'all 0.1s' }}
                         onMouseEnter={el => { el.currentTarget.style.background = 'var(--bg-hover)'; }}
                         onMouseLeave={el => { el.currentTarget.style.background = 'transparent'; }}>
-                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{e.Time || '-'}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{entryTime(e)}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: e.Type === 'Income' ? '#E6F4EA' : '#FCE8E6', color: e.Type === 'Income' ? '#137333' : '#C5221F', border: e.Type === 'Income' ? '1px solid #C4EED0' : '1px solid #FAD2CF' }}>{e.Type}</span>
                         </td>
                         <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                          {e.Account_Name || '-'}
+                          {entryAccount(e)}
                         </td>
                         <td style={{ padding: '10px 14px' }}>{e.Description}</td>
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: e.Type === 'Income' ? '#137333' : '#C5221F' }}>{fmtPkr(e.Amount)}</td>

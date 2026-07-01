@@ -78,9 +78,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
 
   const loadInstallmentProperties = async () => {
     try {
-      console.log('Loading installment properties for:', townName);
       const result = await window.api.getInstallmentProperties(townName);
-      console.log('Installment properties loaded:', result);
       setProperties(Array.isArray(result) ? result : []);
     } catch (err) {
       console.error('Error loading properties:', err);
@@ -94,7 +92,30 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
     setAmount('');
 
     const installments = await window.api.getPropertyInstallments(propertyId);
-    setInstallmentDetails(Array.isArray(installments) ? installments : []);
+    const rows = Array.isArray(installments) ? installments : [];
+    if (rows.length) {
+      setInstallmentDetails(rows);
+      return;
+    }
+
+    const total = toMoney(prop?.totalInstallments || prop?.Total_Installments);
+    const paid = toMoney(prop?.paidInstallments);
+    const monthly = toMoney(prop?.monthlyAmount) ||
+      Math.ceil(toMoney(prop?.remainingAmount) / Math.max(1, total - paid));
+    const fallback = Array.from(
+      { length: Math.max(0, total - paid) },
+      (_, index) => ({
+        id: `${prop.id}|fallback-${paid + index + 1}`,
+        installmentNumber: paid + index + 1,
+        totalInstallments: total,
+        dueDate: '',
+        dueAmount: monthly,
+        isPaid: false,
+        isSynthetic: true,
+        status: 'due',
+      }),
+    );
+    setInstallmentDetails(fallback);
   };
 
   const handleInstallmentSelect = (installment) => {
@@ -115,8 +136,8 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
       incomeType,
       description,
       amount: parseFloat(amount),
-      accountName: account?.name || (incomeType === 'installment' ? installmentAccountName : ''),
-      accountType: account?.type || (incomeType === 'installment' ? 'Customer' : ''),
+      accountName: account?.name || (incomeType === 'installment' ? installmentAccountName : paymentAccount?.paymentAccountName || 'Cash in Hand'),
+      accountType: account?.type || (incomeType === 'installment' ? 'Customer' : paymentAccount?.paymentAccountType || 'cash'),
       propertyId: selectedProperty?.id,
       installmentId: selectedInstallment?.id,
       propertyDetails: selectedProperty,
@@ -311,12 +332,17 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
                 Step 2: Select Installment
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-                {installmentDetails.map(inst => (
+              {installmentDetails.filter((inst) => !inst.isPaid).length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: 14, background: 'var(--bg-card)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
+                  No remaining installments. This property looks fully paid.
+                </div>
+              ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+                {installmentDetails.filter((inst) => !inst.isPaid).map(inst => (
                   <div
                     key={inst.id}
                     onClick={() => {
-                      if (!inst.isPaid) {
+                      if (!inst.isPaid && !inst.isSynthetic) {
                         handleInstallmentSelect(inst);
                       }
                     }}
@@ -325,8 +351,8 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
                       border: selectedInstallment?.id === inst.id ? '2px solid var(--accent-blue)' : '1px solid var(--border-color)',
                       borderRadius: 'var(--radius-md)',
                       background: selectedInstallment?.id === inst.id ? 'rgba(0,102,204,0.08)' : inst.isPaid ? 'rgba(0,0,0,0.02)' : 'var(--bg-card)',
-                      cursor: inst.isPaid ? 'not-allowed' : 'pointer',
-                      opacity: inst.isPaid ? 0.6 : 1,
+                      cursor: inst.isPaid || inst.isSynthetic ? 'not-allowed' : 'pointer',
+                      opacity: inst.isPaid || inst.isSynthetic ? 0.6 : 1,
                       transition: 'all 0.15s',
                     }}
                   >
@@ -334,7 +360,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
                       #{inst.installmentNumber}
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>
-                      Due: {new Date(inst.dueDate).toLocaleDateString('en-PK')}
+                      Due: {inst.dueDate ? new Date(inst.dueDate).toLocaleDateString('en-PK') : 'Date not set'}
                     </div>
                     <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>
                       PKR {toMoney(inst.dueAmount).toLocaleString()}
@@ -342,6 +368,10 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
                     {inst.isPaid ? (
                       <div style={{ fontSize: 9, background: '#d1fae5', color: '#065f46', padding: '2px 6px', borderRadius: '3px', textAlign: 'center', fontWeight: 700 }}>
                         PAID
+                      </div>
+                    ) : inst.isSynthetic ? (
+                      <div style={{ fontSize: 9, background: '#e0f2fe', color: '#075985', padding: '2px 6px', borderRadius: '3px', textAlign: 'center', fontWeight: 700 }}>
+                        SCHEDULE MISSING
                       </div>
                     ) : (
                       <div style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '3px', textAlign: 'center', fontWeight: 700 }}>
@@ -351,6 +381,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
                   </div>
                 ))}
               </div>
+              )}
             </div>
           )}
 
@@ -390,7 +421,12 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
                 <div><strong>Property:</strong> {selectedProperty.propertyType || 'Property'} #{selectedProperty.propertyNumber || '-'}</div>
                 <div><strong>Buyer:</strong> {selectedProperty.buyerName || '-'}</div>
                 <div><strong>Installment:</strong> #{selectedInstallment.installmentNumber} of {selectedInstallment.totalInstallments}</div>
-                <div><strong>Due Date:</strong> {new Date(selectedInstallment.dueDate).toLocaleDateString('en-PK')}</div>
+                <div>
+                  <strong>Due Date:</strong>{' '}
+                  {selectedInstallment.dueDate && !Number.isNaN(new Date(selectedInstallment.dueDate).getTime())
+                    ? new Date(selectedInstallment.dueDate).toLocaleDateString('en-PK')
+                    : 'Date not set'}
+                </div>
                 <div style={{ marginTop: 8, fontSize: 14, fontWeight: 800, color: 'var(--accent-green)' }}>
                   Amount: PKR {toMoney(selectedInstallment.dueAmount).toLocaleString()}
                 </div>
