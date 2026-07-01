@@ -128,7 +128,7 @@ export default function CashBanksDashboard({ townName, showToast }) {
                 <small>Debit {money(account.Total_Debit)}</small>
               </div>
               <b className={(Number(account.Current_Balance) || 0) >= 0 ? 'positive' : 'negative'}>{money(account.Current_Balance)}</b>
-              <small>{account.Status || 'active'} · {account.Sync_Status || 'local'}</small>
+              <small>{account.Status || 'active'} / {account.Sync_Status || 'local'}</small>
               {account.Account_Type === 'bank' && String(account.Status || 'active').toLowerCase() === 'active' && (
                 <button className="btn btn-ghost" type="button" onClick={() => archiveBank(account)} disabled={saving}>Archive</button>
               )}
