@@ -27,6 +27,12 @@ function sameTown(row, townName) {
   return clean(row.Town_Name || row.town_name) === clean(townName);
 }
 
+function isPropertySale(row) {
+  const type = clean(row.Type || row.Property_Type).toLowerCase();
+  if (!['plot', 'shop', 'house'].includes(type)) return false;
+  return Boolean(clean(row.Plot_Shop_Number || row.Property_Number));
+}
+
 function rowDate(row, keys = ['Date', 'date', 'Created_At', 'created_at']) {
   for (const key of keys) {
     const value = row[key];
@@ -115,7 +121,7 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     .filter((row) => row.direction === 'expense')
     .reduce((sum, row) => sum + row.amount, 0);
 
-  const sales = salesRows.filter((row) => sameTown(row, town));
+  const sales = salesRows.filter((row) => sameTown(row, town)).filter(isPropertySale);
   const salesInRange = sales.filter((row) => inRange(rowDate(row, ['Sell_Date', 'Date', 'Created_At']), from, to));
   const pendingReceivable = sales.reduce((sum, row) => sum + money(row.Remaining_Amount), 0);
   const customerLedgers = salesInRange.map((row) => ({
