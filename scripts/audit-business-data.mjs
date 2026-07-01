@@ -65,6 +65,11 @@ function groupBy(rows, keyFn) {
   return map;
 }
 
+function isPropertySale(row) {
+  const type = text(row.Type || row.Property_Type).toLowerCase();
+  return ['plot', 'shop', 'house'].includes(type) && Boolean(text(row.Plot_Shop_Number || row.Property_Number));
+}
+
 export async function runBusinessAudit(options = {}) {
   const root = options.rootPath || defaultRoot;
   const globalsDir = path.join(root, 'Global');
@@ -106,6 +111,12 @@ export async function runBusinessAudit(options = {}) {
   ]);
 
   const approvedLedger = ledger.filter((row) => text(row.Status || 'approved').toLowerCase() === 'approved');
+  const receiptNumbers = new Set(receiptArchive.map((row) => text(row.Receipt_Number)).filter(Boolean));
+  const ledgerSourceKeys = new Set(ledger.map((row) => [
+    text(row.Source_Type).toLowerCase(),
+    text(row.Source_ID),
+    text(row.Direction).toLowerCase(),
+  ].join('|')));
   const paymentAccountById = new Map([
     ['cash-in-hand', { Account_ID: 'cash-in-hand', Account_Name: 'Cash in Hand', Account_Type: 'cash', Status: 'active' }],
     ...cashBankAccounts.map((row) => [text(row.Account_ID), row]),
@@ -174,6 +185,10 @@ export async function runBusinessAudit(options = {}) {
   }
 
   for (const sale of sales) {
+    if (!isPropertySale(sale)) {
+      addIssue(issues, 'info', 'sales', 'Non-property row exists in All_Sales; reports must ignore it for receivables', sale);
+      continue;
+    }
     const total = money(sale.Total_Amount_PKR || sale.Deal_Amount_PKR);
     const advance = money(sale.Advance_Amount_PKR);
     const saleInstallments = installments.filter((inst) =>
@@ -186,6 +201,19 @@ export async function runBusinessAudit(options = {}) {
       .reduce((sum, inst) => sum + money(inst.Monthly_Amount || inst.Received_Amount), 0);
     const expectedReceived = saleInstallments.length ? Math.min(total, advance + paidInstallments) : money(sale.Received_Amount || advance);
     const expectedRemaining = Math.max(0, total - expectedReceived);
+    const actualReceived = money(sale.Received_Amount || advance);
+    const actualRemaining = money(sale.Remaining_Amount);
+    if (total > 0 && Math.abs(total - (actualReceived + actualRemaining)) > 1.01) {
+      addIssue(issues, 'error', 'sales', 'Sale total must equal received plus remaining', {
+        saleId: sale.Sale_ID,
+        town: sale.Town_Name,
+        property: `${sale.Type} ${sale.Plot_Shop_Number}`,
+        total,
+        actualReceived,
+        actualRemaining,
+        diff: total - (actualReceived + actualRemaining),
+      });
+    }
     if (Math.abs(expectedRemaining - money(sale.Remaining_Amount)) > 1.01) {
       addIssue(issues, 'warning', 'sales', 'Sale remaining does not match advance + paid installments', {
         saleId: sale.Sale_ID,
@@ -199,6 +227,33 @@ export async function runBusinessAudit(options = {}) {
     if (received < -0.01) addIssue(issues, 'error', 'sales', 'Sale received is negative', sale);
     if (total > 0 && received - total > 1.01) addIssue(issues, 'error', 'sales', 'Sale received exceeds total amount', sale);
     if (money(sale.Remaining_Amount) < -0.01) addIssue(issues, 'error', 'sales', 'Sale remaining is negative', sale);
+    if (advance > 0) {
+      const key = ['sale_advance', text(sale.Sale_ID), 'income'].join('|');
+      if (ledger.length && !ledgerSourceKeys.has(key)) {
+        addIssue(issues, 'warning', 'sales', 'Sale advance is missing money ledger row', sale);
+      }
+    }
+  }
+
+  for (const payment of collectionPayments) {
+    const key = ['collection_payment', text(payment.Payment_ID), 'income'].join('|');
+    if (ledger.length && !ledgerSourceKeys.has(key)) {
+      addIssue(issues, 'warning', 'collection_payments', 'Collection payment is missing money ledger row', payment);
+    }
+  }
+
+  for (const inst of installments) {
+    if (text(inst.Status).toLowerCase() !== 'paid') continue;
+    const key = ['installment_payment', text(inst.Tracker_ID), 'income'].join('|');
+    if (ledger.length && !ledgerSourceKeys.has(key)) {
+      addIssue(issues, 'warning', 'installments', 'Paid installment is missing money ledger row', inst);
+    }
+    const receiptNumber = text(inst.Receipt_Number);
+    if (!receiptNumber) {
+      addIssue(issues, 'warning', 'installments', 'Paid installment is missing receipt number', inst);
+    } else if (receiptArchive.length && !receiptNumbers.has(receiptNumber)) {
+      addIssue(issues, 'warning', 'installments', 'Paid installment receipt is missing from Receipt_Archive', inst);
+    }
   }
 
   for (const row of salaryRows) {
@@ -239,7 +294,6 @@ export async function runBusinessAudit(options = {}) {
     }
   }
 
-  const receiptNumbers = new Set(receiptArchive.map((row) => text(row.Receipt_Number)).filter(Boolean));
   for (const [area, rows] of [
     ['salary', salaryRows],
     ['investor_transactions', investorTransactions],
@@ -275,11 +329,6 @@ export async function runBusinessAudit(options = {}) {
     if (key && group.length > 1) addIssue(issues, 'warning', 'pending_sync', `Duplicate pending Client_Write_ID ${key}`, group.slice(0, 3));
   }
 
-  const ledgerSourceKeys = new Set(ledger.map((row) => [
-    text(row.Source_Type).toLowerCase(),
-    text(row.Source_ID),
-    text(row.Direction).toLowerCase(),
-  ].join('|')));
   for (const row of dailyEntries) {
     const review = text(row.Review_Status || 'approved').toLowerCase();
     const skipLedger = text(row.Skip_Ledger).toLowerCase() === 'yes';
@@ -322,7 +371,7 @@ export async function runBusinessAudit(options = {}) {
     issues,
   };
 
-  const outDir = path.join(root, 'Reports');
+  const outDir = options.outputDir || path.join(root, 'Reports');
   fs.mkdirSync(outDir, { recursive: true });
   const outPath = path.join(outDir, `business-audit-${new Date().toISOString().slice(0, 10)}.json`);
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2));

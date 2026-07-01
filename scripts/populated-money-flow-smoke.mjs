@@ -119,11 +119,11 @@ async function main() {
 
   await writeSheet(
     'Installments_Tracker.xlsx',
-    ['Tracker_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Customer_Name', 'Monthly_Amount', 'Due_Date', 'Status', 'Paid_Date', 'Month_Number', 'Total_Months', 'Received_Amount', 'Remaining_Amount'],
+    ['Tracker_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Customer_Name', 'Monthly_Amount', 'Due_Date', 'Status', 'Paid_Date', 'Month_Number', 'Total_Months', 'Received_Amount', 'Remaining_Amount', 'Receipt_Number'],
     [
-      { Tracker_ID: 'INS-SMOKE-001', Plot_Shop_Number: 'A-1', Type: 'Plot', Town_Name: townName, Customer_Name: 'Smoke Customer', Monthly_Amount: installmentOne, Due_Date: today, Status: 'Paid', Paid_Date: today, Month_Number: 1, Total_Months: 12, Received_Amount: installmentOne, Remaining_Amount: saleTotal - advance - installmentOne },
-      { Tracker_ID: 'INS-SMOKE-002', Plot_Shop_Number: 'A-1', Type: 'Plot', Town_Name: townName, Customer_Name: 'Smoke Customer', Monthly_Amount: installmentTwo, Due_Date: today, Status: 'Paid', Paid_Date: today, Month_Number: 2, Total_Months: 12, Received_Amount: installmentTwo, Remaining_Amount: remaining },
-      { Tracker_ID: 'INS-SMOKE-003', Plot_Shop_Number: 'A-1', Type: 'Plot', Town_Name: townName, Customer_Name: 'Smoke Customer', Monthly_Amount: 1542, Due_Date: today, Status: 'Due', Paid_Date: '', Month_Number: 3, Total_Months: 12, Received_Amount: 0, Remaining_Amount: remaining },
+      { Tracker_ID: 'INS-SMOKE-001', Plot_Shop_Number: 'A-1', Type: 'Plot', Town_Name: townName, Customer_Name: 'Smoke Customer', Monthly_Amount: installmentOne, Due_Date: today, Status: 'Paid', Paid_Date: today, Month_Number: 1, Total_Months: 12, Received_Amount: installmentOne, Remaining_Amount: saleTotal - advance - installmentOne, Receipt_Number: 'INS-SMOKE-001' },
+      { Tracker_ID: 'INS-SMOKE-002', Plot_Shop_Number: 'A-1', Type: 'Plot', Town_Name: townName, Customer_Name: 'Smoke Customer', Monthly_Amount: installmentTwo, Due_Date: today, Status: 'Paid', Paid_Date: today, Month_Number: 2, Total_Months: 12, Received_Amount: installmentTwo, Remaining_Amount: remaining, Receipt_Number: 'INS-SMOKE-002' },
+      { Tracker_ID: 'INS-SMOKE-003', Plot_Shop_Number: 'A-1', Type: 'Plot', Town_Name: townName, Customer_Name: 'Smoke Customer', Monthly_Amount: 1542, Due_Date: today, Status: 'Due', Paid_Date: '', Month_Number: 3, Total_Months: 12, Received_Amount: 0, Remaining_Amount: remaining, Receipt_Number: '' },
     ],
   );
 
@@ -176,7 +176,7 @@ async function main() {
     [{ Receipt_ID: 'COM-REC-1', Commission_ID: 'COM-SMOKE-001', Town_Name: townName, Amount: commissionPaid, Date: today, Receipt_Number: 'COM-REC-1', Payment_Account_ID: 'cash-in-hand' }],
   );
 
-  const receiptRows = ['SAL-SMOKE-001', 'INV-CREDIT-1', 'INV-DEBIT-1', 'CON-PAY-1', 'COM-REC-1', 'SALE-SMOKE-001'].map((receipt) => ({
+  const receiptRows = ['SAL-SMOKE-001', 'INV-CREDIT-1', 'INV-DEBIT-1', 'CON-PAY-1', 'COM-REC-1', 'SALE-SMOKE-001', 'INS-SMOKE-001', 'INS-SMOKE-002'].map((receipt) => ({
     Receipt_ID: receipt,
     Town_Name: townName,
     Type: 'Smoke Test',
@@ -199,8 +199,8 @@ async function main() {
     ['Ledger_ID', 'Town_Name', 'Date', 'Source_Type', 'Source_ID', 'Direction', 'Amount', 'Debit_Account', 'Credit_Account', 'Payment_Account_ID', 'Payment_Account_Name', 'Payment_Account_Type', 'Party_Name', 'Description', 'Receipt_Number', 'Status', 'Created_By', 'Created_At'],
     [
       ledgerRow({ id: 'L-SALE-ADV', sourceType: 'sale_advance', sourceId: 'SALE-SMOKE-001', direction: 'income', amount: advance, party: 'Smoke Customer', description: 'Sale advance', receipt: 'SALE-SMOKE-001' }),
-      ledgerRow({ id: 'L-INS-1', sourceType: 'installment', sourceId: 'INS-SMOKE-001', direction: 'income', amount: installmentOne, party: 'Smoke Customer', description: 'Installment 1', receipt: 'INS-SMOKE-001' }),
-      ledgerRow({ id: 'L-INS-2', sourceType: 'installment', sourceId: 'INS-SMOKE-002', direction: 'income', amount: installmentTwo, party: 'Smoke Customer', description: 'Installment 2', receipt: 'INS-SMOKE-002' }),
+      ledgerRow({ id: 'L-INS-1', sourceType: 'installment_payment', sourceId: 'INS-SMOKE-001', direction: 'income', amount: installmentOne, party: 'Smoke Customer', description: 'Installment 1', receipt: 'INS-SMOKE-001' }),
+      ledgerRow({ id: 'L-INS-2', sourceType: 'installment_payment', sourceId: 'INS-SMOKE-002', direction: 'income', amount: installmentTwo, party: 'Smoke Customer', description: 'Installment 2', receipt: 'INS-SMOKE-002' }),
       ledgerRow({ id: 'L-DE-IN', sourceType: 'daily_entry', sourceId: 'DE-IN-1', direction: 'income', amount: dailyIncome, party: 'General Income', description: 'Daily income' }),
       ledgerRow({ id: 'L-DE-EX', sourceType: 'daily_entry', sourceId: 'DE-EX-1', direction: 'expense', amount: dailyExpense, party: 'General Expense', description: 'Daily expense' }),
       ledgerRow({ id: 'L-COM', sourceType: 'commission_paid', sourceId: 'COM-REC-1', direction: 'expense', amount: commissionPaid, party: 'Smoke Agent', description: 'Commission paid', receipt: 'COM-REC-1' }),

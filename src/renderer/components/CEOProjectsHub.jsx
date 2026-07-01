@@ -205,10 +205,10 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
       </div>
 
       {/* Cards Grid */}
-      <div className="ui-card-grid">
+      <div className="ui-card-grid ceo-town-grid">
         {/* Add New Town Card */}
         <div
-          className="ui-card ui-card-add"
+          className="ui-card ui-card-add ceo-town-card ceo-town-card-add"
           onClick={() => setShowWizard(true)}
         >
           <div className="ui-card-add-icon"><PlusIcon size={26}/></div>
@@ -230,7 +230,7 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
           return (
             <div
               key={town.Town_Name}
-              className="ui-card"
+              className="ui-card ceo-town-card"
               onClick={() => onTownSelect(town)}
             >
               <div className="ui-card-header">
@@ -302,9 +302,24 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
                 </div>
               )}
 
+              <div className="ceo-town-card-stats">
+                <div>
+                  <span>Total Plots</span>
+                  <strong>{totalPlots.toLocaleString()}</strong>
+                </div>
+                <div>
+                  <span>Total Shops</span>
+                  <strong>{totalShops.toLocaleString()}</strong>
+                </div>
+                <div>
+                  <span>Sold</span>
+                  <strong>{(stats.soldPlots + stats.soldShops).toLocaleString()}</strong>
+                </div>
+              </div>
+
               <div className="ui-card-footer">
                 <span className={`ui-money ${netPl >= 0 ? 'text-green' : 'text-red'}`}>
-                  {netPl >= 0 ? '▲' : '▼'} {fmtPkr(Math.abs(netPl))}
+                  {netPl >= 0 ? '+' : '-'} {fmtPkr(Math.abs(netPl))}
                 </span>
                 <span className="ui-muted-inline">
                   {netPl >= 0 ? 'Profit' : 'Loss'}
