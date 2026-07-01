@@ -155,18 +155,33 @@ export function AuthProvider({ children }) {
       if (role === 'accountant' && window.api?.localAccountantLogin) {
         const local = await window.api.localAccountantLogin({ email, password, adminPassword: options.adminPassword || '' });
         if (local?.success && local.profile) {
+          let sessionUser = null;
+          if (navigator.onLine) {
+            try {
+              const { data: onlineData, error: onlineError } = await withTimeout(auth.signInWithPassword({
+                email,
+                password,
+              }), 6000, 'Online accountant auth');
+              if (!onlineError && onlineData?.user) {
+                sessionUser = onlineData.user;
+              }
+            } catch (_) {
+              sessionUser = null;
+            }
+          }
           const fakeUser = { ...(local.user || { id: local.profile.id, email: local.profile.email }), local_offline: true };
-          setUser(fakeUser);
+          const activeUser = sessionUser || fakeUser;
+          setUser(activeUser);
           setUserProfile(local.profile);
           setUserRole('accountant');
           if (options.remember !== false) {
             localStorage.setItem('al_siraj_local_accountant_session', JSON.stringify({
-              user: fakeUser,
+              user: activeUser,
               profile: local.profile,
               saved_at: new Date().toISOString(),
             }));
           }
-          return { success: true, user: fakeUser, profile: local.profile, localOffline: true };
+          return { success: true, user: activeUser, profile: local.profile, localOffline: !sessionUser };
         }
       }
       const { data, error } = await withTimeout(auth.signInWithPassword({
