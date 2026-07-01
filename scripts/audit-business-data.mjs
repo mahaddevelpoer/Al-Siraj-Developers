@@ -207,7 +207,19 @@ export async function runBusinessAudit(options = {}) {
     const paidInstallments = saleInstallments
       .filter((inst) => text(inst.Status).toLowerCase() === 'paid')
       .reduce((sum, inst) => sum + money(inst.Monthly_Amount || inst.Received_Amount), 0);
-    const expectedReceived = saleInstallments.length ? Math.min(total, advance + paidInstallments) : money(sale.Received_Amount || advance);
+    const saleCollections = collectionPayments.filter((payment) => (
+      (text(payment.Sale_ID) && text(payment.Sale_ID) === text(sale.Sale_ID)) ||
+      (text(payment.Sale_Code) && text(payment.Sale_Code) === text(sale.Sale_ID)) ||
+      (
+        text(payment.Type) === text(sale.Type) &&
+        text(payment.Plot_Shop_Number) === text(sale.Plot_Shop_Number) &&
+        text(payment.Town_Name) === text(sale.Town_Name)
+      )
+    ));
+    const collectedAmount = saleCollections.reduce((sum, payment) => sum + money(payment.Amount), 0);
+    const expectedReceived = saleInstallments.length || saleCollections.length
+      ? Math.min(total, advance + paidInstallments + collectedAmount)
+      : money(sale.Received_Amount || advance);
     const expectedRemaining = Math.max(0, total - expectedReceived);
     const actualReceived = money(sale.Received_Amount || advance);
     const actualRemaining = money(sale.Remaining_Amount);
@@ -223,7 +235,7 @@ export async function runBusinessAudit(options = {}) {
       });
     }
     if (Math.abs(expectedRemaining - money(sale.Remaining_Amount)) > 1.01) {
-      addIssue(issues, 'warning', 'sales', 'Sale remaining does not match advance + paid installments', {
+      addIssue(issues, 'warning', 'sales', 'Sale remaining does not match advance + paid installments + collections', {
         saleId: sale.Sale_ID,
         town: sale.Town_Name,
         property: `${sale.Type} ${sale.Plot_Shop_Number}`,

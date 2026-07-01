@@ -66,9 +66,10 @@ async function main() {
 
   const saleTotal = 20000;
   const advance = 1500;
+  const collectionPayment = 500;
   const installmentOne = 1542;
   const installmentTwo = 1542;
-  const received = advance + installmentOne + installmentTwo;
+  const received = advance + collectionPayment + installmentOne + installmentTwo;
   const remaining = saleTotal - received;
   const investorCredit = 50000;
   const investorDebit = 10000;
@@ -128,6 +129,31 @@ async function main() {
   );
 
   await writeSheet(
+    'Collection_Payments.xlsx',
+    ['Payment_ID', 'Sale_ID', 'Sale_Code', 'Type', 'Plot_Shop_Number', 'Town_Name', 'Customer_Name', 'Amount', 'Received_Before', 'Received_After', 'Remaining_After', 'Payment_Date', 'Payment_Method', 'Notes', 'Receipt_Number', 'Payment_Account_ID', 'Payment_Account_Name', 'Payment_Account_Type'],
+    [{
+      Payment_ID: 'COL-SMOKE-001',
+      Sale_ID: 'SALE-SMOKE-001',
+      Sale_Code: 'SALE-SMOKE-001',
+      Type: 'Plot',
+      Plot_Shop_Number: 'A-1',
+      Town_Name: townName,
+      Customer_Name: 'Smoke Customer',
+      Amount: collectionPayment,
+      Received_Before: advance,
+      Received_After: advance + collectionPayment,
+      Remaining_After: saleTotal - advance - collectionPayment,
+      Payment_Date: today,
+      Payment_Method: 'Cash',
+      Notes: 'Open remaining collection',
+      Receipt_Number: 'COL-SMOKE-001',
+      Payment_Account_ID: 'cash-in-hand',
+      Payment_Account_Name: 'Cash in Hand',
+      Payment_Account_Type: 'cash',
+    }],
+  );
+
+  await writeSheet(
     'Daily_Entries.xlsx',
     ['Entry_ID', 'Town_Name', 'Date', 'Type', 'Category', 'Amount', 'Description', 'Review_Status'],
     [
@@ -176,7 +202,7 @@ async function main() {
     [{ Receipt_ID: 'COM-REC-1', Commission_ID: 'COM-SMOKE-001', Town_Name: townName, Amount: commissionPaid, Date: today, Receipt_Number: 'COM-REC-1', Payment_Account_ID: 'cash-in-hand' }],
   );
 
-  const receiptRows = ['SAL-SMOKE-001', 'INV-CREDIT-1', 'INV-DEBIT-1', 'CON-PAY-1', 'COM-REC-1', 'SALE-SMOKE-001', 'INS-SMOKE-001', 'INS-SMOKE-002', 'DE-IN-REC-1', 'DE-EX-REC-1'].map((receipt) => ({
+  const receiptRows = ['SAL-SMOKE-001', 'INV-CREDIT-1', 'INV-DEBIT-1', 'CON-PAY-1', 'COM-REC-1', 'SALE-SMOKE-001', 'COL-SMOKE-001', 'INS-SMOKE-001', 'INS-SMOKE-002', 'DE-IN-REC-1', 'DE-EX-REC-1'].map((receipt) => ({
     Receipt_ID: receipt,
     Town_Name: townName,
     Type: 'Smoke Test',
@@ -199,6 +225,7 @@ async function main() {
     ['Ledger_ID', 'Town_Name', 'Date', 'Source_Type', 'Source_ID', 'Direction', 'Amount', 'Debit_Account', 'Credit_Account', 'Payment_Account_ID', 'Payment_Account_Name', 'Payment_Account_Type', 'Party_Name', 'Description', 'Receipt_Number', 'Status', 'Created_By', 'Created_At'],
     [
       ledgerRow({ id: 'L-SALE-ADV', sourceType: 'sale_advance', sourceId: 'SALE-SMOKE-001', direction: 'income', amount: advance, party: 'Smoke Customer', description: 'Sale advance', receipt: 'SALE-SMOKE-001' }),
+      ledgerRow({ id: 'L-COL-1', sourceType: 'collection_payment', sourceId: 'COL-SMOKE-001', direction: 'income', amount: collectionPayment, party: 'Smoke Customer', description: 'Open remaining collection', receipt: 'COL-SMOKE-001' }),
       ledgerRow({ id: 'L-INS-1', sourceType: 'installment_payment', sourceId: 'INS-SMOKE-001', direction: 'income', amount: installmentOne, party: 'Smoke Customer', description: 'Installment 1', receipt: 'INS-SMOKE-001' }),
       ledgerRow({ id: 'L-INS-2', sourceType: 'installment_payment', sourceId: 'INS-SMOKE-002', direction: 'income', amount: installmentTwo, party: 'Smoke Customer', description: 'Installment 2', receipt: 'INS-SMOKE-002' }),
       ledgerRow({ id: 'L-DE-IN', sourceType: 'daily_entry', sourceId: 'DE-IN-1', direction: 'income', amount: dailyIncome, party: 'General Income', description: 'Daily income', receipt: 'DE-IN-REC-1' }),
@@ -219,11 +246,11 @@ async function main() {
 
   const audit = await runBusinessAudit({ rootPath: root });
   const assertions = [
-    ['saleReceived', received === 4584, received],
-    ['saleRemaining', remaining === 15416, remaining],
-    ['totalReceived', totalReceived === 56584, totalReceived],
+    ['saleReceived', received === 5084, received],
+    ['saleRemaining', remaining === 14916, remaining],
+    ['totalReceived', totalReceived === 57084, totalReceived],
     ['totalExpenses', totalExpenses === 32300, totalExpenses],
-    ['cashBalance', cashBalance === 24284, cashBalance],
+    ['cashBalance', cashBalance === 24784, cashBalance],
     ['auditIssues', audit.issueCount === 0, audit.issueCount],
   ];
   const failed = assertions.filter(([, ok]) => !ok);
