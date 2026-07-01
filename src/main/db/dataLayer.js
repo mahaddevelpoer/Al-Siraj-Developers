@@ -6,7 +6,7 @@ class DataLayer {
     this._isLocalMachine = null;
     this._dbPath = '';
     this._windowGetter = null;
-    this._preferDbReads = true;
+    this._preferDbReads = false;
     this._cloudReadTimeoutMs = 6000;
   }
 
@@ -32,6 +32,9 @@ class DataLayer {
   }
 
   async read(localFn, supabaseFn) {
+    if (!this._preferDbReads) {
+      return await localFn();
+    }
     if (this._preferDbReads && typeof supabaseFn === 'function') {
       try {
         const cloud = await Promise.race([
