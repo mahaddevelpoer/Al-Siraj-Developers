@@ -201,7 +201,7 @@ async function performFullSync(reportProgress = () => {}) {
     }));
     await overwriteExcelFile(path.join(globalsPath, 'Commissions.xlsx'), 'Data', COMM_COLS, mappedCommissions);
 
-    const SALES_COLS = ['Sale_ID','Plot_Shop_Number','Type','Town_Name','Customer_Name','CNIC','Phone_Number','Sell_Date','Expected_Amount_PKR','Deal_Amount_PKR','Discount_Amount_PKR','Total_Amount_PKR','Advance_Amount_PKR','Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount','Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount','Company_Income','Expense_Total','Profit_Loss','Receipt_Number','File_Status','File_Delivery_Image','Status','Sale_Type','Payment_Method','Cheque_Number','Cheque_Bank','Cheque_Image','Transaction_ID','Transfer_Bank','Transfer_Image'];
+    const SALES_COLS = ['Sale_ID','Plot_Shop_Number','Type','Town_Name','Customer_Name','CNIC','Phone_Number','Sell_Date','Expected_Amount_PKR','Deal_Amount_PKR','Discount_Amount_PKR','Total_Amount_PKR','Advance_Amount_PKR','Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount','Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount','Company_Income','Expense_Total','Profit_Loss','Receipt_Number','File_Status','File_Delivery_Image','Status','Sale_Type','Payment_Method','Cheque_Number','Cheque_Bank','Cheque_Image','Transaction_ID','Transfer_Bank','Transfer_Image','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'];
     await overwriteExcelFile(path.join(globalsPath, 'All_Sales.xlsx'), 'Data', SALES_COLS, scoped(sales).map((r) => mapGenericFromCloud(SALES_COLS, r)));
 
     const RESELL_COLS = ['Resell_ID','Plot_Shop_Number','Type','Town_Name','Original_Customer','Original_Sell_Date','Original_Amount','Resell_Amount','Refund_Amount','Resell_Date','Receipt_Number','Agent_Name','Profit_Loss'];
@@ -230,7 +230,7 @@ async function performFullSync(reportProgress = () => {}) {
     const mappedAdvances = scoped(advanceSalaries).map((a, idx) => mapAdvanceFromCloud(a, idx));
     await overwriteExcelFile(path.join(globalsPath, 'Advance_Salaries.xlsx'), 'Advance_Salaries', ADV_COLS, mappedAdvances);
 
-    const SALREC_COLS = ['Receipt_Number','Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By','Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After','Salary_Remaining_After','Is_Advance_Salary'];
+    const SALREC_COLS = ['Receipt_Number','Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By','Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After','Salary_Remaining_After','Is_Advance_Salary','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'];
     const mappedSalaryRecords = scoped(salaryPayments).map(mapSalaryRecordFromCloud);
     await overwriteExcelFile(path.join(globalsPath, 'Salary_Records.xlsx'), 'Data', SALREC_COLS, mappedSalaryRecords);
 
@@ -243,19 +243,19 @@ async function performFullSync(reportProgress = () => {}) {
     const INVESTOR_COLS = ['Investor_ID','Town_Name','Investor_Name','Phone_Number','CNIC','Address','Notes','Balance','Status','Created_At','Approval_Status'];
     await overwriteExcelFile(path.join(globalsPath, 'Investors.xlsx'), 'Data', INVESTOR_COLS, scoped(investors).map((r) => mapGenericFromCloud(INVESTOR_COLS, r)));
 
-    const INVESTOR_TX_COLS = ['Transaction_ID','Investor_ID','Town_Name','Investor_Name','Type','Amount','Date','Notes','Balance_After','Receipt_Number','Created_By'];
+    const INVESTOR_TX_COLS = ['Transaction_ID','Investor_ID','Town_Name','Investor_Name','Type','Amount','Date','Notes','Balance_After','Receipt_Number','Created_By','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'];
     await overwriteExcelFile(path.join(globalsPath, 'Investor_Transactions.xlsx'), 'Data', INVESTOR_TX_COLS, scoped(investorTransactions).map((r) => mapGenericFromCloud(INVESTOR_TX_COLS, r)));
 
-    const CONSTRUCTION_COLS = ['Project_ID','Town_Name','Category','Constructor_Name','Phone_Number','Company_Name','Material_Name','Material_Quantity','Material_Rate','Deal_Amount','Paid_Amount','Remaining_Amount','Status','Start_Date','Notes'];
+    const CONSTRUCTION_COLS = ['Project_ID','Town_Name','Category','Constructor_Name','Phone_Number','Company_Name','Material_Name','Material_Quantity','Material_Rate','Deal_Amount','Paid_Amount','Remaining_Amount','Status','Start_Date','Notes','Deal_Receipt_Number'];
     await overwriteExcelFile(path.join(globalsPath, 'Construction_Projects.xlsx'), 'Data', CONSTRUCTION_COLS, scoped(constructionProjects).map((r) => mapGenericFromCloud(CONSTRUCTION_COLS, r)));
 
-    const CONSTRUCTION_PAY_COLS = ['Payment_ID','Project_ID','Town_Name','Category','Constructor_Name','Amount','Payment_Date','Material_Name','Material_Quantity','Material_Rate','Remaining_After','Receipt_Number','Notes','Created_By'];
+    const CONSTRUCTION_PAY_COLS = ['Payment_ID','Project_ID','Town_Name','Category','Constructor_Name','Amount','Payment_Date','Material_Name','Material_Quantity','Material_Rate','Remaining_After','Receipt_Number','Notes','Created_By','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'];
     await overwriteExcelFile(path.join(globalsPath, 'Construction_Payments.xlsx'), 'Data', CONSTRUCTION_PAY_COLS, scoped(constructionPayments).map((r) => mapGenericFromCloud(CONSTRUCTION_PAY_COLS, r)));
 
-    const COMM_RECEIPT_COLS = ['Receipt_ID','Commission_ID','Sale_ID','Town_Name','Agent_Name','Plot_Shop_Number','Amount','Paid_Date','Receipt_Number','Paid_By'];
+    const COMM_RECEIPT_COLS = ['Receipt_ID','Commission_ID','Sale_ID','Town_Name','Agent_Name','Plot_Shop_Number','Amount','Paid_Date','Receipt_Number','Paid_By','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'];
     await overwriteExcelFile(path.join(globalsPath, 'Commission_Receipts.xlsx'), 'Data', COMM_RECEIPT_COLS, scoped(commissionReceipts).map((r) => mapGenericFromCloud(COMM_RECEIPT_COLS, r)));
 
-    const COLLECTION_PAY_COLS = ['Payment_ID','Sale_ID','Sale_Code','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes'];
+    const COLLECTION_PAY_COLS = ['Payment_ID','Sale_ID','Sale_Code','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'];
     await overwriteExcelFile(path.join(globalsPath, 'Collection_Payments.xlsx'), 'Data', COLLECTION_PAY_COLS, scoped(collectionPayments).map((r) => mapGenericFromCloud(COLLECTION_PAY_COLS, r)));
 
     const RECEIPT_ARCHIVE_COLS = ['Receipt_ID','Receipt_Number','Receipt_Type','Town_Name','Entity_ID','Entity_Name','Amount','Receipt_Date','Payload_JSON','Created_At'];
