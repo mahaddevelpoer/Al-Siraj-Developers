@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { createBusinessAppeal } from '../../lib/appeals';
 
 export default function CreateAppeal({ entityId, entityType, currentData, onClose, onSuccess }) {
-  const { user } = useAuth();
+  const { user, userProfile, userRole } = useAuth();
   const [appealType, setAppealType] = useState('date_change');
   const [reason, setReason] = useState('');
   const [requestedData, setRequestedData] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [submitted, setSubmitted] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -17,11 +18,9 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
 
     try {
       const townName = requestedData?.townName || requestedData?.town || currentData?.Town_Name || currentData?.town_name || '';
-      const { error: insertError } = await supabase
-        .from('appeals')
-        .insert([{
+      const { error: insertError } = await createBusinessAppeal({
           requested_by_user_id: user.id,
-          requested_by_role: 'agent',
+          requested_by_role: userProfile?.role || userRole || 'accountant',
           appeal_type: appealType,
           entity_type: entityType,
           entity_id: entityId,
@@ -30,12 +29,12 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
           requested_data: { ...requestedData, townName },
           reason,
           status: 'pending',
-        }]);
+        });
 
       if (insertError) throw insertError;
 
       onSuccess?.();
-      onClose();
+      setSubmitted(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -70,6 +69,11 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
         </div>
 
         <form onSubmit={handleSubmit}>
+          {submitted && (
+            <div style={{ padding: 10, background: '#ecfdf5', color: '#065f46', borderRadius: 'var(--radius-sm)', marginBottom: 16, fontSize: 12, fontWeight: 800 }}>
+              Appeal submitted. Waiting for CEO approval/rejection.
+            </div>
+          )}
           <div className="form-group" style={{ marginBottom: 16 }}>
             <label>Type of Change</label>
             <select
@@ -122,9 +126,9 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
           <div style={{ display: 'flex', gap: 12 }}>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || submitted}
               className="btn btn-primary"
-              style={{ flex: 1, padding: '10px', opacity: loading ? 0.6 : 1 }}
+              style={{ flex: 1, padding: '10px', opacity: loading || submitted ? 0.6 : 1 }}
             >
               {loading ? '⏳ Submitting...' : '✅ Submit Appeal'}
             </button>

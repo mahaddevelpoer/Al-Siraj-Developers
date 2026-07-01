@@ -4998,8 +4998,7 @@ class CeoNotificationService {
     await _plugin.initialize(
       settings,
       onDidReceiveNotificationResponse: (response) {
-        final route = response.payload;
-        if (route != null) routeFromPushData({'route': route});
+        unawaited(handleNotificationResponse(response));
       },
       onDidReceiveBackgroundNotificationResponse: ceoNotificationTapBackground,
     );
@@ -5065,8 +5064,16 @@ class CeoNotificationService {
         message.notification?.body ??
         message.data['body'] ??
         'Open CEO app for details';
-    final payload = route.isNotEmpty ? route : routeForTable(table);
-    await show(title, body, payload: payload);
+    final appealId = '${message.data['id'] ?? ''}'.trim();
+    final payload = isPendingAppeal && appealId.isNotEmpty
+        ? 'appeal_action:$appealId'
+        : (route.isNotEmpty ? route : routeForTable(table));
+    await show(
+      title,
+      body,
+      payload: payload,
+      withAppealActions: isPendingAppeal && appealId.isNotEmpty,
+    );
     return true;
   }
 
@@ -5115,17 +5122,37 @@ class CeoNotificationService {
     return DateTime.tryParse('$value')?.toLocal();
   }
 
-  static Future<void> show(String title, String body, {String? payload}) async {
-    const android = AndroidNotificationDetails(
+  static Future<void> show(
+    String title,
+    String body, {
+    String? payload,
+    bool withAppealActions = false,
+  }) async {
+    final android = AndroidNotificationDetails(
       'ceo_live_alerts',
       'CEO Live Alerts',
       channelDescription: 'Pending appeal alerts for CEO review.',
       importance: Importance.high,
       priority: Priority.high,
       icon: 'ic_stat_ceo_notification',
-      largeIcon: DrawableResourceAndroidBitmap('ic_launcher'),
+      largeIcon: const DrawableResourceAndroidBitmap('ic_launcher'),
+      actions: withAppealActions
+          ? const <AndroidNotificationAction>[
+              AndroidNotificationAction(
+                'approve_appeal',
+                'Approve',
+                showsUserInterface: true,
+              ),
+              AndroidNotificationAction(
+                'reject_appeal',
+                'Reject',
+                showsUserInterface: true,
+                cancelNotification: true,
+              ),
+            ]
+          : null,
     );
-    const details = NotificationDetails(android: android);
+    final details = NotificationDetails(android: android);
     final id = DateTime.now().millisecondsSinceEpoch.remainder(1000000);
     await _plugin.show(id, title, body, details, payload: payload);
   }
@@ -5299,6 +5326,16 @@ void routeFromPushData(Map<String, dynamic> data) {
     _ => 0,
   };
   selectedTabNotifier.value = nextTab;
+  if (nextTab == 2 || nextTab == 4) {
+    _badgeCountCache.clear();
+    _townPulsesCache.clear();
+    void ping() {
+      liveRefreshNotifier.value++;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => ping());
+    Timer(const Duration(milliseconds: 800), ping);
+    Timer(const Duration(milliseconds: 1800), ping);
+  }
 }
 
 dynamic rowVal(Map<String, dynamic> row, String key) {
@@ -5411,8 +5448,36 @@ bool requiresTownForAppeal(Map<String, dynamic> appeal) {
   return types.contains('${appeal['appeal_type']}');
 }
 
+Future<void> handleNotificationResponse(NotificationResponse response) async {
+  final payload = response.payload;
+  if (payload == null || payload.trim().isEmpty) return;
+  if (payload.startsWith('appeal_action:')) {
+    final appealId = payload.split(':').skip(1).join(':').trim();
+    final actionId = response.actionId ?? '';
+    if (appealId.isNotEmpty &&
+        (actionId == 'approve_appeal' || actionId == 'reject_appeal')) {
+      final status = actionId == 'approve_appeal' ? 'approved' : 'rejected';
+      try {
+        await supabase.rpc(
+          'ceo_review_appeal',
+          params: {'appeal_id': appealId, 'new_status': status},
+        );
+        _badgeCountCache.clear();
+        _townPulsesCache.clear();
+        liveRefreshNotifier.value++;
+        return;
+      } catch (_) {
+        // If direct review fails, open approvals so CEO can retry manually.
+      }
+    }
+    routeFromPushData({'route': 'appeals'});
+    return;
+  }
+  routeFromPushData({'route': payload});
+}
+
 @pragma('vm:entry-point')
 void ceoNotificationTapBackground(NotificationResponse response) {
-  final route = response.payload;
-  if (route != null) routeFromPushData({'route': route});
+  // Background isolate cannot safely navigate. The foreground response handler
+  // processes action payloads when Android opens the app.
 }

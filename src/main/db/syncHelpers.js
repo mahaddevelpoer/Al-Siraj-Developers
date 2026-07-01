@@ -139,7 +139,7 @@ const TABLE_COLUMNS = {
   employees_v2: ['Employee_ID', 'Employee_Name', 'CNIC', 'Phone', 'Town_Name', 'Role', 'Salary', 'Status'],
   advance_salaries: ['Advance_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Date', 'Month', 'Status', 'Notes'],
   salary_payments: ['Payment_ID', 'Employee_Name', 'Town_Name', 'Amount', 'Month', 'Payment_Date', 'Payment_Method', 'Notes', 'Recorded_By','Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After','Salary_Remaining_After','Is_Advance_Salary','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'],
-  daily_entries: ['Entry_ID', 'Town_Name', 'Date', 'Type', 'Category', 'Amount', 'Description', 'Account_Name', 'Account_Type', 'Reference', 'Created_By', 'Review_Status','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'],
+  daily_entries: ['Entry_ID', 'Town_Name', 'Date', 'Time', 'Type', 'Category', 'Amount', 'Description', 'Account_Name', 'Account_Type', 'Reference', 'Created_By', 'Review_Status','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'],
   properties: ['Property_Type', 'Property_Number', 'Town_Name', 'Property_Size', 'Marla', 'Length_Ft', 'Width_Ft', 'Area_Sqft', 'Per_Marla_Price', 'Road_Type', 'Road_Key', 'Total_Price', 'Owner_Name', 'Property_Category', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Expense_Total', 'Profit_Loss', 'Installment_Status', 'Resell_Status', 'Resell_Amount', 'Receipt_Number', 'File_Status', 'File_Delivery_Image', 'Status'],
   town_agents: ['Agent_ID','Town_Name','Agent_Name','Phone_Number','CNIC','Address','Notes','Status','Created_At'],
   investors: ['Investor_ID','Town_Name','Investor_Name','Phone_Number','CNIC','Address','Notes','Balance','Status','Created_At','Approval_Status'],
@@ -516,6 +516,7 @@ function mapDailyEntryToCloud(row) {
     Entry_ID: String(r.Entry_ID || r.entryId || ''),
     Town_Name: String(r.Town_Name || r.townName || ''),
     Date: String(r.Date || r.date || ''),
+    Time: String(r.Time || r.time || new Date().toTimeString().split(' ')[0].substring(0, 5)),
     Type: String(r.Type || r.type || 'Income'),
     Category: String(r.Category || r.category || r.Income_Type || r.incomeType || ''),
     Amount: parseFloat(r.Amount ?? r.amount) || 0,
@@ -525,6 +526,9 @@ function mapDailyEntryToCloud(row) {
     Reference: String(r.Property_ID || r.propertyId || r.Installment_ID || r.installmentId || r.Reference || r.reference || ''),
     Created_By: String(r.Created_By || r.createdBy || ''),
     Review_Status: String(r.Review_Status || r.reviewStatus || ''),
+    Payment_Account_ID: String(r.Payment_Account_ID || r.paymentAccountId || 'cash-in-hand'),
+    Payment_Account_Name: String(r.Payment_Account_Name || r.paymentAccountName || 'Cash in Hand'),
+    Payment_Account_Type: String(r.Payment_Account_Type || r.paymentAccountType || 'cash'),
   };
 }
 
@@ -532,7 +536,7 @@ function mapDailyEntryFromCloud(row) {
   return {
     Entry_ID: getRowVal(row, 'Entry_ID') || '',
     Date: getRowVal(row, 'Date') || '',
-    Time: '',
+    Time: getRowVal(row, 'Time') || '',
     Type: getRowVal(row, 'Type') || 'Income',
     Description: getRowVal(row, 'Description') || '',
     Amount: parseFloat(getRowVal(row, 'Amount')) || 0,
@@ -549,6 +553,9 @@ function mapDailyEntryFromCloud(row) {
     Reference: getRowVal(row, 'Reference') || '',
     Created_By: getRowVal(row, 'Created_By') || '',
     Review_Status: getRowVal(row, 'Review_Status') || '',
+    Payment_Account_ID: getRowVal(row, 'Payment_Account_ID') || 'cash-in-hand',
+    Payment_Account_Name: getRowVal(row, 'Payment_Account_Name') || 'Cash in Hand',
+    Payment_Account_Type: getRowVal(row, 'Payment_Account_Type') || 'cash',
   };
 }
 
