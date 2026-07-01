@@ -600,18 +600,71 @@ async function extendInstallmentDueDate(data) {
 }
 
 async function getInstallmentProperties(townName) {
-  const { data, error } = await supabase
-    .from('properties')
-    .select('*')
-    .eq('town_name', townName)
-    .in('installment_status', ['Active', 'active']);
-  if (error) throw error;
-  return normalizeCloudRows('properties', data);
+  const [sales, installments] = await Promise.all([
+    getAllSales(),
+    getAllInstallments(),
+  ]);
+  const townSales = (sales || []).filter((sale) => {
+    if (String(sale.Town_Name || '') !== String(townName || '')) return false;
+    const total = parseInt(sale.Total_Installments || sale.Total_Months, 10) || 0;
+    const hasRows = (installments || []).some((inst) =>
+      String(inst.Town_Name || '') === String(townName || '') &&
+      String(inst.Type || '') === String(sale.Type || '') &&
+      String(inst.Plot_Shop_Number || '') === String(sale.Plot_Shop_Number || '')
+    );
+    return total > 0 || hasRows;
+  });
+
+  return townSales.map((sale) => {
+    const rows = (installments || []).filter((inst) =>
+      String(inst.Town_Name || '') === String(townName || '') &&
+      String(inst.Type || '') === String(sale.Type || '') &&
+      String(inst.Plot_Shop_Number || '') === String(sale.Plot_Shop_Number || '')
+    );
+    const paidRows = rows.filter((row) => String(row.Status || '').toLowerCase() === 'paid');
+    const advance = parseFloat(sale.Advance_Amount_PKR) || 0;
+    const paidInstallments = paidRows.reduce((sum, row) => sum + (parseFloat(row.Monthly_Amount || row.Amount || row.Installment_Amount) || 0), 0);
+    const totalPrice = parseFloat(sale.Total_Amount_PKR || sale.Deal_Amount_PKR) || 0;
+    const totalInstallments = parseInt(sale.Total_Installments || sale.Total_Months || rows[0]?.Total_Months, 10) || rows.length || 0;
+    return {
+      id: `${sale.Type}|${sale.Plot_Shop_Number}|${sale.Town_Name}`,
+      saleId: sale.Sale_ID || '',
+      propertyType: sale.Type,
+      propertyNumber: sale.Plot_Shop_Number,
+      townName: sale.Town_Name,
+      buyerName: sale.Customer_Name,
+      totalPrice,
+      totalPaid: advance + paidInstallments,
+      remainingAmount: Math.max(0, totalPrice - advance - paidInstallments),
+      totalInstallments,
+      monthlyAmount: parseFloat(sale.Monthly_Installment || rows[0]?.Monthly_Amount) || 0,
+      activeInstallments: rows.filter((row) => String(row.Status || '').toLowerCase() !== 'paid').length,
+      paidInstallments: paidRows.length,
+      advanceTaken: advance,
+    };
+  });
 }
 
 async function getPropertyInstallments(propertyId) {
-  const [type, number, townName] = propertyId.split('|');
-  return await getInstallmentsByProperty(type, number, townName);
+  const parts = String(propertyId || '').split('|');
+  const type = parts[0] || '';
+  const number = parts[1] || '';
+  const townName = parts.slice(2).join('|');
+  if (!type || !number || !townName) return [];
+
+  const rows = await getInstallmentsByProperty(type, number, townName);
+  return (rows || [])
+    .sort((a, b) => (parseInt(a.Month_Number || a.month_number, 10) || 0) - (parseInt(b.Month_Number || b.month_number, 10) || 0))
+    .map((inst) => ({
+      id: inst.Tracker_ID || inst.tracker_id || inst.id || '',
+      installmentNumber: parseInt(inst.Month_Number || inst.month_number, 10) || 0,
+      totalInstallments: parseInt(inst.Total_Months || inst.total_months, 10) || 0,
+      dueDate: inst.Due_Date || inst.due_date || '',
+      dueAmount: parseFloat(inst.Monthly_Amount || inst.monthly_amount || inst.Amount || inst.amount || inst.Installment_Amount || inst.installment_amount) || 0,
+      isPaid: String(inst.Status || inst.status || '').toLowerCase() === 'paid',
+      status: inst.Status || inst.status || '',
+      receiptNumber: inst.Receipt_Number || inst.receipt_number || '',
+    }));
 }
 
 // ─── NOTIFICATIONS ─────────────────────────────────────────────
@@ -1068,6 +1121,9 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes, pay
   }
 
   const localPaymentId = paymentOverride?.Payment_ID || paymentOverride?.payment_id || generateId();
+  const paymentDate = paymentOverride?.Payment_Date || paymentOverride?.payment_date || new Date().toISOString().split('T')[0];
+  const receiptNumber = paymentOverride?.Receipt_Number || paymentOverride?.receiptNumber ||
+    `COL-${paymentDate.replace(/-/g, '')}-${String(localPaymentId).replace(/[^a-zA-Z0-9]/g, '').slice(-8)}`;
   const paymentRecord = {
     payment_id: localPaymentId,
     sale_code: paymentOverride?.Sale_Code || paymentOverride?.Sale_ID || saleId || getRowVal(sale, 'Sale_ID') || '',
@@ -1082,9 +1138,10 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes, pay
     received_before: currentReceived,
     received_after: newReceived,
     remaining_after: newRemaining,
-    payment_date: paymentOverride?.Payment_Date || paymentOverride?.payment_date || new Date().toISOString().split('T')[0],
+    payment_date: paymentDate,
     payment_method: paymentMethod || 'Cash',
     notes: notes || '',
+    receipt_number: receiptNumber,
     payment_account_id: paymentOverride?.Payment_Account_ID || paymentOverride?.paymentAccountId || 'cash-in-hand',
     payment_account_name: paymentOverride?.Payment_Account_Name || paymentOverride?.paymentAccountName || 'Cash in Hand',
     payment_account_type: paymentOverride?.Payment_Account_Type || paymentOverride?.paymentAccountType || 'cash',
@@ -1102,6 +1159,7 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes, pay
     description: `${getRowVal(sale, 'Type') || 'Property'} ${getRowVal(sale, 'Plot_Shop_Number') || ''} collection received`,
     createdBy: getRowVal(sale, 'Agent_Name') || 'System',
     status: 'approved',
+    receiptNumber,
     paymentAccountId: paymentRecord.payment_account_id,
     paymentAccountName: paymentRecord.payment_account_name,
     paymentAccountType: paymentRecord.payment_account_type,
@@ -1112,7 +1170,7 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes, pay
     await createCommissionRecord(sale);
   }
 
-  return { newReceived, newRemaining };
+  return { newReceived, newRemaining, receiptNumber };
 }
 
 async function getPendingCollections(agentName) {

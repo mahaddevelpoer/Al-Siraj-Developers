@@ -840,16 +840,23 @@ async function getInstallmentProperties(townName) {
     const paidSum = paidInst.reduce((s, i) => s + (parseFloat(i.Monthly_Amount) || 0), 0);
     const totalPaid = advanceAmount + paidSum;
     const totalPrice = parseFloat(sale.Total_Amount_PKR) || 0;
+    const totalInstallments = parseInt(sale.Total_Installments || sale.Total_Months || propInstallments[0]?.Total_Months, 10) || propInstallments.length || 0;
+    const monthlyAmount = parseFloat(sale.Monthly_Installment || sale.Installment_Amount || propInstallments[0]?.Monthly_Amount) || 0;
 
     return {
       id: `${sale.Type}|${sale.Plot_Shop_Number}|${sale.Town_Name}`,
+      saleId: sale.Sale_ID || '',
       propertyType: sale.Type,
       propertyNumber: sale.Plot_Shop_Number,
       townName: sale.Town_Name,
       buyerName: sale.Customer_Name,
       totalPrice,
       totalPaid,
+      remainingAmount: Math.max(0, totalPrice - totalPaid),
+      totalInstallments,
+      monthlyAmount,
       activeInstallments: activeInst.length,
+      paidInstallments: paidInst.length,
       advanceTaken: advanceAmount,
     };
   });
@@ -875,9 +882,10 @@ async function getPropertyInstallments(propertyId) {
     installmentNumber: parseInt(inst.Month_Number) || 0,
     totalInstallments: parseInt(inst.Total_Months) || 0,
     dueDate: inst.Due_Date || '',
-    dueAmount: parseFloat(inst.Monthly_Amount) || 0,
+    dueAmount: parseFloat(inst.Monthly_Amount || inst.Amount || inst.Installment_Amount) || 0,
     isPaid: String(inst.Status || '').toLowerCase() === 'paid',
     status: inst.Status || '',
+    receiptNumber: inst.Receipt_Number || '',
   }));
 }
 
@@ -921,8 +929,10 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
 
   const historyPath = path.join(getGlobalsPath(), 'Collection_Payments.xlsx');
   await ensureCollectionPaymentsFile(historyPath);
-  await ensureSheetColumns(historyPath, 'Data', ['Payment_ID','Sale_ID','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type']);
+  await ensureSheetColumns(historyPath, 'Data', ['Payment_ID','Sale_ID','Type','Plot_Shop_Number','Town_Name','Customer_Name','Agent_Name','Amount','Received_Before','Received_After','Remaining_After','Payment_Date','Payment_Method','Notes','Receipt_Number','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type']);
   const paymentId = generateId();
+  const paymentDate = new Date().toISOString().split('T')[0];
+  const receiptNumber = `COL-${paymentDate.replace(/-/g, '')}-${String(paymentId).replace(/[^a-zA-Z0-9]/g, '').slice(-8)}`;
   const paymentRow = {
     Payment_ID: paymentId,
     Sale_ID: item.Sale_ID || saleId || `${item.Type}|${item.Plot_Shop_Number}|${item.Town_Name}`,
@@ -936,9 +946,10 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
     Received_Before: currentReceived,
     Received_After: newReceived,
     Remaining_After: newRemaining,
-    Payment_Date: new Date().toISOString().split('T')[0],
+    Payment_Date: paymentDate,
     Payment_Method: paymentMethod || 'Cash',
     Notes: notes || '',
+    Receipt_Number: receiptNumber,
     Payment_Account_ID: paymentAccountId || 'cash-in-hand',
     Payment_Account_Name: paymentAccountName || 'Cash in Hand',
     Payment_Account_Type: paymentAccountType || 'cash',
@@ -950,10 +961,11 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
     direction: 'income',
     amount: receivedAmount,
     townName: item.Town_Name || townName,
-    date: new Date().toISOString().split('T')[0],
+    date: paymentDate,
     partyName: item.Customer_Name || '',
     description: `${item.Type || type} ${item.Plot_Shop_Number || plotShopNumber} collection received`,
     createdBy: item.Agent_Name || 'System',
+    receiptNumber,
     paymentAccountId: paymentRow.Payment_Account_ID,
     paymentAccountName: paymentRow.Payment_Account_Name,
     paymentAccountType: paymentRow.Payment_Account_Type,
