@@ -17,6 +17,7 @@ import AccountingReports from './AccountingReports';
 import AccountsDashboard from './AccountsDashboard';
 import MediaDashboard from './MediaDashboard';
 import CashBanksDashboard from './CashBanksDashboard';
+import PendingAppeals from './PendingAppeals';
 import DailyLedger from '../systems/DailySystem/DailyLedger';
 import TownExpenses from './TownExpenses';
 import { EmployeeSalary } from '../systems/ExpenseSystem';
@@ -36,6 +37,7 @@ const menuItems = [
   { key: 'overview',      Icon: ChartIcon,      label: 'Overview',               color: '#3b82f6' },
   { key: 'townMap',       Icon: PinIcon,        label: 'Property Board',         color: '#2563eb' },
   { key: 'dailyEntries',  Icon: BookIcon,       label: 'Daily Entries',          color: '#6366f1' },
+  { key: 'pendingAppeals', Icon: BookIcon,       label: 'Pending Appeals',        color: '#f59e0b' },
   { key: 'accounts',      Icon: BookIcon,       label: 'Accounts',               color: '#0f766e' },
   { key: 'remainings',    Icon: WalletIcon,     label: 'Remainings',             color: '#f59e0b' },
   { key: 'expenses',      Icon: DollarIcon,     label: 'Employees and Salaries', color: '#f43f5e' },
@@ -476,6 +478,7 @@ export default function TownDashboard({
       case 'investors': return <InvestorDashboard townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'construction': return <ConstructionDashboard townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'dailyEntries': return <DailyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} refreshKey={overviewRefreshKey} />;
+      case 'pendingAppeals': return <PendingAppeals townName={townData.Town_Name} showToast={showToast} />;
       default: return <TownOverview town={townData} refreshKey={overviewRefreshKey} />;
     }
   };
@@ -489,8 +492,8 @@ export default function TownDashboard({
       {/* ─── Top Bar ────────────────────────────────────────────────────── */}
       <div className="ui-town-topbar">
         {isAccountant ? (
-          <button className="ui-town-back-btn" onClick={onSwitchToSelling}>
-            Switch to Property Selling Section
+          <button className="ui-town-back-btn" onClick={() => setActiveTab('sellFlow')}>
+            Property Selling
           </button>
         ) : (
           <button className="ui-town-back-btn" onClick={onBack}>

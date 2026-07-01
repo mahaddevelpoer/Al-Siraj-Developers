@@ -265,6 +265,40 @@ function AppInner() {
   }, [ready, showToast]);
 
   useEffect(() => {
+    const scanLocalPendingAppeals = () => {
+      const now = Date.now();
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith('al_siraj_pending_appeals_'))
+        .forEach((key) => {
+          let items = [];
+          try { items = JSON.parse(localStorage.getItem(key) || '[]'); } catch { items = []; }
+          if (!Array.isArray(items) || !items.length) return;
+          let changed = false;
+          const next = [];
+          items.forEach((item) => {
+            const created = Date.parse(item.createdAt || 0) || now;
+            if (now - created > 24 * 60 * 60 * 1000) {
+              changed = true;
+              pushBell('Pending appeal expired', `${item.townName || 'Town'} ${item.type || 'appeal'} removed after 24 hours.`, 'warning');
+              return;
+            }
+            const nextReminder = Date.parse(item.nextReminderAt || 0) || 0;
+            if (nextReminder <= now) {
+              item.nextReminderAt = new Date(now + 2 * 60 * 60 * 1000).toISOString();
+              changed = true;
+              pushBell('Pending CEO approval', `${item.townName || 'Town'} has a local pending appeal waiting for approval.`, 'warning');
+            }
+            next.push(item);
+          });
+          if (changed) localStorage.setItem(key, JSON.stringify(next.slice(0, 200)));
+        });
+    };
+    scanLocalPendingAppeals();
+    const timer = setInterval(scanLocalPendingAppeals, 60_000);
+    return () => clearInterval(timer);
+  }, [pushBell]);
+
+  useEffect(() => {
     document.body.classList.remove('light-mode', 'dark-mode');
     document.body.classList.add(theme === 'dark' ? 'dark-mode' : 'light-mode');
     localStorage.setItem('zameen_theme', theme);
@@ -342,11 +376,11 @@ function AppInner() {
   }, [panel, page, selectedTown?.Town_Name]);
 
   useEffect(() => {
-    if (panel === 'employee' && page !== 'sellFlow') {
+    if (userRole !== 'accountant' && panel === 'employee' && page !== 'sellFlow') {
       localStorage.setItem('zameen_page', 'sellFlow');
       setPage('sellFlow');
     }
-  }, [panel, page]);
+  }, [panel, page, userRole]);
 
   useEffect(() => {
     if (!loggedIn) return;
@@ -355,9 +389,8 @@ function AppInner() {
     if (selectedTown?.Town_Name !== assignedAccountantTown) {
       setSelectedTown({ Town_Name: assignedAccountantTown });
     }
-    if (panel !== 'ceo' && panel !== 'employee') setPanel('ceo');
-    if (panel === 'employee' && page !== 'sellFlow') setPage('sellFlow');
-    if (panel === 'ceo' && page !== 'townDashboard') setPage('townDashboard');
+    if (panel !== 'ceo') setPanel('ceo');
+    if (page !== 'townDashboard') setPage('townDashboard');
   }, [loggedIn, userRole, assignedAccountantTown, selectedTown?.Town_Name, panel, page]);
 
 
@@ -843,6 +876,9 @@ function AppInner() {
           onSwitchToSelling={() => {
             if (userRole === 'accountant' && assignedAccountantTown) {
               setSelectedTown({ Town_Name: assignedAccountantTown });
+              setPanel('ceo');
+              setPage('townDashboard');
+              return;
             }
             setPanel('employee');
             setPage('sellFlow');
