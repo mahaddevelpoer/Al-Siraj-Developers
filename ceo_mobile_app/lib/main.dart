@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -28,7 +29,8 @@ final appNavigatorKey = GlobalKey<NavigatorState>();
 final selectedTabNotifier = ValueNotifier<int>(0);
 final liveRefreshNotifier = ValueNotifier<int>(0);
 final appStartedAt = DateTime.now();
-const startupSplashDuration = Duration(seconds: 3);
+const startupSplashDuration = Duration(milliseconds: 1400);
+const reviewListLimit = 60;
 Future<void>? _firebaseStartupFuture;
 
 @pragma('vm:entry-point')
@@ -389,19 +391,26 @@ class StartupSplashGate extends StatefulWidget {
 
 class _StartupSplashGateState extends State<StartupSplashGate> {
   bool _done = false;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    Timer(startupSplashDuration, () {
+    _timer = Timer(startupSplashDuration, () {
       if (mounted) setState(() => _done = true);
     });
   }
 
   @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 380),
+      duration: const Duration(milliseconds: 240),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       child: _done ? const AuthGate() : const StartupSplashScreen(),
@@ -421,33 +430,43 @@ class StartupSplashScreen extends StatelessWidget {
           const PremiumBackground(),
           SafeArea(
             child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Hero(
-                    tag: 'app-brand-mark',
-                    child: const AppBrandMark(size: 108),
-                  ),
-                  const SizedBox(height: 22),
-                  const Text(
-                    'AL SIRAJ DEVELOPERS',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: kText,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0,
+              child: RepaintBoundary(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Hero(
+                      tag: 'app-brand-mark',
+                      child: const AppBrandMark(size: 96),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'CEO command center',
-                    style: TextStyle(
-                      color: kMuted,
-                      fontWeight: FontWeight.w700,
+                    const SizedBox(height: 18),
+                    const Text(
+                      'AL SIRAJ DEVELOPERS',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: kText,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                    const Text(
+                      'CEO command center',
+                      style: TextStyle(
+                        color: kMuted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    const SizedBox(
+                      width: 112,
+                      child: LinearProgressIndicator(
+                        minHeight: 4,
+                        borderRadius: BorderRadius.all(Radius.circular(99)),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -540,7 +559,15 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _busy = false;
   String? _error;
 
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
   Future<void> _login() async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -576,6 +603,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
           const PremiumBackground(),
@@ -635,22 +663,21 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ],
                                 const SizedBox(height: 18),
-                                PressableScale(
-                                  onTap: _busy ? null : _login,
-                                  child: FilledButton.icon(
-                                    onPressed: _busy ? null : _login,
-                                    icon: _busy
-                                        ? const SizedBox.square(
-                                            dimension: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : const Icon(
-                                            Icons.arrow_forward_rounded,
+                                FilledButton.icon(
+                                  onPressed: _busy ? null : _login,
+                                  icon: _busy
+                                      ? const SizedBox.square(
+                                          dimension: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
                                           ),
-                                    label: const Text('Enter CEO App'),
+                                        )
+                                      : const Icon(
+                                          Icons.arrow_forward_rounded,
+                                        ),
+                                  label: Text(
+                                    _busy ? 'Checking CEO access...' : 'Enter CEO App',
                                   ),
                                 ),
                               ],
@@ -2888,13 +2915,12 @@ class AppealInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rd = row['requested_data'];
-    final data = rd is Map ? rd : const {};
-    final requester = row['requested_by_user_id'];
-    final user = requester is Map ? requester : const {};
+    final data = mapFromAny(row['requested_data']);
+    final user = mapFromAny(row['requested_by_user_id']);
     final amount = data['amount'] ?? data['Amount'] ?? row['amount'];
     final date = data['date'] ?? data['Date'] ?? row['created_at'];
     return InfoCard(
+      animate: false,
       icon: badgeForStatus('${row['status'] ?? 'pending'}'),
       status: '${row['status'] ?? 'pending'}',
       title: pretty(row['appeal_type']),
@@ -3038,20 +3064,23 @@ class _AppealsPageState extends State<AppealsPage> {
     );
   }
 
-  Future<List<Map<String, dynamic>>> _load() async {
+  Future<List<Map<String, dynamic>>> _load([String? filter]) async {
+    final activeFilter = filter ?? _filter;
     final data = await supabase
         .from('appeals')
         .select(
           '*, requested_by_user_id(full_name,email,agent_town,agent_towns)',
         )
         .not('appeal_type', 'eq', 'agent_registration')
-        .order('created_at', ascending: false);
+        .eq('status', activeFilter)
+        .order('created_at', ascending: false)
+        .limit(reviewListLimit);
     var rows = List<Map<String, dynamic>>.from(
       data,
     ).map((row) => {...row, 'status': normalizeStatus(row['status'])}).toList();
 
     rows = rows
-        .where((row) => row['status'] == _filter)
+        .where((row) => row['status'] == activeFilter)
         .toList();
     final seen = <String>{};
     return rows.where((row) => seen.add('${row['id']}')).toList();
@@ -3154,11 +3183,12 @@ class _AppealsPageState extends State<AppealsPage> {
                 options: const ['pending', 'approved', 'rejected'],
                 onChanged: (next) {
                   if (next == _filter) return;
+                  final future = _load(next);
                   setState(() {
                     _filter = next;
                     _items = null;
                     _error = null;
-                    _future = _load();
+                    _future = future;
                   });
                 },
               ),
@@ -3247,12 +3277,13 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
     );
   }
 
-  Future<List<Map<String, dynamic>>> _load() async {
+  Future<List<Map<String, dynamic>>> _load([String? filter]) async {
+    final activeFilter = filter ?? _filter;
     final query = supabase.from('daily_entries').select('*');
-    final data = await query.eq('review_status', _filter).limit(80);
+    final data = await query.eq('review_status', activeFilter).limit(reviewListLimit);
     final rows = List<Map<String, dynamic>>.from(data)
         .where(
-          (row) => reviewStatusOf(row) == _filter,
+          (row) => reviewStatusOf(row) == activeFilter,
         )
         .toList();
     rows.sort((a, b) {
@@ -3366,11 +3397,12 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
                 options: const ['pending', 'approved', 'rejected'],
                 onChanged: (next) {
                   if (next == _filter) return;
+                  final future = _load(next);
                   setState(() {
                     _filter = next;
                     _items = null;
                     _error = null;
-                    _future = _load();
+                    _future = future;
                   });
                 },
               ),
@@ -4401,6 +4433,7 @@ class InfoCard extends StatelessWidget {
     this.actions = const [],
     this.icon,
     this.status,
+    this.animate = true,
   });
   final String title;
   final String subtitle;
@@ -4409,10 +4442,11 @@ class InfoCard extends StatelessWidget {
   final List<Widget> actions;
   final Widget? icon;
   final String? status;
+  final bool animate;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final card = Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child:
           GlassCard(
@@ -4510,11 +4544,14 @@ class InfoCard extends StatelessWidget {
                     ],
                   ],
                 ),
-              )
-              .animate()
-              .fadeIn(duration: 360.ms)
-              .slideY(begin: .08, curve: Curves.easeOutCubic),
+              ),
     );
+    return animate
+        ? card
+            .animate()
+            .fadeIn(duration: 260.ms)
+            .slideY(begin: .04, curve: Curves.easeOutCubic)
+        : card;
   }
 }
 
@@ -5401,7 +5438,8 @@ String friendlyDbError(Object error) {
 
 String safeSummary(dynamic value) {
   if (value == null) return '';
-  if (value is Map) {
+  final normalized = mapFromAny(value);
+  if (normalized.isNotEmpty) {
     final safeKeys = [
       'townName',
       'Town_Name',
@@ -5415,8 +5453,8 @@ String safeSummary(dynamic value) {
     ];
     final parts = <String>[];
     for (final key in safeKeys) {
-      if (value[key] != null && '${value[key]}'.trim().isNotEmpty) {
-        parts.add('$key: ${value[key]}');
+      if (normalized[key] != null && '${normalized[key]}'.trim().isNotEmpty) {
+        parts.add('$key: ${normalized[key]}');
       }
     }
     return parts.take(5).join(' - ');
@@ -5424,11 +5462,24 @@ String safeSummary(dynamic value) {
   return '$value';
 }
 
+Map<String, dynamic> mapFromAny(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  if (value is List && value.isNotEmpty) return mapFromAny(value.first);
+  if (value is String && value.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(value);
+      return mapFromAny(decoded);
+    } catch (_) {
+      return const {};
+    }
+  }
+  return const {};
+}
+
 String appealTownName(Map<String, dynamic> appeal) {
-  final rd = appeal['requested_data'];
-  final data = rd is Map ? rd : const {};
-  final profile = appeal['requested_by_user_id'];
-  final user = profile is Map ? profile : const {};
+  final data = mapFromAny(appeal['requested_data']);
+  final user = mapFromAny(appeal['requested_by_user_id']);
   return '${data['townName'] ?? data['Town_Name'] ?? data['town_name'] ?? data['town'] ?? data['Town'] ?? appeal['town_name'] ?? user['agent_town'] ?? user['agent_towns'] ?? ''}'
       .trim();
 }
