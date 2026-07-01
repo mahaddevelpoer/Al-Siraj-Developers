@@ -7984,3 +7984,130 @@ select {
     gap: 2px;
   }
 }
+
+/* Dense-data reliability pass: every town can grow to hundreds of records without visual collapse. */
+.ui-town-content,
+.ui-town-tab-wrapper,
+.ui-town-map-card,
+.cash-banks-dashboard,
+.daily-ledger-page,
+.accounts-layout,
+.media-workspace {
+  overflow: visible;
+}
+
+.ui-town-tab-wrapper > *,
+.ui-town-map-card > *,
+.accounts-layout > *,
+.media-workspace > *,
+.property-board-main > * {
+  min-width: 0;
+}
+
+.ui-town-tab-wrapper table,
+.ui-town-map-card table,
+.daily-ledger-page table,
+.accounts-layout table,
+.media-workspace table,
+.cash-banks-dashboard table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.ui-town-tab-wrapper :where(.table-wrap, .table-container, .entries-table, .ledger-table),
+.ui-town-map-card :where(.table-wrap, .table-container, .entries-table, .ledger-table),
+.daily-ledger-page :where(.table-wrap, .table-container, .entries-table, .ledger-table),
+.accounts-layout :where(.table-wrap, .table-container, .entries-table, .ledger-table) {
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: thin;
+}
+
+.ui-town-tab-wrapper :where(input, select, textarea),
+.ui-town-map-card :where(input, select, textarea),
+.daily-ledger-page :where(input, select, textarea),
+.accounts-layout :where(input, select, textarea),
+.media-workspace :where(input, select, textarea) {
+  min-height: 38px;
+  color: #0f172a !important;
+  background: #fff !important;
+  border: 1px solid rgba(100, 116, 139, 0.28) !important;
+  border-radius: 11px !important;
+  box-shadow: none !important;
+}
+
+.ui-town-tab-wrapper :where(input, select, textarea):focus,
+.ui-town-map-card :where(input, select, textarea):focus,
+.daily-ledger-page :where(input, select, textarea):focus,
+.accounts-layout :where(input, select, textarea):focus,
+.media-workspace :where(input, select, textarea):focus {
+  border-color: rgba(37, 99, 235, 0.72) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12) !important;
+  outline: none !important;
+}
+
+.accounts-grid,
+.media-grid {
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.account-card,
+.media-card {
+  min-height: 74px !important;
+  padding: 11px !important;
+  border-radius: 14px !important;
+}
+
+.account-card strong,
+.media-card strong {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-detail-panel,
+.media-detail-panel,
+.property-detail-panel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.property-board-shell,
+.property-board-layout,
+.property-board-main,
+.property-board-canvas {
+  contain: layout paint;
+}
+
+.property-board-shell,
+.property-board-loading {
+  min-height: 420px !important;
+}
+
+.property-board-layout--hero,
+.property-board-main {
+  min-height: 460px !important;
+}
+
+.property-board-canvas {
+  min-height: 390px !important;
+}
+
+.property-board-grid {
+  grid-template-columns: repeat(auto-fill, minmax(clamp(42px, var(--property-tile-size, 78px), 88px), 1fr)) !important;
+}
+
+.property-tile.available {
+  background: rgba(95, 255, 24, 0.42) !important;
+  border-color: rgba(95, 255, 24, 0.84) !important;
+}
+
+.property-tile.sold {
+  background: rgba(143, 0, 12, 0.58) !important;
+  border-color: rgba(185, 28, 28, 0.86) !important;
+}

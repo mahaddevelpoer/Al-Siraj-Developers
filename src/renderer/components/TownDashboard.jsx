@@ -712,7 +712,7 @@ export default function TownDashboard({
 
           {/* Component container */}
           {activeTab === 'overview' ? (
-            <TownOverview key={overviewRefreshKey} town={townData} refreshKey={overviewRefreshKey} />
+            <TownOverview town={townData} refreshKey={overviewRefreshKey} />
           ) : (
             <div className="ui-town-tab-wrapper">
               {renderTabContent()}
