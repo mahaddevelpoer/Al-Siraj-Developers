@@ -413,29 +413,53 @@ async function backfillMoneyLedger() {
   }
 
   for (const c of collections || []) {
+    const sourceId = c.Payment_ID || `${c.Sale_ID}|${c.Payment_Date}|${c.Amount}`;
+    const receiptNumber = c.Receipt_Number || stableReceiptNumber({
+      sourceType: 'collection_payment',
+      sourceId,
+      direction: 'income',
+      date: c.Payment_Date || today(),
+    });
     await recordMoneyEvent({
       sourceType: 'collection_payment',
-      sourceId: c.Payment_ID || `${c.Sale_ID}|${c.Payment_Date}|${c.Amount}`,
+      sourceId,
       direction: 'income',
       amount: c.Amount,
       townName: c.Town_Name,
       date: c.Payment_Date,
       partyName: c.Customer_Name,
       description: `${c.Type || 'Property'} ${c.Plot_Shop_Number || ''} collection`,
+      receiptNumber,
     });
+  }
+
+  const installmentsPath = path.join(globals, 'Installments_Tracker.xlsx');
+  if (fs.existsSync(installmentsPath)) {
+    await ensureSheetColumns(installmentsPath, 'Data', ['Receipt_Number']);
   }
 
   for (const i of installments || []) {
     if (String(i.Status || '').toLowerCase() !== 'paid') continue;
+    const sourceId = i.Tracker_ID || `${i.Town_Name}|${i.Type}|${i.Plot_Shop_Number}|${i.Month_Number}`;
+    const receiptNumber = i.Receipt_Number || stableReceiptNumber({
+      sourceType: 'installment_payment',
+      sourceId,
+      direction: 'income',
+      date: i.Paid_Date || today(),
+    });
+    if (!i.Receipt_Number && i._rowNumber && fs.existsSync(installmentsPath)) {
+      await updateExcelRow(installmentsPath, 'Data', i._rowNumber, { Receipt_Number: receiptNumber });
+    }
     await recordMoneyEvent({
       sourceType: 'installment_payment',
-      sourceId: i.Tracker_ID,
+      sourceId,
       direction: 'income',
       amount: i.Received_Amount || i.Monthly_Amount,
       townName: i.Town_Name,
       date: i.Paid_Date,
       partyName: i.Customer_Name,
       description: `${i.Type || 'Property'} ${i.Plot_Shop_Number || ''} installment ${i.Month_Number || ''}`,
+      receiptNumber,
     });
   }
 
