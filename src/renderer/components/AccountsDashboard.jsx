@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 const today = () => new Date().toISOString().slice(0, 10);
+const lifetimeStart = '2000-01-01';
 const firstDay = () => {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
@@ -66,7 +67,11 @@ export default function AccountsDashboard({ townName, showToast }) {
       if (!townName || !window.api?.getTownLedgerReport) return;
       setLoading(true);
       try {
-        const res = await window.api.getTownLedgerReport({ townName, fromDate, toDate });
+        const res = await window.api.getTownLedgerReport({
+          townName,
+          fromDate: lifetimeStart,
+          toDate: today(),
+        });
         if (res?.error) throw new Error(res.error);
         const [agents, investors, constructors] = await Promise.all([
           window.api.getTownAgents?.(townName).catch(() => []),
@@ -87,7 +92,7 @@ export default function AccountsDashboard({ townName, showToast }) {
     }
     load();
     return () => { mounted = false; };
-  }, [fromDate, refreshTick, showToast, toDate, townName]);
+  }, [refreshTick, showToast, townName]);
 
   const accounts = useMemo(() => {
     const items = [];
@@ -204,11 +209,14 @@ export default function AccountsDashboard({ townName, showToast }) {
         <div>
           <div className="property-board-kicker">Accounts and ledgers</div>
           <h3>Town account cards</h3>
+          <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: 12 }}>
+            Cards show lifetime balances. Date range is only for report/PDF export.
+          </p>
         </div>
         <div className="accounts-actions">
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search account..." />
-          <input type="date" value={fromDate} max={toDate} onChange={(e) => setFromDate(e.target.value)} />
-          <input type="date" value={toDate} min={fromDate} onChange={(e) => setToDate(e.target.value)} />
+          <input title="Report from date" type="date" value={fromDate} max={toDate} onChange={(e) => setFromDate(e.target.value)} />
+          <input title="Report to date" type="date" value={toDate} min={fromDate} onChange={(e) => setToDate(e.target.value)} />
           <button className="btn btn-primary" type="button" onClick={exportReport}>Report PDF</button>
         </div>
       </div>
@@ -232,7 +240,7 @@ export default function AccountsDashboard({ townName, showToast }) {
               <b className={account.balance >= 0 ? 'positive' : 'negative'}>{money(account.balance)}</b>
             </button>
           ))}
-          {!loading && !filtered.length && <div className="property-board-empty">No accounts found for this range.</div>}
+          {!loading && !filtered.length && <div className="property-board-empty">No lifetime accounts found.</div>}
         </div>
 
         <aside className="account-detail-panel">
