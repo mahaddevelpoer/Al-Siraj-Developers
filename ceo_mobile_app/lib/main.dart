@@ -911,8 +911,10 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
     void scheduleLiveRefresh() {
       if (_liveRefreshTimer?.isActive == true) return;
       _liveRefreshTimer = Timer(const Duration(milliseconds: 250), () {
+        _badgeCountCache.clear();
+        _townPulsesCache.clear();
+        _presenceCache.clear();
         liveRefreshNotifier.value++;
-        if (mounted) setState(() {});
       });
     }
 
@@ -1282,6 +1284,7 @@ class PremiumScrollView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomScrollView(
+      cacheExtent: 900,
       physics: const AlwaysScrollableScrollPhysics(
         parent: BouncingScrollPhysics(),
       ),
@@ -1392,7 +1395,23 @@ Future<List<Map<String, dynamic>>> safeSelectRows(
   }
 }
 
-Future<int> loadNotificationBadgeCount() async {
+Future<List<Map<String, dynamic>>> resilientSelectRows(
+  Future<dynamic> Function() primary,
+  Future<dynamic> Function() fallback,
+) async {
+  try {
+    final data = await primary();
+    return List<Map<String, dynamic>>.from(data);
+  } catch (_) {
+    return safeSelectRows(fallback);
+  }
+}
+
+Future<int> loadNotificationBadgeCount({bool force = false}) {
+  return _badgeCountCache.get(_loadNotificationBadgeCountUncached, force: force);
+}
+
+Future<int> _loadNotificationBadgeCountUncached() async {
   final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
   final rows = await Future.wait<List<Map<String, dynamic>>>([
     safeSelectRows(
@@ -1549,29 +1568,59 @@ Future<List<CeoInboxItem>> loadCeoInboxItems() async {
   return items;
 }
 
-Future<List<TownPulse>> loadTownPulses() async {
+Future<List<TownPulse>> loadTownPulses({bool force = false}) {
+  return _townPulsesCache.get(_loadTownPulsesUncached, force: force);
+}
+
+Future<List<TownPulse>> _loadTownPulsesUncached() async {
   final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  final results = await Future.wait<dynamic>([
-    supabase.from('towns').select('*').order('town_name'),
-    supabase
-        .from('appeals')
-        .select('*, requested_by_user_id(full_name,email,town_name,town_id)')
-        .eq('status', 'pending'),
-    supabase.from('daily_entries').select('*'),
-    supabase.from('all_sales').select('*'),
-    supabase
-        .from('users')
-        .select('full_name,town_name,town_id,role')
-        .eq('role', 'accountant'),
+  final results = await Future.wait<List<Map<String, dynamic>>>([
+    resilientSelectRows(
+      () => supabase
+          .from('towns')
+          .select('town_name,status,deleted_at')
+          .order('town_name'),
+      () => supabase.from('towns').select('*').order('town_name'),
+    ),
+    resilientSelectRows(
+      () => supabase
+          .from('appeals')
+          .select(
+            'id,status,town_name,requested_data,requested_by_user_id(full_name,email,town_name,town_id)',
+          )
+          .eq('status', 'pending'),
+      () => supabase.from('appeals').select('*').eq('status', 'pending'),
+    ),
+    resilientSelectRows(
+      () => supabase
+          .from('daily_entries')
+          .select(
+            'id,entry_id,date,type,amount,town_name,review_status,created_at',
+          ),
+      () => supabase.from('daily_entries').select('*'),
+    ),
+    resilientSelectRows(
+      () => supabase
+          .from('all_sales')
+          .select(
+            'id,sale_id,type,plot_shop_number,town_name,customer_name,received_amount,advance_amount_pkr,remaining_amount,created_at',
+          ),
+      () => supabase.from('all_sales').select('*'),
+    ),
+    resilientSelectRows(
+      () => supabase
+          .from('users')
+          .select('full_name,town_name,town_id,role')
+          .eq('role', 'accountant'),
+      () => supabase.from('users').select('*').eq('role', 'accountant'),
+    ),
   ]);
 
-  final towns = List<Map<String, dynamic>>.from(
-    results[0],
-  ).where(isActiveTownRow).toList();
-  final appeals = List<Map<String, dynamic>>.from(results[1]);
-  final entries = List<Map<String, dynamic>>.from(results[2]);
-  final sales = List<Map<String, dynamic>>.from(results[3]);
-  final accountants = List<Map<String, dynamic>>.from(results[4]);
+  final towns = results[0].where(isActiveTownRow).toList();
+  final appeals = results[1];
+  final entries = results[2];
+  final sales = results[3];
+  final accountants = results[4];
 
   final names = <String>{
     ...towns.map((t) => '${rowVal(t, 'Town_Name')}'.trim()),
@@ -1638,7 +1687,11 @@ Future<List<TownPulse>> loadTownPulses() async {
   }).toList()..sort((a, b) => a.name.compareTo(b.name));
 }
 
-Future<List<OperatorPresence>> loadOperatorPresence() async {
+Future<List<OperatorPresence>> loadOperatorPresence({bool force = false}) {
+  return _presenceCache.get(_loadOperatorPresenceUncached, force: force);
+}
+
+Future<List<OperatorPresence>> _loadOperatorPresenceUncached() async {
   List<Map<String, dynamic>> rows;
   try {
     rows = List<Map<String, dynamic>>.from(
@@ -1717,14 +1770,13 @@ class _OverviewPageState extends State<OverviewPage> {
 
   void _handleLiveRefresh() {
     if (!mounted) return;
-    setState(() => _future = _load());
+    setState(() => _future = _load(force: true));
   }
 
-  Future<Map<String, dynamic>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 40));
+  Future<Map<String, dynamic>> _load({bool force = false}) async {
     final results = await Future.wait<dynamic>([
-      loadTownPulses(),
-      loadOperatorPresence(),
+      loadTownPulses(force: force),
+      loadOperatorPresence(force: force),
     ]);
     final towns = results[0] as List<TownPulse>;
     final operators = results[1] as List<OperatorPresence>;
@@ -1741,7 +1793,7 @@ class _OverviewPageState extends State<OverviewPage> {
   }
 
   Future<void> _refresh() async {
-    final next = _load();
+    final next = _load(force: true);
     setState(() => _future = next);
     await next;
   }
@@ -2273,7 +2325,7 @@ class _OnlinePresencePageState extends State<OnlinePresencePage> {
   }
 
   void _refresh() {
-    if (mounted) setState(() => _future = loadOperatorPresence());
+    if (mounted) setState(() => _future = loadOperatorPresence(force: true));
   }
 
   @override
@@ -2507,7 +2559,7 @@ class _TownsOverviewPageState extends State<TownsOverviewPage> {
   }
 
   Future<void> _refresh() async {
-    final next = loadTownPulses();
+    final next = loadTownPulses(force: true);
     setState(() => _future = next);
     await next;
   }
@@ -2693,7 +2745,6 @@ class ActivityPage extends StatelessWidget {
   const ActivityPage({super.key});
 
   Future<Map<String, List<Map<String, dynamic>>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 40));
     final sales = await supabase
         .from('all_sales')
         .select('*')
@@ -2788,10 +2839,36 @@ class _AppealsPageState extends State<AppealsPage> {
   void initState() {
     super.initState();
     _future = _load();
+    liveRefreshNotifier.addListener(_handleLiveRefresh);
+  }
+
+  @override
+  void dispose() {
+    liveRefreshNotifier.removeListener(_handleLiveRefresh);
+    super.dispose();
+  }
+
+  void _handleLiveRefresh() {
+    if (!mounted || _reviewing) return;
+    final next = _load();
+    setState(() {
+      _future = next;
+      _error = null;
+    });
+    unawaited(
+      next
+          .then((rows) {
+            if (mounted) setState(() => _items = rows);
+            return rows;
+          })
+          .catchError((e) {
+            if (mounted) setState(() => _error = friendlyDbError(e));
+            return <Map<String, dynamic>>[];
+          }),
+    );
   }
 
   Future<List<Map<String, dynamic>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 40));
     final data = await supabase
         .from('appeals')
         .select(
@@ -2848,6 +2925,9 @@ class _AppealsPageState extends State<AppealsPage> {
         'ceo_review_appeal',
         params: {'appeal_id': id, 'new_status': status},
       );
+      _badgeCountCache.clear();
+      _townPulsesCache.clear();
+      liveRefreshNotifier.value++;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2968,10 +3048,36 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   void initState() {
     super.initState();
     _future = _load();
+    liveRefreshNotifier.addListener(_handleLiveRefresh);
+  }
+
+  @override
+  void dispose() {
+    liveRefreshNotifier.removeListener(_handleLiveRefresh);
+    super.dispose();
+  }
+
+  void _handleLiveRefresh() {
+    if (!mounted || _reviewing) return;
+    final next = _load();
+    setState(() {
+      _future = next;
+      _error = null;
+    });
+    unawaited(
+      next
+          .then((rows) {
+            if (mounted) setState(() => _items = rows);
+            return rows;
+          })
+          .catchError((e) {
+            if (mounted) setState(() => _error = friendlyDbError(e));
+            return <Map<String, dynamic>>[];
+          }),
+    );
   }
 
   Future<List<Map<String, dynamic>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 40));
     final query = supabase.from('daily_entries').select('*');
     final data = await query.eq('review_status', _filter).limit(80);
     final rows = List<Map<String, dynamic>>.from(data)
@@ -3030,6 +3136,9 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
       } else {
         throw Exception('Entry id missing in cloud row');
       }
+      _badgeCountCache.clear();
+      _townPulsesCache.clear();
+      liveRefreshNotifier.value++;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -3155,7 +3264,6 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
   DateTime _date = DateTime.now();
 
   Future<List<LedgerReceipt>> _loadReceipts() async {
-    await Future<void>.delayed(const Duration(milliseconds: 40));
     final day = DateFormat('yyyy-MM-dd').format(_date);
     final results = await Future.wait<dynamic>([
       supabase
@@ -3556,7 +3664,6 @@ class TownsPage extends StatelessWidget {
   const TownsPage({super.key});
 
   Future<List<Map<String, dynamic>>> _load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 40));
     final data = await supabase.from('towns').select('*').order('town_name');
     return List<Map<String, dynamic>>.from(data).where(isActiveTownRow).toList();
   }
@@ -4509,19 +4616,22 @@ class AnimatedEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (index > 14) return RepaintBoundary(child: child);
     final delayIndex = index.clamp(0, 8).toInt();
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: Duration(milliseconds: 240 + (delayIndex * 26)),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) => Opacity(
-        opacity: value,
-        child: Transform.translate(
-          offset: Offset(0, 10 * (1 - value)),
-          child: child,
+    return RepaintBoundary(
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: Duration(milliseconds: 180 + (delayIndex * 18)),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, child) => Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 8 * (1 - value)),
+            child: child,
+          ),
         ),
+        child: child,
       ),
-      child: child,
     );
   }
 }
@@ -4755,8 +4865,18 @@ class CeoNotificationService {
   }
 
   static Future<bool> showFromRemoteMessage(RemoteMessage message) async {
-    if ('${message.data['table']}'.trim() != 'appeals') return false;
-    if ('${message.data['status'] ?? 'pending'}'.toLowerCase() != 'pending') {
+    final table = '${message.data['table'] ?? ''}'.trim();
+    final route = '${message.data['route'] ?? ''}'.trim();
+    final event =
+        '${message.data['event_type'] ?? message.data['event'] ?? ''}'.trim();
+    final isPendingAppeal =
+        table == 'appeals' &&
+        '${message.data['status'] ?? 'pending'}'.toLowerCase() == 'pending';
+    final isDailyLedger =
+        route == 'daily_report' ||
+        event == 'daily_ledger_report_ready' ||
+        table == 'daily_ledger_receipts';
+    if (!isPendingAppeal && !isDailyLedger) {
       return false;
     }
     if (!_isFreshMessage(message)) return false;
@@ -4775,8 +4895,8 @@ class CeoNotificationService {
         message.notification?.body ??
         message.data['body'] ??
         'Open CEO app for details';
-    final route = message.data['route'] ?? routeForTable(message.data['table']);
-    await show(title, body, payload: route);
+    final payload = route.isNotEmpty ? route : routeForTable(table);
+    await show(title, body, payload: payload);
     return true;
   }
 
@@ -4880,6 +5000,43 @@ num asNum(dynamic value) {
 }
 
 String pretty(dynamic value) => '${value ?? ''}'.replaceAll('_', ' ').trim();
+
+class TimedMemoryCache<T> {
+  TimedMemoryCache(this.ttl);
+  final Duration ttl;
+  T? _value;
+  DateTime? _time;
+  Future<T>? _inFlight;
+
+  bool get _fresh =>
+      _value != null &&
+      _time != null &&
+      DateTime.now().difference(_time!) < ttl;
+
+  Future<T> get(Future<T> Function() loader, {bool force = false}) {
+    if (!force && _fresh) return Future<T>.value(_value as T);
+    if (!force && _inFlight != null) return _inFlight!;
+    final future = loader().then((value) {
+      _value = value;
+      _time = DateTime.now();
+      return value;
+    }).whenComplete(() => _inFlight = null);
+    _inFlight = future;
+    return future;
+  }
+
+  void clear() {
+    _value = null;
+    _time = null;
+    _inFlight = null;
+  }
+}
+
+final _badgeCountCache = TimedMemoryCache<int>(const Duration(seconds: 8));
+final _townPulsesCache =
+    TimedMemoryCache<List<TownPulse>>(const Duration(seconds: 8));
+final _presenceCache =
+    TimedMemoryCache<List<OperatorPresence>>(const Duration(seconds: 6));
 
 String normalizeStatus(dynamic status) {
   final clean = '${status ?? 'pending'}'.trim().toLowerCase();
