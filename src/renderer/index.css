@@ -8111,3 +8111,106 @@ select {
   background: rgba(143, 0, 12, 0.58) !important;
   border-color: rgba(185, 28, 28, 0.86) !important;
 }
+
+/* CEO portfolio command center: built for 4+ towns and quick comparison. */
+.ui-topbar {
+  min-height: 64px;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.055) !important;
+}
+
+.ui-finance-hero {
+  border-radius: 18px !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.07) !important;
+}
+
+.ui-finance-hero-metrics {
+  min-width: min(100%, 620px);
+}
+
+.ui-finance-hero-metric {
+  min-width: 138px;
+}
+
+.ui-summary-row {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
+  gap: 12px !important;
+}
+
+.ui-summary-card {
+  min-height: 88px !important;
+  border-radius: 15px !important;
+  padding: 15px !important;
+}
+
+.ceo-town-grid {
+  grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)) !important;
+  gap: 14px !important;
+}
+
+.ceo-town-card,
+.ceo-town-card-add {
+  min-height: 194px !important;
+  padding: 17px !important;
+  border-radius: 16px !important;
+}
+
+.ceo-town-card .ui-card-header {
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ceo-town-card .ui-card-title {
+  max-width: 100%;
+  font-size: clamp(16px, 1.6vw, 20px) !important;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ceo-town-card .ui-badge-row {
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ceo-town-card-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 7px !important;
+}
+
+.ceo-town-card-stats div {
+  min-width: 0;
+  padding: 9px 6px !important;
+  border-radius: 11px !important;
+}
+
+.ceo-town-card-stats span,
+.ceo-town-card-stats strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ui-search-input {
+  min-height: 42px;
+  background: #fff !important;
+  border: 1px solid rgba(100, 116, 139, 0.25) !important;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.045) !important;
+}
+
+@media (max-width: 900px) {
+  .ui-finance-hero,
+  .ui-finance-hero-metrics {
+    grid-template-columns: 1fr !important;
+  }
+
+  .ui-finance-hero-divider {
+    display: none !important;
+  }
+
+  .ceo-town-grid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)) !important;
+  }
+}
