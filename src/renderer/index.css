@@ -7807,3 +7807,180 @@ select {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* Enterprise cockpit polish: dense ERP screens must read like a control room, not a stack of random cards. */
+.ui-town-body {
+  align-items: stretch !important;
+  gap: 18px !important;
+}
+
+.ui-town-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 72px;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06) !important;
+  backdrop-filter: blur(14px) saturate(145%);
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+}
+
+.ui-town-sidebar {
+  align-self: stretch;
+  max-height: calc(100dvh - 118px);
+  overflow: hidden auto;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06) !important;
+  scrollbar-width: thin;
+}
+
+.ui-town-sidebar-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ui-town-sidebar-group {
+  padding: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.74);
+}
+
+.ui-town-sidebar-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px 8px;
+}
+
+.ui-town-sidebar-group-title {
+  font-size: 10px;
+  font-weight: 900;
+  color: #0f172a;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ui-town-sidebar-group-hint {
+  min-width: 0;
+  font-size: 9px;
+  font-weight: 700;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ui-town-sidebar-item {
+  width: 100%;
+  min-height: 37px;
+  border-top: 0 !important;
+  border-right: 0 !important;
+  border-bottom: 0 !important;
+  border-radius: 11px !important;
+  text-align: left;
+  background-clip: padding-box;
+}
+
+.ui-town-sidebar-item.active {
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05), 0 8px 18px rgba(37, 99, 235, 0.08);
+}
+
+.ui-town-sidebar.collapsed .ui-town-sidebar-groups {
+  gap: 8px;
+}
+
+.ui-town-sidebar.collapsed .ui-town-sidebar-group {
+  padding: 6px 4px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.ui-town-sidebar.collapsed .ui-town-sidebar-group-head {
+  display: none;
+}
+
+.ui-town-content {
+  min-width: 0;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.05) !important;
+}
+
+.ui-town-content-header {
+  position: sticky;
+  top: 88px;
+  z-index: 12;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 16px;
+  padding: 12px 14px !important;
+  margin-bottom: 12px;
+}
+
+.ui-town-header-title {
+  line-height: 1.05 !important;
+}
+
+.ui-town-header-subtitle {
+  color: #64748b !important;
+}
+
+.ui-town-tab-wrapper,
+.ui-town-map-card,
+.media-workspace,
+.accounts-layout,
+.property-board-layout {
+  min-width: 0;
+}
+
+.ui-town-financial-strip,
+.ui-town-donut-grid,
+.media-grid,
+.accounts-grid {
+  align-items: stretch;
+}
+
+.ui-town-financial-item,
+.ui-town-donut-card,
+.ui-kpi-card-interactive {
+  border-radius: 14px !important;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.045) !important;
+}
+
+.ui-kpi-card-interactive:hover,
+.ui-town-financial-item:hover,
+.media-card:hover,
+.account-card:hover {
+  transform: translateY(-1px) !important;
+}
+
+@media (max-width: 1180px) {
+  .ui-town-body {
+    grid-template-columns: 1fr !important;
+  }
+
+  .ui-town-sidebar {
+    position: static !important;
+    max-height: none;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .ui-town-topbar,
+  .ui-town-content-header {
+    position: static;
+  }
+
+  .ui-town-sidebar-group-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+}

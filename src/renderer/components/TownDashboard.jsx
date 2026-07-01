@@ -58,6 +58,37 @@ const menuItems = [
   { key: 'cashBanks',     Icon: WalletIcon,     label: 'Cash & Banks',           color: '#0f766e' },
 ].map((item, index) => ({ ...item, displayLabel: `${index + 1}. ${item.label}` }));
 
+const menuGroups = [
+  {
+    title: 'Command',
+    hint: 'Daily control',
+    keys: ['overview', 'townMap', 'dailyEntries', 'pendingAppeals', 'cashBanks'],
+  },
+  {
+    title: 'Money',
+    hint: 'Ledgers and reports',
+    keys: ['accounts', 'remainings', 'expenses', 'installments', 'commission', 'accounting', 'media'],
+  },
+  {
+    title: 'Property',
+    hint: 'Sale lifecycle',
+    keys: ['sellFlow', 'sold', 'resell', 'resellHistory'],
+  },
+  {
+    title: 'People',
+    hint: 'Town parties',
+    keys: ['townAgents', 'investors', 'construction'],
+  },
+  {
+    title: 'Setup',
+    hint: 'Inventory and pricing',
+    keys: ['prices', 'addPlot', 'addShop'],
+  },
+].map((group) => ({
+  ...group,
+  items: group.keys.map((key) => menuItems.find((item) => item.key === key)).filter(Boolean),
+}));
+
 // ─── Reusable Components ────────────────────────────────────────────────────
 
 function KPICard({ Icon, label, value, sub, color, progressValue }) {
@@ -571,35 +602,46 @@ export default function TownDashboard({
 
           <div className="ui-town-sidebar-title">Navigation</div>
 
-          {menuItems.map(item => {
-            const isActive = activeTab === item.key;
-            const IconComp = item.Icon;
-            return (
-              <div
-                key={item.key}
-                className={`ui-town-sidebar-item${isActive ? ' active' : ''}`}
-                onClick={() => setActiveTab(item.key)}
-                style={{
-                  color: isActive ? item.color : 'var(--text-secondary)',
-                  background: isActive
-                    ? `linear-gradient(135deg, ${item.color}18, ${item.color}08)`
-                    : 'transparent',
-                  borderLeftColor: isActive
-                    ? item.color
-                    : 'transparent',
-                }}
-              >
-                <span style={{ display:'flex', alignItems:'center' }}><IconComp size={15}/></span>
-                <span className="ui-town-sidebar-label">{item.displayLabel || item.label}</span>
-                {isActive && (
-                  <div
-                    className="ui-town-sidebar-dot"
-                    style={{ background: item.color }}
-                  />
-                )}
+          <div className="ui-town-sidebar-groups">
+            {menuGroups.map((group) => (
+              <div className="ui-town-sidebar-group" key={group.title}>
+                <div className="ui-town-sidebar-group-head">
+                  <span className="ui-town-sidebar-group-title">{group.title}</span>
+                  <span className="ui-town-sidebar-group-hint">{group.hint}</span>
+                </div>
+                {group.items.map(item => {
+                  const isActive = activeTab === item.key;
+                  const IconComp = item.Icon;
+                  return (
+                    <button
+                      type="button"
+                      key={item.key}
+                      className={`ui-town-sidebar-item${isActive ? ' active' : ''}`}
+                      onClick={() => setActiveTab(item.key)}
+                      style={{
+                        color: isActive ? item.color : 'var(--text-secondary)',
+                        background: isActive
+                          ? `linear-gradient(135deg, ${item.color}18, ${item.color}08)`
+                          : 'transparent',
+                        borderLeftColor: isActive
+                          ? item.color
+                          : 'transparent',
+                      }}
+                    >
+                      <span style={{ display:'flex', alignItems:'center' }}><IconComp size={15}/></span>
+                      <span className="ui-town-sidebar-label">{item.displayLabel || item.label}</span>
+                      {isActive && (
+                        <div
+                          className="ui-town-sidebar-dot"
+                          style={{ background: item.color }}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-            );
-          })}
+            ))}
+          </div>
           {isAccountant && (
             <button
               type="button"
