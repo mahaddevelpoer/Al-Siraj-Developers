@@ -602,6 +602,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return Scaffold(
       resizeToAvoidBottomInset: true,
       body: Stack(
@@ -609,80 +610,20 @@ class _LoginScreenState extends State<LoginScreen> {
           const PremiumBackground(),
           SafeArea(
             child: CustomScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
-                const SliverToBoxAdapter(child: SizedBox(height: 10)),
                 SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: EdgeInsets.fromLTRB(20, 14, 20, 22 + bottomInset),
                   sliver: SliverList.list(
                     children: [
                       const LoginHeroCard(),
-                      GlassCard(
-                            padding: const EdgeInsets.all(18),
-                            child: Column(
-                              children: [
-                                TextField(
-                                  controller: _email,
-                                  keyboardType: TextInputType.emailAddress,
-                                  decoration: const InputDecoration(
-                                    labelText: 'CEO email',
-                                    prefixIcon: Icon(
-                                      Icons.mail_outline_rounded,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                TextField(
-                                  controller: _password,
-                                  obscureText: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Password',
-                                    prefixIcon: Icon(
-                                      Icons.lock_outline_rounded,
-                                    ),
-                                  ),
-                                ),
-                                if (_error != null) ...[
-                                  const SizedBox(height: 14),
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFFFEFF0),
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: const Color(0xFFFFCDD2),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      _error!,
-                                      style: const TextStyle(
-                                        color: Color(0xFFB91C1C),
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                                const SizedBox(height: 18),
-                                FilledButton.icon(
-                                  onPressed: _busy ? null : _login,
-                                  icon: _busy
-                                      ? const SizedBox.square(
-                                          dimension: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Icon(
-                                          Icons.arrow_forward_rounded,
-                                        ),
-                                  label: Text(
-                                    _busy ? 'Checking CEO access...' : 'Enter CEO App',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                      LoginFormCard(
+                        email: _email,
+                        password: _password,
+                        busy: _busy,
+                        error: _error,
+                        onSubmit: _login,
+                      ),
                       const SizedBox(height: 18),
                       const SecureNoticeCard(),
                     ],
@@ -702,56 +643,280 @@ class LoginHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 370;
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: kSurface,
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(color: kBorder),
-          boxShadow: [
-            BoxShadow(
-              color: kPrimary.withValues(alpha: .07),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
+      child: Hero(
+        tag: 'login-command-panel',
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(compact ? 18 : 22),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(32),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF172554), Color(0xFF2563EB)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF2563EB).withValues(alpha: .20),
+                  blurRadius: 30,
+                  offset: const Offset(0, 16),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Hero(
+                      tag: 'app-brand-mark',
+                      child: AppBrandMark(size: 58),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: .18),
+                        ),
+                      ),
+                      child: const Text(
+                        'CEO ONLY',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  'Approve decisions before money moves.',
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: compact ? 27 : 32,
+                    height: 1.02,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Town accountants, pending appeals, cash balance and nightly reports in one controlled app.',
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: .78),
+                    fontWeight: FontWeight.w700,
+                    height: 1.28,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: const [
+                    LoginTrustChip('Appeals'),
+                    LoginTrustChip('Reports'),
+                    LoginTrustChip('Balances'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class LoginTrustChip extends StatelessWidget {
+  const LoginTrustChip(this.label, {super.key});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class LoginFormCard extends StatelessWidget {
+  const LoginFormCard({
+    super.key,
+    required this.email,
+    required this.password,
+    required this.busy,
+    required this.error,
+    required this.onSubmit,
+  });
+
+  final TextEditingController email;
+  final TextEditingController password;
+  final bool busy;
+  final String? error;
+  final VoidCallback onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Secure sign in',
+            style: TextStyle(
+              color: kText,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'Only active CEO accounts can open this dashboard.',
+            style: TextStyle(color: kMuted, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 18),
+          TextField(
+            controller: email,
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+            autofillHints: const [AutofillHints.email],
+            decoration: const InputDecoration(
+              labelText: 'CEO email',
+              prefixIcon: Icon(Icons.alternate_email_rounded),
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: password,
+            obscureText: true,
+            textInputAction: TextInputAction.done,
+            autofillHints: const [AutofillHints.password],
+            onSubmitted: (_) {
+              if (!busy) onSubmit();
+            },
+            decoration: const InputDecoration(
+              labelText: 'Password',
+              prefixIcon: Icon(Icons.lock_outline_rounded),
+            ),
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFEFF0),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFFFCDD2)),
+              ),
+              child: Text(
+                error!,
+                style: const TextStyle(
+                  color: Color(0xFFB91C1C),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
           ],
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: busy ? null : onSubmit,
+            icon: busy
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.arrow_forward_rounded),
+            label: Text(busy ? 'Checking CEO access...' : 'Enter CEO App'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ReportsShortcutCard extends StatelessWidget {
+  const ReportsShortcutCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: GlassCard(
+        onTap: () => Navigator.of(context).push(
+          premiumRoute(
+            const DetailScaffold(
+              title: 'Reports',
+              child: DailyLedgerReceiptPage(),
+            ),
+          ),
         ),
         child: Row(
           children: [
-            const Hero(tag: 'app-brand-mark', child: AppBrandMark(size: 62)),
+            const GradientIconBox(
+              icon: Icons.summarize_rounded,
+              colors: [Color(0xFF2563EB), Color(0xFF7C3AED)],
+            ),
             const SizedBox(width: 14),
-            Expanded(
+            const Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   Text(
-                    'AL SIRAJ DEVELOPERS',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    'Reports',
                     style: TextStyle(
                       color: kText,
-                      fontSize: 20,
+                      fontSize: 17,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: 0,
                     ),
                   ),
-                  SizedBox(height: 6),
+                  SizedBox(height: 4),
                   Text(
-                    'CEO approvals, daily ledgers and town balances.',
+                    '8 PM daily ledger receipts, all towns and town-wise PDFs.',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: kMuted,
                       fontWeight: FontWeight.w700,
-                      height: 1.25,
                     ),
                   ),
                 ],
               ),
             ),
+            const Icon(Icons.chevron_right_rounded, color: kMuted),
           ],
         ),
       ),
@@ -2044,6 +2209,7 @@ class _OverviewPageState extends State<OverviewPage> {
                   widget.realtimeStatus,
                 ].where((e) => e.trim().isNotEmpty).toList(),
               ),
+              const ReportsShortcutCard(),
               OnlinePresencePreview(operators: operators),
               MetricGrid(
                 metrics: [
@@ -3069,12 +3235,13 @@ class _AppealsPageState extends State<AppealsPage> {
     final data = await supabase
         .from('appeals')
         .select(
-          '*, requested_by_user_id(full_name,email,agent_town,agent_towns)',
+          'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id,reason',
         )
         .not('appeal_type', 'eq', 'agent_registration')
         .eq('status', activeFilter)
         .order('created_at', ascending: false)
-        .limit(reviewListLimit);
+        .limit(reviewListLimit)
+        .timeout(const Duration(seconds: 8));
     var rows = List<Map<String, dynamic>>.from(
       data,
     ).map((row) => {...row, 'status': normalizeStatus(row['status'])}).toList();
@@ -3280,7 +3447,11 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   Future<List<Map<String, dynamic>>> _load([String? filter]) async {
     final activeFilter = filter ?? _filter;
     final query = supabase.from('daily_entries').select('*');
-    final data = await query.eq('review_status', activeFilter).limit(reviewListLimit);
+    final data = await query
+        .eq('review_status', activeFilter)
+        .order('created_at', ascending: false)
+        .limit(reviewListLimit)
+        .timeout(const Duration(seconds: 8));
     final rows = List<Map<String, dynamic>>.from(data)
         .where(
           (row) => reviewStatusOf(row) == activeFilter,
@@ -3968,14 +4139,14 @@ class MorePage extends StatelessWidget {
         },
       ),
       MoreItem(
-        'Daily ledger receipt',
-        'Today\'s full income and expense receipt.',
+        'Reports',
+        '8 PM daily ledger reports, grouped and town-wise receipts.',
         const VectorBadge(kind: BadgeKind.money),
         () {
           Navigator.of(context).push(
             premiumRoute(
               const DetailScaffold(
-                title: 'Daily ledger receipt',
+                title: 'Reports',
                 child: DailyLedgerReceiptPage(),
               ),
             ),
