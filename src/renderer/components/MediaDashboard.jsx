@@ -101,6 +101,10 @@ export default function MediaDashboard({ townName, showToast }) {
   };
 
   const types = ['all', ...Array.from(new Set([...rows, ...receiptRows].map((row) => String(row.Type || row.Receipt_Type || '').toLowerCase()).filter(Boolean)))];
+  const receiptTotal = useMemo(
+    () => receiptRows.reduce((sum, row) => sum + (Number(row.Amount) || 0), 0),
+    [receiptRows]
+  );
   const selectedPayload = useMemo(() => {
     if (!selectedReceipt) return {};
     try {
@@ -149,6 +153,29 @@ export default function MediaDashboard({ townName, showToast }) {
             {types.map((item) => <option key={item} value={item}>{item === 'all' ? 'All types' : item}</option>)}
           </select>
           <button className="btn btn-secondary" type="button" onClick={load}>Refresh</button>
+        </div>
+      </div>
+
+      <div className="media-control-strip">
+        <div>
+          <span>Saved Receipts</span>
+          <strong>{receiptRows.length.toLocaleString()}</strong>
+          <small>Every debit/credit evidence point</small>
+        </div>
+        <div>
+          <span>Receipt Amount</span>
+          <strong>PKR {receiptTotal.toLocaleString()}</strong>
+          <small>Archived transaction value</small>
+        </div>
+        <div>
+          <span>Reports / Files</span>
+          <strong>{rows.length.toLocaleString()}</strong>
+          <small>PDF, Excel and generated reports</small>
+        </div>
+        <div>
+          <span>Visible Now</span>
+          <strong>{filtered.length.toLocaleString()}</strong>
+          <small>After current filter/search</small>
         </div>
       </div>
 

@@ -178,6 +178,16 @@ export default function AccountsDashboard({ townName, showToast }) {
     return account.name.toLowerCase().includes(q) || account.type.toLowerCase().includes(q);
   });
   const selected = accounts.find((account) => account.id === selectedId) || filtered[0] || null;
+  const accountSummary = useMemo(() => {
+    return accounts.reduce((sum, account) => {
+      sum.received += Number(account.received) || 0;
+      sum.paid += Number(account.paid) || 0;
+      if ((Number(account.balance) || 0) >= 0) sum.receivable += Number(account.balance) || 0;
+      else sum.payable += Math.abs(Number(account.balance) || 0);
+      sum.types.add(account.type);
+      return sum;
+    }, { received: 0, paid: 0, receivable: 0, payable: 0, types: new Set() });
+  }, [accounts]);
 
   const exportReport = async () => {
     if (!window.api?.exportTownLedgerReport) return;
@@ -218,6 +228,29 @@ export default function AccountsDashboard({ townName, showToast }) {
           <input title="Report from date" type="date" value={fromDate} max={toDate} onChange={(e) => setFromDate(e.target.value)} />
           <input title="Report to date" type="date" value={toDate} min={fromDate} onChange={(e) => setToDate(e.target.value)} />
           <button className="btn btn-primary" type="button" onClick={exportReport}>Report PDF</button>
+        </div>
+      </div>
+
+      <div className="account-control-strip">
+        <div>
+          <span>Total Accounts</span>
+          <strong>{accounts.length.toLocaleString()}</strong>
+          <small>{accountSummary.types.size} account groups</small>
+        </div>
+        <div>
+          <span>Lifetime Received</span>
+          <strong className="positive">{money(accountSummary.received)}</strong>
+          <small>Customer/investor inflow</small>
+        </div>
+        <div>
+          <span>Lifetime Paid</span>
+          <strong className="negative">{money(accountSummary.paid)}</strong>
+          <small>Salary, commission, construction outflow</small>
+        </div>
+        <div>
+          <span>Receivable / Payable</span>
+          <strong>{money(accountSummary.receivable)} / {money(accountSummary.payable)}</strong>
+          <small>One rupee accountability view</small>
         </div>
       </div>
 

@@ -8166,6 +8166,58 @@ select {
   gap: 10px !important;
 }
 
+.account-control-strip,
+.media-control-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 12px 0 14px;
+}
+
+.account-control-strip > div,
+.media-control-strip > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.account-control-strip span,
+.media-control-strip span,
+.account-control-strip small,
+.media-control-strip small {
+  display: block;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.account-control-strip strong,
+.media-control-strip strong {
+  display: block;
+  margin: 5px 0;
+  color: #0f172a;
+  font-size: clamp(14px, 1.4vw, 18px);
+  line-height: 1.1;
+  font-weight: 950;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-control-strip strong.positive,
+.media-control-strip strong.positive {
+  color: #047857;
+}
+
+.account-control-strip strong.negative,
+.media-control-strip strong.negative {
+  color: #dc2626;
+}
+
 .account-card,
 .media-card {
   min-height: 74px !important;
