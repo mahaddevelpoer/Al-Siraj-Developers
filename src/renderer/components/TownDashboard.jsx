@@ -161,9 +161,64 @@ function SimpleDonut({ sold, total, color }) {
   );
 }
 
+function RupeeGuardPanel({ report, reportLoading, cashBalance, pendingReceivable, payable, onOpenAppeals, onOpenAccounts, onOpenMedia }) {
+  const guardItems = [
+    {
+      label: 'Approved-ledger cash',
+      value: fmtPkr(cashBalance),
+      tone: cashBalance >= 0 ? 'good' : 'risk',
+      detail: 'Cash balance rebuilds from approved money movement.',
+    },
+    {
+      label: 'Pending receivable',
+      value: reportLoading ? 'Loading...' : fmtPkr(pendingReceivable),
+      tone: pendingReceivable > 0 ? 'watch' : 'good',
+      detail: 'Advance-only and installment dues stay visible.',
+    },
+    {
+      label: 'Payable exposure',
+      value: reportLoading ? 'Loading...' : fmtPkr(payable),
+      tone: payable > 0 ? 'risk' : 'good',
+      detail: 'Salaries, commissions and parties remain traceable.',
+    },
+    {
+      label: 'Receipt archive',
+      value: report?.summary ? 'Active' : 'Ready',
+      tone: 'good',
+      detail: 'Every debit/credit must end with receipt evidence.',
+    },
+  ];
+
+  return (
+    <div className="rupee-guard-panel">
+      <div className="rupee-guard-head">
+        <div>
+          <div className="rupee-guard-kicker">Dilawar Khan loss-control layer</div>
+          <h3>1 rupee traceability guard</h3>
+          <p>Backdated changes need approval, pending items do not change cash, and every money movement is checked against ledger plus receipts.</p>
+        </div>
+        <div className="rupee-guard-actions">
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenAppeals}>Pending Appeals</button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenAccounts}>Accounts</button>
+          <button className="btn btn-primary btn-sm" type="button" onClick={onOpenMedia}>Receipts</button>
+        </div>
+      </div>
+      <div className="rupee-guard-grid">
+        {guardItems.map((item) => (
+          <div className={`rupee-guard-item ${item.tone}`} key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            <small>{item.detail}</small>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Overview Tab ───────────────────────────────────────────────────────────
 
-function TownOverview({ town, refreshKey = 0 }) {
+function TownOverview({ town, refreshKey = 0, onNavigate }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reportFrom, setReportFrom] = useState(firstDayOfMonth());
@@ -405,6 +460,17 @@ function TownOverview({ town, refreshKey = 0 }) {
         </div>
       </div>
 
+      <RupeeGuardPanel
+        report={report}
+        reportLoading={reportLoading}
+        cashBalance={cashBalance}
+        pendingReceivable={report?.summary?.receivable ?? s.performance?.pendingReceivables ?? 0}
+        payable={report?.summary?.payable ?? 0}
+        onOpenAppeals={() => onNavigate?.('pendingAppeals')}
+        onOpenAccounts={() => onNavigate?.('accounts')}
+        onOpenMedia={() => onNavigate?.('media')}
+      />
+
       <div className="ui-town-donut-grid">
         <div className="ui-town-donut-card">
           <div className="ui-town-donut-title">
@@ -488,7 +554,7 @@ export default function TownDashboard({
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'overview': return <TownOverview town={townData} refreshKey={overviewRefreshKey} />;
+      case 'overview': return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={setActiveTab} />;
       case 'townMap': return <TownMap townName={townData.Town_Name} showToast={showToast} readOnly={isAccountant} onNavigate={setActiveTab} />;
       case 'accounts': return <AccountsDashboard townName={townData.Town_Name} showToast={showToast} />;
       case 'media': return <MediaDashboard townName={townData.Town_Name} showToast={showToast} />;
@@ -510,7 +576,7 @@ export default function TownDashboard({
       case 'construction': return <ConstructionDashboard townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'dailyEntries': return <DailyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} refreshKey={overviewRefreshKey} />;
       case 'pendingAppeals': return <PendingAppeals townName={townData.Town_Name} showToast={showToast} />;
-      default: return <TownOverview town={townData} refreshKey={overviewRefreshKey} />;
+      default: return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={setActiveTab} />;
     }
   };
 
@@ -712,7 +778,7 @@ export default function TownDashboard({
 
           {/* Component container */}
           {activeTab === 'overview' ? (
-            <TownOverview town={townData} refreshKey={overviewRefreshKey} />
+            <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={setActiveTab} />
           ) : (
             <div className="ui-town-tab-wrapper">
               {renderTabContent()}
