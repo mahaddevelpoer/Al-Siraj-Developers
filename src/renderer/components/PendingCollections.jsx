@@ -155,7 +155,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="collections-summary-grid">
         <div className="kpi-item">
           <div className="kpi-label">Pending Collection</div>
           <div className="kpi-value" style={{ color: '#f59e0b' }}>PKR {remaining.toLocaleString()}</div>
@@ -173,7 +173,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 20 }}>
+      <div className="collections-category-grid">
         {['Advance-only Remaining', 'Installment Due', 'Overdue', 'Installment Upcoming'].map(label => (
           <div key={label} className="kpi-item" style={{ padding: 12 }}>
             <div className="kpi-label">{label}</div>
@@ -185,23 +185,22 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Loading...</div>
+        <div className="property-board-loading">Loading pending collections...</div>
       ) : collections.length === 0 ? (
         <div className="empty-state">
-          <div className="icon" style={{ fontSize: 36, marginBottom: 8 }}>{'\u2705'}</div>
           <h3>All caught up!</h3>
           <p>No pending collections. All sold properties are fully paid.</p>
         </div>
       ) : (
-        <div className="table-container">
+        <div className="table-container collections-table-card">
           <div className="table-header">
-            <h3>{'\u{1F4B0}'} Pending Collections ({collections.length})</h3>
+            <h3>Pending Collections ({collections.length})</h3>
             <button className="btn btn-ghost btn-sm" onClick={loadData} style={{ fontSize: 11 }}>
-              {'\u23F3'} Refresh
+              Refresh
             </button>
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
+          <div className="pending-collections-scroll">
+            <table className="data-table pending-collections-table">
               <thead>
                 <tr>
                   <th>Property</th>
@@ -235,7 +234,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
                       </td>
                       <td>
                         {c.Customer_Name}
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Agent: {c.Agent_Name}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Agent: {c.Agent_Name || '-'}</div>
                       </td>
                       <td>PKR {(parseFloat(c.Total_Amount_PKR) || 0).toLocaleString()}</td>
                       <td className="text-green">
@@ -265,14 +264,14 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <div className="row-actions pending-collection-actions">
                           <button
                             className="btn btn-success btn-sm"
                             onClick={() => openPayModal(c)}
                             disabled={isFullyPaid || isInstallmentSale}
                             style={{ fontSize: 10, padding: '4px 10px' }}
                           >
-                            {isInstallmentSale ? 'Use Installments' : isFullyPaid ? '\u2705' : '\u{1F4B0}'} Collect
+                            {isInstallmentSale ? 'Use Installments' : isFullyPaid ? 'Paid' : 'Collect'}
                           </button>
                           {isInstallmentSale && (
                             <button
@@ -289,7 +288,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
                               onClick={() => handleDeliver(c.id)}
                               style={{ fontSize: 10, padding: '4px 10px' }}
                             >
-                              {'\u{1F4C4}'} Deliver File
+                              Deliver File
                             </button>
                           )}
                           <button
@@ -298,7 +297,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
                             style={{ fontSize: 10, padding: '4px 8px' }}
                             title="Payment History"
                           >
-                            {'\u{1F4CA}'}
+                            History
                           </button>
                         </div>
                       </td>
@@ -322,10 +321,10 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
             maxWidth: 420, width: '100%',
           }}>
             <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>
-              {'\u{1F4B0}'} Collect Payment
+              Collect Payment
             </h3>
             <div style={{ fontSize: 13, marginBottom: 16, lineHeight: 1.6 }}>
-              <div><strong>Property:</strong> {payModal.Type} #{payModal.Plot_Shop_Number} — {payModal.Town_Name}</div>
+              <div><strong>Property:</strong> {payModal.Type} #{payModal.Plot_Shop_Number} - {payModal.Town_Name}</div>
               <div><strong>Customer:</strong> {payModal.Customer_Name}</div>
               <div><strong>Total:</strong> PKR {(parseFloat(payModal.Total_Amount_PKR) || 0).toLocaleString()}</div>
               <div><strong>Received So Far:</strong> PKR {(parseFloat(payModal.Received_Amount || payModal.Advance_Amount_PKR) || 0).toLocaleString()}</div>
@@ -386,7 +385,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
                 onClick={handlePay}
                 disabled={submitting}
               >
-                {submitting ? '\u23F3 Processing...' : '\u2705 Confirm Payment'}
+                {submitting ? 'Processing...' : 'Confirm Payment'}
               </button>
               <button className="btn btn-ghost" onClick={() => setPayModal(null)}>
                 Cancel
@@ -407,7 +406,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
             maxWidth: 500, width: '100%', maxHeight: '80vh', overflowY: 'auto',
           }}>
             <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>
-              {'\u{1F4CA}'} Payment History
+              Payment History
             </h3>
             {history.length === 0 ? (
               <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>No payments recorded yet</div>
@@ -442,3 +441,4 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const money = (value) => `PKR ${(Number(value) || 0).toLocaleString()}`;
 
@@ -61,10 +61,16 @@ export default function TownMap({ townName, showToast, variant = 'full', onNavig
   const [receipts, setReceipts] = useState([]);
   const [selectedKey, setSelectedKey] = useState('');
   const [filter, setFilter] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!townName) return;
-    setLoading(true);
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const [plots, shops, allSales, allInstallments, allResell, archive] = await Promise.all([
         window.api.getAllPlots?.(townName),
@@ -86,11 +92,33 @@ export default function TownMap({ townName, showToast, variant = 'full', onNavig
     } catch (error) {
       showToast?.(`Property board load failed: ${error.message}`, 'error');
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
   }, [showToast, townName]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    let timer;
+    const onDataChanged = (event) => {
+      const detail = event?.detail || {};
+      const events = Array.isArray(detail.events) ? detail.events : [];
+      const sameTown = !detail.townName || !townName || String(detail.townName) === String(townName);
+      if (!sameTown) return;
+      const boardEvents = ['property:changed', 'sale:changed', 'installment:changed', 'remaining:changed', 'receipt:created', 'media:changed'];
+      if (!events.length || events.some((name) => boardEvents.includes(name))) {
+        clearTimeout(timer);
+        timer = setTimeout(load, 450);
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', onDataChanged);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('al-siraj-business-data-changed', onDataChanged);
+    };
+  }, [load, townName]);
 
   const enriched = useMemo(() => {
     const saleMap = new Map();
@@ -145,7 +173,7 @@ export default function TownMap({ townName, showToast, variant = 'full', onNavig
     due: enriched.filter((i) => i.dueSoon || i.overdue).length,
   };
 
-  if (loading) {
+  if (loading && !properties.length) {
     return (
       <div className="property-board-shell">
         <div className="property-board-loading">Loading property board...</div>
@@ -155,6 +183,7 @@ export default function TownMap({ townName, showToast, variant = 'full', onNavig
 
   return (
     <div className={`property-board-layout ${variant === 'hero' ? 'property-board-layout--hero' : ''}`}>
+      {refreshing && <div className="property-board-refresh-pill">Updating board...</div>}
       <div className="property-board-main">
         <div className="property-board-toolbar">
           <div>

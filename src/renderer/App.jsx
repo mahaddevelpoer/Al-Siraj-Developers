@@ -141,6 +141,34 @@ function CloudRefreshStatus({ state }) {
   );
 }
 
+function playNotificationChime(type = 'info') {
+  try {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const context = new AudioContextCtor();
+    const now = context.currentTime;
+    const gain = context.createGain();
+    const main = context.createOscillator();
+    const overtone = context.createOscillator();
+    const base = type === 'error' ? 220 : type === 'warning' ? 330 : 523.25;
+    main.type = 'sine';
+    overtone.type = 'triangle';
+    main.frequency.setValueAtTime(base, now);
+    overtone.frequency.setValueAtTime(base * 1.5, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.11, now + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.34);
+    main.connect(gain);
+    overtone.connect(gain);
+    gain.connect(context.destination);
+    main.start(now);
+    overtone.start(now + 0.035);
+    main.stop(now + 0.34);
+    overtone.stop(now + 0.30);
+    setTimeout(() => context.close?.().catch?.(() => {}), 520);
+  } catch {}
+}
+
 function GlobalBellCenter({ items, open, onToggle, onClear, embedded = false }) {
   const unread = items.filter((item) => !item.read).length;
   return (
@@ -228,13 +256,7 @@ function AppInner() {
       read: false,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }, ...items].slice(0, 80));
-    if (type === 'error' || type === 'warning') {
-      try {
-        const audio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=');
-        audio.volume = 0.25;
-        audio.play().catch(() => {});
-      } catch {}
-    }
+    playNotificationChime(type);
   }, []);
 
   useEffect(() => {
@@ -462,7 +484,6 @@ function AppInner() {
       try {
         localStorage.setItem('al_siraj_last_business_change', JSON.stringify(change));
         window.dispatchEvent(new CustomEvent('al-siraj-business-data-changed', { detail: change }));
-        window.dispatchEvent(new CustomEvent('al-siraj-data-refreshed', { detail: change }));
       } catch {}
       const events = Array.isArray(change.events) ? change.events : [];
       if (events.includes('receipt:created') || events.includes('report:created')) {

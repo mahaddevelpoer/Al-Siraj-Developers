@@ -319,11 +319,11 @@ class CeoMobileApp extends StatelessWidget {
       builder: (context, child) {
         final media = MediaQuery.of(context);
         final maxScale = media.size.width < 360
-            ? 1.0
+            ? .96
             : media.size.width < 420
             ? 1.06
             : 1.14;
-        final scale = media.textScaler.scale(1).clamp(0.9, maxScale).toDouble();
+        final scale = media.textScaler.scale(1).clamp(0.86, maxScale).toDouble();
         return MediaQuery(
           data: media.copyWith(textScaler: TextScaler.linear(scale)),
           child: ResponsiveBreakpoints.builder(
@@ -4489,15 +4489,33 @@ class ErrorBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassCard(
       padding: const EdgeInsets.all(14),
-      child: Text(
-        error,
-        style: const TextStyle(
-          color: Color(0xFF991B1B),
-          fontWeight: FontWeight.w700,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 240),
+        child: SingleChildScrollView(
+          child: Text(
+            breakLongText(error),
+            softWrap: true,
+            overflow: TextOverflow.visible,
+            style: const TextStyle(
+              color: Color(0xFF991B1B),
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
         ),
       ),
     );
   }
+}
+
+String breakLongText(String value) {
+  return value
+      .replaceAll('/', '/\u200B')
+      .replaceAll('\\', '\\\u200B')
+      .replaceAll('.', '.\u200B')
+      .replaceAll('_', '_\u200B')
+      .replaceAll('-', '-\u200B')
+      .replaceAll(':', ':\u200B');
 }
 
 class Metric {
