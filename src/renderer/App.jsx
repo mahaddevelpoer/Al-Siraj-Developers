@@ -141,7 +141,88 @@ function CloudRefreshStatus({ state }) {
   );
 }
 
-function playNotificationChime(type = 'info') {
+const SFX_CACHE_KEY = 'al_siraj_sfx_cache_v1';
+const SFX_URLS_KEY = 'al_siraj_sfx_urls_v1';
+const DEFAULT_SFX_URLS = {
+  success: '',
+  error: '',
+  warning: '',
+  validation: '',
+  info: '',
+};
+
+function readJsonStorage(key, fallback) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readSfxUrls() {
+  const saved = readJsonStorage(SFX_URLS_KEY, {});
+  const fromWindow = window.AL_SIRAJ_SFX_URLS && typeof window.AL_SIRAJ_SFX_URLS === 'object'
+    ? window.AL_SIRAJ_SFX_URLS
+    : {};
+  return { ...DEFAULT_SFX_URLS, ...saved, ...fromWindow };
+}
+
+function bufferToDataUrl(buffer, mime = 'audio/mpeg') {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return `data:${mime};base64,${btoa(binary)}`;
+}
+
+async function primeRemoteSfxCache({ silent = true } = {}) {
+  if (!navigator.onLine || !window.fetch) return { success: false, skipped: true };
+  const urls = readSfxUrls();
+  const cache = readJsonStorage(SFX_CACHE_KEY, {});
+  let changed = false;
+  const results = [];
+
+  for (const [type, url] of Object.entries(urls)) {
+    const cleanUrl = String(url || '').trim();
+    if (!cleanUrl || cache[type]?.url === cleanUrl || !/^https?:\/\//i.test(cleanUrl)) continue;
+    try {
+      const response = await fetch(cleanUrl, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      if (!/^audio\//i.test(blob.type || 'audio/mpeg')) throw new Error('Not an audio file');
+      if (blob.size > 650_000) throw new Error('SFX file too large; keep under 650KB');
+      const dataUrl = bufferToDataUrl(await blob.arrayBuffer(), blob.type || 'audio/mpeg');
+      cache[type] = { url: cleanUrl, dataUrl, cachedAt: new Date().toISOString() };
+      changed = true;
+      results.push({ type, ok: true });
+    } catch (e) {
+      results.push({ type, ok: false, error: e.message });
+      if (!silent) throw e;
+    }
+  }
+
+  if (changed) localStorage.setItem(SFX_CACHE_KEY, JSON.stringify(cache));
+  return { success: true, changed, results };
+}
+
+function playCachedSfx(type) {
+  try {
+    const cache = readJsonStorage(SFX_CACHE_KEY, {});
+    const item = cache[type] || cache.info;
+    if (!item?.dataUrl) return false;
+    const audio = new Audio(item.dataUrl);
+    audio.volume = type === 'error' ? 0.62 : 0.50;
+    audio.play().catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function playSynthSfx(type = 'info') {
   try {
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextCtor) return;
@@ -193,6 +274,11 @@ function playNotificationChime(type = 'info') {
     });
     setTimeout(() => context.close?.().catch?.(() => {}), 760);
   } catch {}
+}
+
+function playNotificationChime(type = 'info') {
+  if (playCachedSfx(type)) return;
+  playSynthSfx(type);
 }
 
 function GlobalBellCenter({ items, open, onToggle, onClear, embedded = false }) {
@@ -315,6 +401,26 @@ function AppInner() {
     }, 7000);
     return () => clearTimeout(timer);
   }, [ready, showToast]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async (reason = 'startup') => {
+      const before = localStorage.getItem(SFX_CACHE_KEY) || '';
+      const result = await primeRemoteSfxCache();
+      if (cancelled || !result?.changed) return;
+      const after = localStorage.getItem(SFX_CACHE_KEY) || '';
+      if (after && after !== before) {
+        pushBell('Sound effects ready', `SFX downloaded for offline use (${reason}).`, 'success');
+      }
+    };
+    if (navigator.onLine) setTimeout(() => run('startup'), 1200);
+    const onOnline = () => run('online');
+    window.addEventListener('online', onOnline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('online', onOnline);
+    };
+  }, [pushBell]);
 
   useEffect(() => {
     const onInvalid = () => playNotificationChime('validation');
