@@ -3797,31 +3797,54 @@ class DailyLedgerReceiptPage extends StatefulWidget {
 class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
   DateTime _date = DateTime.now();
 
-  Future<List<LedgerReceipt>> _loadReceipts() async {
+  Future<List<Map<String, dynamic>>> _loadSavedReceiptMediaRows() async {
     final day = DateFormat('yyyy-MM-dd').format(_date);
-    final results = await Future.wait<dynamic>([
-      supabase
-          .from('daily_entries')
-          .select('*')
-          .order('created_at', ascending: false),
-      supabase.from('towns').select('*'),
-    ]);
-    var mediaRows = <Map<String, dynamic>>[];
     try {
       final media = await supabase
           .from('media_library')
           .select('*')
           .eq('type', 'daily_ledger_receipt')
           .eq('report_date', day)
-          .order('created_at', ascending: false);
-      mediaRows = List<Map<String, dynamic>>.from(media);
+          .order('created_at', ascending: false)
+          .timeout(const Duration(seconds: 5));
+      return List<Map<String, dynamic>>.from(media);
     } catch (_) {
-      mediaRows = <Map<String, dynamic>>[];
+      return const <Map<String, dynamic>>[];
     }
+  }
+
+  Future<List<LedgerReceipt>> _loadReceipts() async {
+    final day = DateFormat('yyyy-MM-dd').format(_date);
+    final results = await Future.wait<List<Map<String, dynamic>>>([
+      safeSelectRows(
+        () => supabase
+            .from('daily_entries')
+            .select('*')
+            .order('created_at', ascending: false)
+            .timeout(const Duration(seconds: 6)),
+      ),
+      safeSelectRows(
+        () => supabase
+            .from('towns')
+            .select('*')
+            .timeout(const Duration(seconds: 6)),
+      ),
+      _loadSavedReceiptMediaRows(),
+    ]).timeout(
+      const Duration(seconds: 8),
+      onTimeout: () => const [
+        <Map<String, dynamic>>[],
+        <Map<String, dynamic>>[],
+        <Map<String, dynamic>>[],
+      ],
+    );
     final data = results[0];
-    final activeTownNames = List<Map<String, dynamic>>.from(
-      results[1],
-    ).where(isActiveTownRow).map((town) => '${rowVal(town, 'Town_Name')}'.trim()).toSet();
+    final mediaRows = results[2];
+    final activeTownNames = results[1]
+        .where(isActiveTownRow)
+        .map((town) => '${rowVal(town, 'Town_Name')}'.trim())
+        .where((town) => town.isNotEmpty && town != 'null')
+        .toSet();
     final rows = List<Map<String, dynamic>>.from(
       data,
     ).where((row) {
@@ -3838,7 +3861,9 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
         .toSet();
     for (final media in mediaRows) {
       final town = '${media['town_name'] ?? media['Town_Name'] ?? ''}'.trim();
-      if (town.isNotEmpty && town != 'null') townSet.add(town);
+      if (town.isNotEmpty && town != 'null' && town.toLowerCase() != 'all towns') {
+        townSet.add(town);
+      }
     }
     final townNames = townSet.toList()..sort();
     final receipts = townNames.map((town) {
@@ -3913,6 +3938,27 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
                 onPressed: _pickDate,
                 icon: const Icon(Icons.calendar_month_rounded),
                 label: Text(shortDate.format(_date)),
+              ),
+              FutureBuilder<List<Map<String, dynamic>>>(
+                future: _loadSavedReceiptMediaRows(),
+                builder: (context, mediaSnap) {
+                  final mediaRows = mediaSnap.data ?? const <Map<String, dynamic>>[];
+                  if (mediaRows.isEmpty) return const SizedBox.shrink();
+                  final townRows = mediaRows
+                      .where((row) => '${row['town_name'] ?? rowVal(row, 'Town_Name') ?? ''}'.trim().toLowerCase() != 'all towns')
+                      .length;
+                  final summary = mediaRows.firstWhere(
+                    (row) => '${row['town_name'] ?? rowVal(row, 'Town_Name') ?? ''}'.trim().toLowerCase() == 'all towns',
+                    orElse: () => mediaRows.first,
+                  );
+                  return InfoCard(
+                    icon: const VectorBadge(kind: BadgeKind.money, size: 24),
+                    title: 'Saved receipt package',
+                    subtitle: '$townRows town receipt file(s) archived for this date.',
+                    meta: '${summary['report_date'] ?? rowVal(summary, 'Report_Date') ?? DateFormat('yyyy-MM-dd').format(_date)}',
+                    body: '${summary['title'] ?? rowVal(summary, 'Title') ?? 'Daily ledger receipts are ready.'}',
+                  );
+                },
               ),
               if (snap.hasError)
                 ErrorBlock(error: friendlyDbError(snap.error!)),

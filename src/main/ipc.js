@@ -61,6 +61,7 @@ function businessEventsForTable(tableName, operation = 'upsert') {
     properties: ['property:changed', 'property-board:changed'],
     all_sales: ['sale:changed', 'property:changed', 'remaining:changed', 'ledger:changed', 'summary:rebuild-required'],
     installments: ['installment:changed', 'remaining:changed', 'ledger:changed', 'summary:rebuild-required'],
+    collection_payments: ['collection:changed', 'remaining:changed', 'account:changed', 'receipt:created', 'ledger:changed', 'summary:rebuild-required'],
     daily_entries: ['daily-entry:changed', 'ledger:changed', 'summary:rebuild-required'],
     expenses: ['expense:changed', 'ledger:changed', 'summary:rebuild-required'],
     ceo_expenses: ['expense:changed', 'ledger:changed', 'summary:rebuild-required'],
@@ -80,6 +81,7 @@ function businessEventsForTable(tableName, operation = 'upsert') {
     media_library: ['media:changed', 'report:created'],
     appeals: ['approval:changed'],
     notifications: ['notification:changed'],
+    pending_sync: ['pending-sync:changed'],
     cash_bank_accounts: ['cash-bank:changed', 'account:changed', 'ledger:changed', 'summary:rebuild-required'],
     money_ledger: ['ledger:changed', 'summary:rebuild-required'],
     town_financial_summary: ['summary:rebuilt'],
@@ -209,6 +211,25 @@ function reportRowsInRange(rows = [], fromDate = '', toDate = '') {
   });
 }
 
+function accountReportAmount(row = {}) {
+  const candidates = [
+    row.amount,
+    row.Amount,
+    row.received,
+    row.credit,
+    row.paid,
+    row.debit,
+    row.cashDisbursed,
+    row.remaining,
+    row.balance,
+  ];
+  for (const value of candidates) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number !== 0) return number;
+  }
+  return 0;
+}
+
 function buildPropertyReceiptArchive(data = {}, mode = 'property_sale') {
   const type = data.type || data.Type || '';
   const number = data.number || data.Plot_Shop_Number || '';
@@ -260,11 +281,24 @@ function scheduleQueuedCloudSync(delayMs = 1500) {
       sendCloudUploadProgress(2, 'Checking pending local Excel changes...');
       await performFullSyncUp((percent, msg) => sendCloudUploadProgress(percent, msg));
       await pendingSync.markAllPendingSynced();
+      sendBusinessDataChanged({
+        tableName: 'pending_sync',
+        operation: 'update',
+        status: 'synced',
+        events: ['sync:success', 'pending-sync:changed'],
+      });
       sendCloudUploadProgress(100, 'Local Excel changes saved to database');
       sendCloudDataRefreshed({ source: 'queued-cloud-sync' });
       scheduleCloudDownload(900);
     } catch (e) {
       await pendingSync.markPendingAttemptFailed(e).catch(() => {});
+      sendBusinessDataChanged({
+        tableName: 'pending_sync',
+        operation: 'update',
+        status: 'sync-failed',
+        events: ['sync:failed', 'pending-sync:changed'],
+        error: e.message || 'Unknown',
+      });
       sendSyncWarning('Cloud database sync error: ' + (e.message || 'Unknown'));
     } finally {
       _cloudSyncInFlight = false;
@@ -338,6 +372,7 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
     .filter((town) => settings.selectedTownsMode !== 'selected' || selectedSet.has(String(town.Town_Name || '').trim()));
   const generated = [];
   const failed = [];
+  const mediaSyncFailures = [];
   const startedAt = new Date().toISOString();
   const sendProgress = (percent, msg) => {
     const payload = { percent, msg };
@@ -374,7 +409,7 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
         excelPath: exported.excelPath,
         summary: exported.report?.summary || {},
       });
-      await mediaLibrary.recordMediaItem({
+      const mediaRow = await mediaLibrary.recordMediaItem({
         townName,
         type: 'daily_ledger_receipt',
         title: `${townName} daily ledger receipt ${date}`,
@@ -385,15 +420,60 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
         fromDate: date,
         toDate: date,
       }).catch(() => {});
+      if (mediaRow) {
+        try {
+          await onlineDb.insert('media_library', mediaRow);
+        } catch (e) {
+          mediaSyncFailures.push({ townName, error: e.message || 'Media cloud sync failed' });
+          await pendingSync.addPendingSync({
+            operation: 'upsert',
+            tableName: 'media_library',
+            clientWriteId: mediaRow.Media_ID || `${townName}-${date}`,
+            payload: mediaRow,
+            error: e.message || '',
+          }).catch(() => {});
+        }
+      }
     } catch (e) {
       failed.push({ townName, error: e.message || 'Receipt generation failed' });
     }
   }
   const notificationId = `DAILY-${date.replace(/-/g, '')}`;
   const reportId = `daily-ledger-${date.replace(/-/g, '')}`;
+  const totals = generated.reduce((sum, item) => {
+    const summary = item.summary || {};
+    return {
+      income: sum.income + Number(summary.totalReceived || summary.income || 0),
+      expenses: sum.expenses + Number(summary.totalPaid || summary.expenses || 0),
+      pending: sum.pending + Number(summary.pendingReceivable || summary.pending || 0),
+    };
+  }, { income: 0, expenses: 0, pending: 0 });
+  try {
+    const groupMediaRow = await mediaLibrary.recordMediaItem({
+      townName: 'All Towns',
+      type: 'daily_ledger_receipt',
+      title: `All towns daily ledger receipts ${date} (${generated.length}/${townRows.length})`,
+      filePath: `daily-ledger-summary://${date}`,
+      receiptNumber: reportId,
+      reportDate: date,
+      fromDate: date,
+      toDate: date,
+      accountName: `Income ${totals.income} | Expenses ${totals.expenses} | Pending ${totals.pending}`,
+    });
+    await onlineDb.insert('media_library', groupMediaRow).catch(async (e) => {
+      mediaSyncFailures.push({ townName: 'All Towns', error: e.message || 'Group media cloud sync failed' });
+      await pendingSync.addPendingSync({
+        operation: 'upsert',
+        tableName: 'media_library',
+        clientWriteId: groupMediaRow.Media_ID || reportId,
+        payload: groupMediaRow,
+        error: e.message || '',
+      }).catch(() => {});
+    });
+  } catch (_) {}
   const message = failed.length
-    ? `${generated.length} town daily receipts ready. ${failed.map((f) => `${f.townName} not online/wake him`).join(', ')}`
-    : `${generated.length} town daily receipts ready for ${date}`;
+    ? `${generated.length}/${townRows.length} town receipts ready. ${failed.map((f) => `${f.townName} not online/wake him`).join(', ')}`
+    : `${generated.length}/${townRows.length} town receipts ready for ${date}`;
   const payload = {
     notificationId,
     eventType: 'daily_ledger_report_ready',
@@ -409,8 +489,10 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
     priority: failed.length ? 'high' : 'normal',
     readStatus: 'unread',
     deliveryStatus: failed.length ? 'partial' : 'ready',
+    totals,
     generated,
     failed,
+    mediaSyncFailures,
   };
   const notification = {
     Notification_ID: notificationId,
@@ -424,6 +506,27 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
     Status: 'Active',
     Dismissed: 'No',
   };
+  try {
+    const { appendToExcel, ensureSheetColumns, readExcelFile, updateExcelRow } = require('./db/core');
+    const notificationsPath = path.join(getGlobalsPath(), 'Notifications_Log.xlsx');
+    await ensureSheetColumns(notificationsPath, 'Data', ['Notification_ID','Type','Message','Plot_Shop_Number','Town_Name','Customer_Name','Due_Date','Created_Date','Status','Dismissed']);
+    const existingNotifications = await readExcelFile(notificationsPath, 'Data').catch(() => []);
+    const existing = existingNotifications.find((row) => String(row.Notification_ID || '') === notificationId);
+    if (existing?._rowNumber) {
+      await updateExcelRow(notificationsPath, 'Data', existing._rowNumber, notification);
+    } else {
+      await appendToExcel(notificationsPath, 'Data', notification);
+    }
+    sendBusinessDataChanged({
+      tableName: 'notifications',
+      operation: 'insert',
+      townName: 'All Towns',
+      status: 'local-saved',
+      events: ['notification:changed', 'media:changed', 'report:created'],
+    });
+  } catch (e) {
+    sendSyncWarning('Daily receipt local notification failed: ' + (e.message || 'Unknown'));
+  }
   let notificationSynced = false;
   try {
     await onlineDb.insert('notifications', notification);
@@ -443,9 +546,13 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
     lastGeneratedAt: startedAt,
     lastSyncedAt: notificationSynced ? new Date().toISOString() : settings.lastSyncedAt,
     lastNotificationAt: notificationSynced ? new Date().toISOString() : settings.lastNotificationAt,
-    lastStatus: failed.length ? `Partial: ${message}` : 'Ready and sent to CEO app route',
+    lastStatus: failed.length
+      ? `Partial: ${message}`
+      : mediaSyncFailures.length
+        ? `Ready locally; ${mediaSyncFailures.length} media cloud sync item(s) queued`
+        : 'Ready and sent to CEO app route',
     lastReportDate: date,
-    lastResult: { date, generated, failed, notificationId, reportId, notificationSynced },
+    lastResult: { date, generated, failed, mediaSyncFailures, totals, notificationId, reportId, notificationSynced },
   });
   sendProgress(100, 'Daily town receipts complete');
   return { success: true, date, generated, failed, notification, payload };
@@ -492,7 +599,10 @@ async function syncOnline(localFn, supabaseFn, options = {}) {
     operation,
     clientWriteId,
     townName: inferTownName(options.payload, localResult),
-    events: businessEventsForTable(tableName, operation),
+    events: Array.from(new Set([
+      ...businessEventsForTable(tableName, operation),
+      ...(Array.isArray(options.events) ? options.events : []),
+    ])),
   };
 
   sendBusinessDataChanged({ ...baseChange, status: 'local-saved' });
@@ -1079,7 +1189,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           }
           return localResult;
         },
-        { tableName: 'installments', operation: 'update', payload: data }
+        { tableName: 'installments', operation: 'update', payload: data, events: ['receipt:created', 'media:changed', 'account:changed'] }
       );
     } catch(e) { return { error: e.message }; }
   });
@@ -1261,6 +1371,42 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     }
   });
 
+  ipcMain.handle('unlock-local-accountant', async (_, { email, adminPassword } = {}) => {
+    try {
+      const profile = accountantAuth.unlock(dbPath, email, adminPassword);
+      storage.setSyncContext({
+        role: 'accountant',
+        userId: profile.id,
+        accountantTown: profile.town_name,
+      });
+      scheduleQueuedCloudSync(1000);
+      scheduleCloudDownload(1200);
+      startPeriodicCloudSync(120000);
+      startPeriodicCloudDownload(120000);
+      return { success: true, user: { id: profile.id, email: profile.email }, profile };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('cache-local-accountant', async (_, params = {}) => {
+    try {
+      const profile = accountantAuth.upsertAccountant(dbPath, {
+        id: params.id,
+        email: params.email,
+        password: params.password,
+        full_name: params.full_name || params.fullName,
+        town_name: params.town_name || params.townName || params.town_id,
+        town_id: params.town_id || params.town_name || params.townName,
+        admin_password: params.adminPassword || params.admin_password,
+        is_active: params.is_active !== false,
+      });
+      return { success: true, profile };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
   ipcMain.handle('get-local-accountants-file', async () => {
     try {
       const filePath = accountantAuth.ensureFile(dbPath);
@@ -1357,9 +1503,22 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       };
       const result = await performFullSyncUp(sendProgress);
       await pendingSync.markAllPendingSynced();
+      sendBusinessDataChanged({
+        tableName: 'pending_sync',
+        operation: 'update',
+        status: 'synced',
+        events: ['sync:success', 'pending-sync:changed'],
+      });
       return { success: true, ...result };
     } catch(e) {
       await pendingSync.markPendingAttemptFailed(e).catch(() => {});
+      sendBusinessDataChanged({
+        tableName: 'pending_sync',
+        operation: 'update',
+        status: 'sync-failed',
+        events: ['sync:failed', 'pending-sync:changed'],
+        error: e.message || 'Unknown',
+      });
       return { error: e.message };
     }
   });
@@ -1378,12 +1537,29 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
 
   ipcMain.handle('run-business-audit', async () => {
     try {
-      const rootPath = fs.existsSync(path.join(process.cwd(), 'Global')) ? process.cwd() : app.getAppPath();
-      const scriptPath = fs.existsSync(path.join(rootPath, 'scripts', 'audit-business-data.mjs'))
-        ? path.join(rootPath, 'scripts', 'audit-business-data.mjs')
+      const rootPath = dbPath;
+      const outputDir = path.join(app.getPath('userData'), 'Reports');
+      const scriptRoot = app.getAppPath();
+      const scriptPath = fs.existsSync(path.join(scriptRoot, 'scripts', 'audit-business-data.mjs'))
+        ? path.join(scriptRoot, 'scripts', 'audit-business-data.mjs')
         : path.join(process.cwd(), 'scripts', 'audit-business-data.mjs');
       const auditModule = await import(pathToFileURL(scriptPath).href);
-      const result = await auditModule.runBusinessAudit({ rootPath });
+      const result = await auditModule.runBusinessAudit({ rootPath, outputDir });
+      return result;
+    } catch(e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('run-handover-audit', async () => {
+    try {
+      const rootPath = app.getAppPath();
+      const outputDir = path.join(app.getPath('userData'), 'Reports');
+      const scriptPath = fs.existsSync(path.join(rootPath, 'scripts', 'audit-handover-stability.mjs'))
+        ? path.join(rootPath, 'scripts', 'audit-handover-stability.mjs')
+        : path.join(process.cwd(), 'scripts', 'audit-handover-stability.mjs');
+      const auditModule = await import(pathToFileURL(scriptPath).href);
+      const result = await auditModule.runHandoverStabilityAudit({ rootPath, outputDir });
       return result;
     } catch(e) {
       return { error: e.message };
@@ -1513,19 +1689,61 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!accountName) throw new Error('Account name is required');
       const fromDate = params.fromDate || '';
       const toDate = params.toDate || '';
-      const rows = reportRowsInRange(Array.isArray(account.rows) ? account.rows : [], fromDate, toDate);
-      const filteredReceived = rows.reduce((sum, row) => sum + (Number(row.received || row.credit || 0) || 0), 0);
-      const filteredPaid = rows.reduce((sum, row) => sum + (Number(row.paid || row.debit || row.cashDisbursed || 0) || 0), 0);
-      const displayReceived = rows.length ? filteredReceived : (Number(account.received) || 0);
-      const displayPaid = rows.length ? filteredPaid : (Number(account.paid) || 0);
-      const displayBalance = rows.length ? rows.reduce((sum, row) => sum + (Number(row.balance ?? row.remaining ?? row.amount ?? 0) || 0), 0) : (Number(account.balance) || 0);
+      const sourceRows = Array.isArray(account.rows) ? account.rows : [];
+      const rowsInRange = reportRowsInRange(sourceRows, fromDate, toDate);
+      const hasDateFilter = Boolean(fromDate || toDate);
+      const hasDatedSourceRows = sourceRows.some((row) => reportRowDate(row));
+      let rows = hasDateFilter && hasDatedSourceRows ? rowsInRange : sourceRows;
+      if (hasDateFilter && !hasDatedSourceRows) {
+        const rangedReport = await buildTownLedgerReport({ townName: town, fromDate, toDate });
+        const type = String(account.type || '').toLowerCase();
+        const nameKey = accountName.toLowerCase();
+        const label = (row) => String(row || '').trim().toLowerCase();
+        if (type.includes('customer')) {
+          const row = (rangedReport.customerLedgers || []).find((item) =>
+            label(`${item.customer || item.Customer_Name || 'Customer'} - ${item.property || item.Plot_Shop_Number || ''}`) === nameKey
+          );
+          rows = row ? [row] : [];
+        } else if (type.includes('employee')) {
+          const row = (rangedReport.employeeLedgers || []).find((item) => label(item.name) === nameKey);
+          rows = row ? [row] : [];
+        } else if (type.includes('agent')) {
+          const row = (rangedReport.agentLedgers || []).find((item) => label(item.name) === nameKey);
+          rows = row ? [row] : [];
+        } else if (type.includes('investor')) {
+          const row = (rangedReport.investorLedgers || []).find((item) => label(item.name || item.Investor_Name) === nameKey);
+          rows = row ? [row] : [];
+        } else if (type.includes('constructor')) {
+          const row = (rangedReport.constructorLedgers || rangedReport.constructionLedgers || []).find((item) => label(item.name || item.Constructor_Name) === nameKey);
+          rows = row ? [row] : [];
+        }
+      }
+      const totalBy = (keys) => rows.reduce((sum, row) => {
+        for (const key of keys) {
+          const value = Number(row?.[key]);
+          if (Number.isFinite(value) && value !== 0) return sum + value;
+        }
+        return sum;
+      }, 0);
+      const accountType = String(account.type || '').toLowerCase();
+      const displayReceived = accountType.includes('customer') || accountType.includes('investor')
+        ? totalBy(['received', 'credit', 'Amount', 'amount'])
+        : (hasDateFilter ? 0 : Number(account.received) || 0);
+      const displayPaid = accountType.includes('employee') || accountType.includes('agent') || accountType.includes('constructor')
+        ? totalBy(['cashDisbursed', 'paid', 'debit', 'Amount', 'amount'])
+        : accountType.includes('investor')
+          ? totalBy(['debit', 'paid'])
+          : (hasDateFilter ? 0 : Number(account.paid) || 0);
+      const displayBalance = rows.length
+        ? totalBy(['balance', 'remaining']) || (displayReceived - displayPaid)
+        : 0;
       const reportsDir = path.join(getGlobalsPath(), 'Reports', reportSafePart(town), 'Accounts');
       fs.mkdirSync(reportsDir, { recursive: true });
       const base = `${reportSafePart(accountName)}_${fromDate || 'from'}_${toDate || 'to'}_${Date.now()}`;
       const htmlPath = path.join(reportsDir, `${base}.html`);
       const rowsHtml = rows.length ? rows.map((row) => {
         const label = row.date || row.Date || row.property || row.name || account.type || '';
-        const amount = row.amount || row.received || row.paid || row.remaining || 0;
+        const amount = accountReportAmount(row);
         const note = row.description || row.receiptNumber || row.receipt_number || row.property || '';
         return `<tr><td>${reportEscape(label)}</td><td>${reportEscape(note)}</td><td>${reportMoney(amount)}</td></tr>`;
       }).join('') : '<tr><td colspan="3">No ledger rows in this range</td></tr>';
@@ -1594,9 +1812,64 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       const htmlPath = path.join(reportsDir, `${reportSafePart(receiptNumber)}_${Date.now()}.html`);
       let payload = {};
       try { payload = JSON.parse(receipt.Payload_JSON || '{}'); } catch (_) {}
-      const payloadRows = Object.entries(payload || {}).map(([key, value]) =>
-        `<tr><td>${reportEscape(key)}</td><td>${reportEscape(typeof value === 'object' ? JSON.stringify(value) : value)}</td></tr>`
-      ).join('');
+      const labelMap = {
+        paymentAccountName: 'Payment Account',
+        direction: 'Direction',
+        debitAccount: 'Debit Account',
+        creditAccount: 'Credit Account',
+        partyName: 'Party',
+        customerName: 'Customer',
+        investorName: 'Investor',
+        constructorName: 'Constructor',
+        propertyType: 'Property Type',
+        propertyNumber: 'Property Number',
+        installmentNumber: 'Installment No',
+        totalInstallments: 'Total Installments',
+        dueDate: 'Due Date',
+        totalAmount: 'Total Amount',
+        advanceAmount: 'Advance',
+        remainingAmount: 'Remaining',
+        balanceAfter: 'Balance After',
+        category: 'Category',
+        materialName: 'Material',
+        materialQuantity: 'Quantity',
+        materialRate: 'Rate',
+        description: 'Description',
+        note: 'Note',
+        notes: 'Notes',
+        sourceId: 'Source ID',
+      };
+      const orderedKeys = [
+        'paymentAccountName', 'direction', 'debitAccount', 'creditAccount',
+        'partyName', 'customerName', 'investorName', 'constructorName',
+        'propertyType', 'propertyNumber', 'installmentNumber', 'totalInstallments', 'dueDate',
+        'totalAmount', 'advanceAmount', 'remainingAmount', 'balanceAfter',
+        'category', 'materialName', 'materialQuantity', 'materialRate',
+        'description', 'note', 'notes', 'sourceId',
+      ];
+      const seenPayloadKeys = new Set();
+      const renderValue = (key, value) => {
+        if (value === undefined || value === null || String(value).trim() === '') return '';
+        const moneyLike = /amount|balance|rate/i.test(key) && !Number.isNaN(Number(value));
+        if (moneyLike) return reportMoney(value);
+        return reportEscape(typeof value === 'object' ? JSON.stringify(value) : value);
+      };
+      const payloadRowFor = (key) => {
+        if (!Object.prototype.hasOwnProperty.call(payload || {}, key)) return '';
+        const rendered = renderValue(key, payload[key]);
+        if (!rendered) return '';
+        seenPayloadKeys.add(key);
+        return `<tr><td>${reportEscape(labelMap[key] || key)}</td><td>${rendered}</td></tr>`;
+      };
+      const payloadRows = [
+        ...orderedKeys.map(payloadRowFor),
+        ...Object.entries(payload || {})
+          .filter(([key]) => !seenPayloadKeys.has(key))
+          .map(([key, value]) => {
+            const rendered = renderValue(key, value);
+            return rendered ? `<tr><td>${reportEscape(labelMap[key] || key)}</td><td>${rendered}</td></tr>` : '';
+          }),
+      ].join('');
       const html = `<!doctype html><html><head><meta charset="utf-8"><title>${reportEscape(receiptNumber)}</title><style>
 body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h1{margin:0 0 4px;font-size:24px}.meta{color:#64748b;margin-bottom:18px}.box{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:14px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #e5e7eb;padding:8px 0}.row span{color:#64748b}.row b{color:#111827}table{width:100%;border-collapse:collapse;background:#fff;margin-top:12px}td,th{border:1px solid #e5e7eb;padding:8px;font-size:12px;text-align:left}th{background:#eff6ff}.sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:46px}.sig{border-top:1px solid #111827;padding-top:8px;text-align:center;font-weight:bold}@media print{body{background:#fff;margin:12mm}}</style></head><body>
 <h1>AL SIRAJ DEVELOPERS - Receipt</h1>
@@ -1653,6 +1926,15 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
     try {
       assertObjectPayload(params, 'addDailyEntry payload');
       if (isAccountantScoped()) params.townName = scopedTown(params.townName || params.Town_Name, true);
+      if (isAccountantScoped()) {
+        const entryDate = String(params.date || params.Date || '').slice(0, 10);
+        const today = new Date().toISOString().slice(0, 10);
+        const reviewStatus = String(params.reviewStatus || params.Review_Status || '').toLowerCase();
+        const approvedSource = String(params.approvalId || params.Approval_ID || params.appealId || '').trim();
+        if (entryDate && entryDate !== today && reviewStatus !== 'approved' && !approvedSource) {
+          throw new Error('Date change requires CEO approval. The entry was not saved to balances.');
+        }
+      }
       return await syncOnline(
         () => addDailyEntry(params),
         (localRow) => onlineDb.addDailyEntry(localRow),
@@ -1833,32 +2115,6 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
     } catch(e) { return { error: e.message }; }
   });
 
-  // ─── Salary Increase Appeal ────────────────────────────────────────────────
-  ipcMain.handle('submitSalaryIncreaseAppeal', async (_, { employeeName, employeeId, currentSalary, proposedSalary, reason, townName, requestedByUserId }) => {
-    try {
-      const allowedTown = scopedTown(townName, true);
-      const supabase = require('./db/supabase');
-      const { data, error } = await supabase.from('appeals').insert([{
-        appeal_type: 'salary_increase',
-        status: 'pending',
-        reason,
-        town_name: allowedTown,
-        requested_data: {
-          employeeName,
-          employeeId,
-          townName: allowedTown,
-          currentSalary,
-          proposedSalary,
-        },
-        requested_by_user_id: requestedByUserId || null,
-        created_at: new Date().toISOString(),
-      }]).select().single();
-      if (error) throw error;
-      return { success: true, id: data?.id };
-    } catch(e) { return { error: e.message }; }
-  });
-
-  // ─── Delete Employee and Appeal ───────────────────────────────────────────
   ipcMain.handle('deleteEmployeeV2', async (_, { employeeId, townName }) => {
     try {
       assertPermanentDeleteAllowed();
@@ -1869,33 +2125,6 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         () => onlineDb.updateWhere('employees_v2', { Employee_ID: String(employeeId) }, { Status: 'Deleted' }),
         { tableName: 'employees_v2', operation: 'delete', payload: { Employee_ID: employeeId, Town_Name: townName, Status: 'Deleted' }, clientWriteId: `employee-v2-delete-${employeeId}` }
       );
-    } catch (e) { return { error: e.message }; }
-  });
-
-  ipcMain.handle('submitDeleteEmployeeAppeal', async (_, { employeeId, employeeName, designation, townName, requestedByUserId, otpCode }) => {
-    try {
-      const allowedTown = scopedTown(townName, true);
-      const supabase = require('./db/supabase');
-      const { data, error } = await supabase.from('appeals').insert([{
-        appeal_type: 'delete_employee',
-        entity_type: 'employee',
-        entity_id: String(employeeId),
-        status: 'pending',
-        reason: `Delete employee: ${employeeName} (${designation || 'Employee'})`,
-        town_name: allowedTown,
-        requested_data: {
-          employeeId,
-          employeeName,
-          designation,
-          townName: allowedTown,
-        },
-        requested_by_user_id: requestedByUserId || null,
-        requested_by_role: 'accountant',
-        otp_code: otpCode || null,
-        created_at: new Date().toISOString(),
-      }]).select().single();
-      if (error) throw error;
-      return { success: true, id: data?.id };
     } catch (e) { return { error: e.message }; }
   });
 
@@ -2443,6 +2672,31 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       );
     }
     catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('save-daily-receipt-archive', async (_, data = {}) => {
+    try {
+      assertObjectPayload(data, 'daily receipt archive payload');
+      const town = scopedTown(data.Town_Name || data.townName, isAccountantScoped());
+      const receiptDate = data.Receipt_Date || data.date || new Date().toISOString().slice(0, 10);
+      const receiptType = data.Receipt_Type || data.receiptType || 'daily_receipt';
+      const mode = data.mode || 'full';
+      const receiptNumber = data.Receipt_Number || data.receiptNumber ||
+        `DAY-${String(town || 'GLOBAL').replace(/[^a-zA-Z0-9]+/g, '').toUpperCase() || 'GLOBAL'}-${mode.toUpperCase()}-${String(receiptDate).replace(/-/g, '')}`;
+      const payload = {
+        ...data,
+        Receipt_Number: receiptNumber,
+        Receipt_Type: receiptType,
+        Town_Name: town || data.townName || '',
+        Receipt_Date: receiptDate,
+      };
+      const result = await syncOnline(
+        () => businessExtras.saveReceiptArchive(payload),
+        (localRow) => onlineDb.insert('receipt_archive', localRow),
+        { tableName: 'receipt_archive', operation: 'upsert', payload, clientWriteId: `receipt-archive-${receiptNumber}`, events: ['receipt:created', 'media:changed', 'report:created'] }
+      );
+      return result;
+    } catch (e) { return { error: e.message }; }
   });
 
   ipcMain.handle('get-construction-projects', async (_, townName) => {
@@ -2998,15 +3252,27 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
               String(i.Town_Name) === String(r.Town_Name);
           });
           const unpaid = sameInst.filter(i => String(i.Status || '').toLowerCase() !== 'paid');
+          const totalAmount = parseFloat(r.Total_Amount_PKR) || 0;
+          const advanceAmount = parseFloat(r.Advance_Amount_PKR) || 0;
+          const paidInstallments = sameInst
+            .filter(i => String(i.Status || '').toLowerCase() === 'paid')
+            .reduce((sum, i) => sum + (parseFloat(i.Received_Amount || i.Monthly_Amount) || 0), 0);
+          const isInstallmentSale = sameInst.length > 0 || (parseInt(r.Total_Installments, 10) || 0) > 0;
+          const receivedAmount = isInstallmentSale
+            ? Math.min(totalAmount || advanceAmount + paidInstallments, advanceAmount + paidInstallments)
+            : (parseFloat(r.Received_Amount || r.Advance_Amount_PKR) || 0);
+          const liveRemaining = totalAmount > 0
+            ? Math.max(0, totalAmount - receivedAmount)
+            : (parseFloat(r.Remaining_Amount) || 0);
           const overdue = unpaid.some(i => String(i.Due_Date || '') && String(i.Due_Date) < today);
           const due = unpaid.some(i => String(i.Status || '').toLowerCase() === 'due');
-          const remaining = parseFloat(r.Remaining_Amount) || 0;
+          const remaining = liveRemaining;
           let category = 'Fully Paid';
           if (remaining > 0 && sameInst.length === 0) category = 'Advance-only Remaining';
           else if (remaining > 0 && overdue) category = 'Overdue';
           else if (remaining > 0 && due) category = 'Installment Due';
           else if (remaining > 0) category = 'Installment Upcoming';
-          return { ...r, Collection_Category: category, Unpaid_Installments: unpaid.length };
+          return { ...r, Received_Amount: receivedAmount, Remaining_Amount: remaining, Collection_Category: category, Unpaid_Installments: unpaid.length };
         })
         .filter((r) => (parseFloat(r.Remaining_Amount) || 0) > 0)
         .filter((r) => {
