@@ -3485,7 +3485,7 @@ class _AppealsPageState extends State<AppealsPage> {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
-        final currentError = snap.hasError ? friendlyDbError(snap.error) : _error;
+        final currentError = snap.hasError ? friendlyDbError(snap.error!) : _error;
         if (snap.connectionState == ConnectionState.done &&
             snap.hasData &&
             _items == null) {
