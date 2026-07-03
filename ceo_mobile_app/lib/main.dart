@@ -19,6 +19,7 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import 'approval_helpers.dart';
 import 'app_performance.dart';
 
 const supabaseUrl = 'https://wdislbdftnwmaexqtfmn.supabase.co';
@@ -3313,25 +3314,59 @@ class _AppealsPageState extends State<AppealsPage> {
 
   Future<List<Map<String, dynamic>>> _load([String? filter]) async {
     final activeFilter = filter ?? _filter;
-    final data = await supabase
-        .from('appeals')
-        .select(
-          'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id,reason',
-        )
-        .not('appeal_type', 'eq', 'agent_registration')
-        .eq('status', activeFilter)
-        .order('created_at', ascending: false)
-        .limit(reviewListLimit)
-        .timeout(const Duration(seconds: 8));
-    var rows = List<Map<String, dynamic>>.from(
-      data,
-    ).map((row) => {...row, 'status': normalizeStatus(row['status'])}).toList();
+    final results = await Future.wait<List<Map<String, dynamic>>>([
+      safeSelectRows(
+        () => supabase
+            .from('appeals')
+            .select(
+              'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id,reason',
+            )
+            .not('appeal_type', 'eq', 'agent_registration')
+            .eq('status', activeFilter)
+            .order('created_at', ascending: false)
+            .limit(reviewListLimit)
+            .timeout(const Duration(seconds: 8)),
+      ),
+      safeSelectRows(
+        () => supabase
+            .from('daily_entries')
+            .select('*')
+            .eq('review_status', activeFilter)
+            .order('created_at', ascending: false)
+            .limit(reviewListLimit)
+            .timeout(const Duration(seconds: 8)),
+      ),
+    ]);
+    var rows = [
+      ...results[0].map(
+        (row) => {
+          ...normalizeAppealReviewRow(row),
+          'status': normalizeStatus(row['status']),
+        },
+      ),
+      ...results[1].map(
+        (row) => {
+          ...normalizeDailyEntryReviewRow(row),
+          'status': reviewStatusOf(row),
+        },
+      ),
+    ];
 
     rows = rows
         .where((row) => row['status'] == activeFilter)
         .toList();
     final seen = <String>{};
-    return rows.where((row) => seen.add('${row['id']}')).toList();
+    rows.sort((a, b) {
+      final aDate = parseAnyDate(a['created_at'] ?? rowVal(a, 'Date')) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = parseAnyDate(b['created_at'] ?? rowVal(b, 'Date')) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bDate.compareTo(aDate);
+    });
+    return rows.where((row) {
+      final prefix = isDailyReviewItem(row) ? 'entry' : 'appeal';
+      return seen.add('$prefix-${row['id'] ?? row['entry_id'] ?? rowVal(row, 'Entry_ID')}');
+    }).toList();
   }
 
   Future<void> _refresh() async {
@@ -3401,6 +3436,68 @@ class _AppealsPageState extends State<AppealsPage> {
     }
   }
 
+  Future<void> _reviewRow(Map<String, dynamic> row, String status) async {
+    if (isDailyReviewItem(row)) {
+      await _reviewDailyEntryRow(row, status);
+      return;
+    }
+    await _review('${row['id']}', status);
+  }
+
+  Future<void> _reviewDailyEntryRow(Map<String, dynamic> row, String status) async {
+    setState(() => _reviewing = true);
+    try {
+      dynamic result;
+      final uuid = row['id'] ?? row['uuid'];
+      final entryId = rowVal(row, 'Entry_ID') ?? row['entry_id'];
+      if (uuid != null && '$uuid'.trim().isNotEmpty) {
+        result = await supabase.rpc(
+          'ceo_review_daily_entry',
+          params: {'entry_uuid': uuid, 'new_status': status},
+        );
+      } else if (entryId != null && '$entryId'.trim().isNotEmpty) {
+        await supabase
+            .from('daily_entries')
+            .update({
+              'review_status': status,
+              'reviewed_at': DateTime.now().toIso8601String(),
+            })
+            .eq('entry_id', '$entryId');
+        result = {'message': 'updated'};
+      } else {
+        throw Exception('Entry id missing in cloud row');
+      }
+      _badgeCountCache.clear();
+      _townPulsesCache.clear();
+      liveRefreshNotifier.value++;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Entry $status: ${result?['message'] ?? 'done'}'),
+          ),
+        );
+        setState(
+          () => _items = (_items ?? [])
+              .where((item) =>
+                  !(isDailyReviewItem(item) &&
+                      dailyEntryStableKey(item) == dailyEntryStableKey(row)))
+              .toList(),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Entry review failed: ${friendlyDbError(e)}'),
+            backgroundColor: const Color(0xFFB91C1C),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _reviewing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -3453,14 +3550,14 @@ class _AppealsPageState extends State<AppealsPage> {
                         OutlinedButton.icon(
                           onPressed: _reviewing
                               ? null
-                              : () => _review(rows[i]['id'], 'rejected'),
+                              : () => _reviewRow(rows[i], 'rejected'),
                           icon: const Icon(Icons.close),
                           label: const Text('Reject'),
                         ),
                         FilledButton.icon(
                           onPressed: _reviewing
                               ? null
-                              : () => _review(rows[i]['id'], 'approved'),
+                              : () => _reviewRow(rows[i], 'approved'),
                           icon: const Icon(Icons.check),
                           label: const Text('Approve'),
                         ),
