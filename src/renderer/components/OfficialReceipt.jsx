@@ -106,13 +106,13 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                   title="Thermal Receipt (80mm wide)"
                 >Thermal</button>
               </div>
-              <button className="btn btn-primary" onClick={handlePrint}>&#x1F5A8;&#xFE0F; Print</button>
+              <button className="btn btn-primary" onClick={handlePrint}>Print</button>
               <button className="btn btn-ghost" onClick={onClose}><CrossIcon size={16} /></button>
             </div>
           </div>
 
           <div style={{ background: 'white', padding: 15, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-            <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 13, color: '#64748b' }}>&#x1F4CB; RECEIPT HEADER SETUP</div>
+            <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 13, color: '#64748b' }}>Receipt Header Setup</div>
             <div style={{ display: 'flex', gap: 20 }}>
                <div style={{ width: 120 }}>
                   <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: '#94a3b8', marginBottom: 5 }}>LOGO</label>
@@ -395,7 +395,7 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                     <span style={{ borderBottom: '1px solid black', display: 'inline-block', minWidth: 220, marginLeft: 4, padding: '0 6px' }}></span>
                   </span>
                   <span style={{ textAlign: 'right' }}>
-                    {lang === 'en' ? 'Contact:' : 'رابطہ:'} Dilawar Khan | 0300-3082555
+                    {lang === 'en' ? 'Contact:' : 'رابطہ:'} Administration
                   </span>
                 </div>
               </div>

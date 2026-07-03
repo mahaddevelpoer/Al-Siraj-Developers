@@ -193,7 +193,7 @@ function RupeeGuardPanel({ report, reportLoading, cashBalance, pendingReceivable
     <div className="rupee-guard-panel">
       <div className="rupee-guard-head">
         <div>
-          <div className="rupee-guard-kicker">Dilawar Khan loss-control layer</div>
+          <div className="rupee-guard-kicker">Business loss-control layer</div>
           <h3>1 rupee traceability guard</h3>
           <p>Backdated changes need approval, pending items do not change cash, and every money movement is checked against ledger plus receipts.</p>
         </div>
@@ -594,7 +594,7 @@ export default function TownDashboard({
           </button>
         ) : (
           <button className="ui-town-back-btn" onClick={onBack}>
-          ← Portfolio
+          Portfolio
           </button>
         )}
 
@@ -613,7 +613,7 @@ export default function TownDashboard({
 
         <div className="ui-town-topbar-badges">
           {notificationBell}
-          <span className="ui-town-topbar-badge active">● Active</span>
+          <span className="ui-town-topbar-badge active">Active</span>
           <span className="ui-town-topbar-badge commission" style={{ display:'flex', alignItems:'center', gap:4 }}>
             <HandshakeIcon size={12}/> {townData.Commission_Rate || 0}% Commission
           </span>
@@ -751,7 +751,7 @@ export default function TownDashboard({
                   {activeMenuItem?.label}
                 </h2>
                 <div className="ui-town-header-subtitle" style={{ display:'flex', alignItems:'center', gap:4 }}>
-                  <NeighborhoodIcon size={12}/> {townData.Town_Name} — scoped to this town only
+                  <NeighborhoodIcon size={12}/> {townData.Town_Name} - scoped to this town only
                 </div>
               </div>
             </div>

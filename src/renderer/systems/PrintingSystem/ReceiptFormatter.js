@@ -166,7 +166,7 @@ export function generateDirectorSignature(lang) {
         <span style="border-bottom: 1px solid black; display: inline-block; min-width: 140px; margin-left: 4px; padding: 0 6px;"></span>
       </span>
       <span style="text-align: right;">
-        ${lang === 'ur' ? 'رابطہ:' : 'Contact:'} Dilawar Khan | 0300-3082555
+        ${lang === 'ur' ? 'رابطہ:' : 'Contact:'} Administration
       </span>
     </div>
   `;
