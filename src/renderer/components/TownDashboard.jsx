@@ -529,7 +529,7 @@ export default function TownDashboard({
   const [activeTab, setActiveTab] = useState('overview');
   const [townData, setTownData] = useState(selectedTown || {});
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   // Sync when selectedTown changes
   useEffect(() => {
@@ -588,6 +588,18 @@ export default function TownDashboard({
 
       {/* ─── Top Bar ────────────────────────────────────────────────────── */}
       <div className="ui-town-topbar">
+        <button
+          type="button"
+          className={`ui-town-burger-btn ${sidebarCollapsed ? '' : 'active'}`}
+          onClick={() => setSidebarCollapsed((value) => !value)}
+          title={sidebarCollapsed ? 'Open navigation' : 'Hide navigation'}
+          aria-label={sidebarCollapsed ? 'Open navigation' : 'Hide navigation'}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+
         {isAccountant ? (
           <button className="ui-town-back-btn" onClick={() => setActiveTab('sellFlow')}>
             Property Selling
@@ -634,14 +646,14 @@ export default function TownDashboard({
       <div className="ui-town-body">
 
         {/* ─── Left Sidebar ────────────────────────────────────────────── */}
-        <div className={`ui-town-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+        <div className={`ui-town-sidebar ${sidebarCollapsed ? 'hidden' : 'open'}`}>
           <button
             type="button"
             className="ui-town-sidebar-collapse"
-            onClick={() => setSidebarCollapsed((value) => !value)}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={() => setSidebarCollapsed(true)}
+            title="Hide navigation"
           >
-            {sidebarCollapsed ? '>' : '<'}
+            ×
           </button>
           {/* Town mini-stats */}
           <div className="ui-town-sidebar-stats">
@@ -683,7 +695,10 @@ export default function TownDashboard({
                       type="button"
                       key={item.key}
                       className={`ui-town-sidebar-item${isActive ? ' active' : ''}`}
-                      onClick={() => setActiveTab(item.key)}
+                      onClick={() => {
+                        setActiveTab(item.key);
+                        setSidebarCollapsed(true);
+                      }}
                       style={{
                         color: isActive ? item.color : 'var(--text-secondary)',
                         background: isActive
