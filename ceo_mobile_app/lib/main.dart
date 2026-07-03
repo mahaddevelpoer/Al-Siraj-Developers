@@ -7,7 +7,6 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
@@ -23,6 +22,7 @@ import 'package:printing/printing.dart';
 import 'approval_helpers.dart';
 import 'approval_service.dart';
 import 'app_performance.dart';
+import 'widgets/brand_widgets.dart';
 
 const supabaseUrl = 'https://wdislbdftnwmaexqtfmn.supabase.co';
 const _fullAnonKey =
@@ -35,7 +35,7 @@ final selectedTabNotifier = ValueNotifier<int>(0);
 final liveRefreshNotifier = ValueNotifier<int>(0);
 final appStartedAt = DateTime.now();
 const startupSplashDuration = Duration(milliseconds: 900);
-const reviewListLimit = 60;
+const reviewListLimit = 40;
 Future<void>? _firebaseStartupFuture;
 
 @pragma('vm:entry-point')
@@ -497,138 +497,6 @@ class _StartupSplashGateState extends State<StartupSplashGate> {
       child: _done ? const AuthGate() : const StartupSplashScreen(),
     );
   }
-}
-
-class StartupSplashScreen extends StatelessWidget {
-  const StartupSplashScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          const PremiumBackground(),
-          SafeArea(
-            child: Center(
-              child: RepaintBoundary(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Hero(
-                      tag: 'app-logo',
-                      child: SvgPicture.asset(
-                        'assets/logo.svg',
-                        width: 104,
-                        height: 104,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    const Text(
-                      'AL SIRAJ DEVELOPERS',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: kText,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'CEO command center',
-                      style: TextStyle(
-                        color: kMuted,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    const SizedBox(
-                      width: 112,
-                      child: LinearProgressIndicator(
-                        minHeight: 4,
-                        borderRadius: BorderRadius.all(Radius.circular(99)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class AppBrandMark extends StatelessWidget {
-  const AppBrandMark({super.key, this.size = 64});
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: const Color(0xFF0F172A),
-          borderRadius: BorderRadius.circular(size * .22),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF0F172A).withValues(alpha: .18),
-              blurRadius: size * .22,
-              offset: Offset(0, size * .10),
-            ),
-          ],
-        ),
-        child: CustomPaint(painter: AppBrandMarkPainter()),
-      ),
-    );
-  }
-}
-
-class AppBrandMarkPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-    final teal = Paint()..color = const Color(0xFF14B8A6);
-    final white = Paint()..color = Colors.white;
-    final blue = Paint()..color = const Color(0xFF60A5FA);
-    final whiteSoft = Paint()..color = Colors.white.withValues(alpha: .85);
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * .18, h * .72, w * .64, h * .075),
-        Radius.circular(w * .012),
-      ),
-      teal,
-    );
-    canvas.drawRect(Rect.fromLTWH(w * .26, h * .44, w * .11, h * .24), white);
-    canvas.drawRect(Rect.fromLTWH(w * .45, h * .32, w * .11, h * .36), white);
-    canvas.drawRect(Rect.fromLTWH(w * .64, h * .38, w * .11, h * .30), white);
-
-    final roof = Path()
-      ..moveTo(w * .20, h * .42)
-      ..lineTo(w * .50, h * .20)
-      ..lineTo(w * .80, h * .42)
-      ..lineTo(w * .75, h * .50)
-      ..lineTo(w * .50, h * .33)
-      ..lineTo(w * .25, h * .50)
-      ..close();
-    canvas.drawPath(roof, blue);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * .29, h * .83, w * .42, h * .04),
-        Radius.circular(w * .01),
-      ),
-      whiteSoft,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class LoginScreen extends StatefulWidget {
