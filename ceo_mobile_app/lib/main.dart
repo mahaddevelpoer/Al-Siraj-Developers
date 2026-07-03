@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
@@ -514,7 +515,14 @@ class StartupSplashScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const AppBrandMark(size: 96),
+                    Hero(
+                      tag: 'app-logo',
+                      child: SvgPicture.asset(
+                        'assets/logo.svg',
+                        width: 104,
+                        height: 104,
+                      ),
+                    ),
                     const SizedBox(height: 18),
                     const Text(
                       'AL SIRAJ DEVELOPERS',
@@ -3337,6 +3345,9 @@ class _AppealsPageState extends State<AppealsPage> {
       supabase,
       filter: filter ?? _filter,
       limit: reviewListLimit,
+    ).timeout(
+      const Duration(seconds: 6),
+      onTimeout: () => const <Map<String, dynamic>>[],
     );
   }
 
@@ -3474,6 +3485,7 @@ class _AppealsPageState extends State<AppealsPage> {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
+        final currentError = snap.hasError ? friendlyDbError(snap.error) : _error;
         if (snap.connectionState == ConnectionState.done &&
             snap.hasData &&
             _items == null) {
@@ -3508,9 +3520,9 @@ class _AppealsPageState extends State<AppealsPage> {
                   });
                 },
               ),
-              if (_error != null)
-                ErrorBlock(error: 'Schema/API issue: $_error'),
-              if (isFreshLoading && _error == null) const SkeletonList(),
+              if (currentError != null)
+                ErrorBlock(error: 'Schema/API issue: $currentError'),
+              if (isFreshLoading && currentError == null) const SkeletonList(),
               for (var i = 0; i < rows.length; i++)
                 AnimatedEntry(
                   index: i,
@@ -3536,7 +3548,7 @@ class _AppealsPageState extends State<AppealsPage> {
                     ],
                   ),
                 ),
-              if (!isFreshLoading && rows.isEmpty && _error == null)
+              if (!isFreshLoading && rows.isEmpty && currentError == null)
                 EmptyBlock(text: 'No $_filter appeals.'),
             ],
           ),

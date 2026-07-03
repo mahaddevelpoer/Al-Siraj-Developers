@@ -36,6 +36,7 @@ dependencies:
   firebase_messaging: ^16.1.0
   flutter_local_notifications: ^19.4.2
   flutter_animate: ^4.5.2
+  flutter_svg: ^2.2.0
   google_fonts: ^6.2.1
   intl: ^0.20.2
   percent_indicator: ^4.2.4
@@ -70,6 +71,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/logo.svg
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -12,7 +13,10 @@ if (!url || !serviceKey) {
   process.exit(1);
 }
 
-const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
+const supabase = createClient(url, serviceKey, {
+  auth: { persistSession: false },
+  realtime: { transport: ws },
+});
 
 async function listAll(bucket, prefix = '') {
   const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
