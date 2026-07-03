@@ -19,6 +19,8 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import 'app_performance.dart';
+
 const supabaseUrl = 'https://wdislbdftnwmaexqtfmn.supabase.co';
 const _fullAnonKey =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkaXNsYmRmdG53bWFleHF0Zm1uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODY0MzksImV4cCI6MjA4NTE2MjQzOX0.hSUYRs4scWmUNZGK0slHeX9t--Of5CZclAhoCRbcXmc';
@@ -1058,18 +1060,21 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final lean = prefersLeanMotion(context);
     final card = PressableScale(
       onTap: onTap,
       child: RepaintBoundary(
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: motionDuration(context, 160),
           curve: Curves.easeOutCubic,
           padding: padding,
           decoration: BoxDecoration(
             color: kSurface,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: kBorder),
-            boxShadow: [
+            boxShadow: lean
+                ? const []
+                : [
               BoxShadow(
                 color: kPrimary.withValues(alpha: .055),
                 blurRadius: 20,
@@ -1120,7 +1125,7 @@ class _PressableScaleState extends State<PressableScale> {
             },
       child: AnimatedScale(
         scale: _down ? .97 : 1,
-        duration: const Duration(milliseconds: 120),
+        duration: motionDuration(context, 120, leanMs: 40),
         curve: Curves.easeOutCubic,
         child: widget.child,
       ),
@@ -1173,7 +1178,7 @@ class AnimatedMoneyText extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: value.toDouble()),
-      duration: const Duration(milliseconds: 760),
+      duration: motionDuration(context, 420),
       curve: Curves.easeOutCubic,
       builder: (context, v, _) => Text(
         money.format(v),
@@ -1198,7 +1203,7 @@ class PremiumProgress extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: percent.clamp(0, 1)),
-      duration: const Duration(milliseconds: 800),
+      duration: motionDuration(context, 360),
       curve: Curves.easeOutCubic,
       builder: (context, value, _) => LinearPercentIndicator(
         lineHeight: 8,
@@ -1473,6 +1478,7 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final lean = prefersLeanMotion(context);
     return Scaffold(
       extendBody: true,
       body: Stack(
@@ -1481,10 +1487,11 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
           SafeArea(
             bottom: false,
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
+              duration: motionDuration(context, 220),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
               transitionBuilder: (child, animation) {
+                if (lean) return child;
                 final offset = Tween<Offset>(
                   begin: const Offset(0.03, 0),
                   end: Offset.zero,
@@ -1522,7 +1529,7 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
           },
           child: AnimatedRotation(
             turns: _fabTurns,
-            duration: const Duration(milliseconds: 420),
+            duration: motionDuration(context, 420, leanMs: 70),
             curve: Curves.easeOutBack,
             child: Container(
               width: 58,
@@ -1578,6 +1585,7 @@ class PremiumBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
+    final lean = prefersLeanMotion(context);
     final showLabel = width >= 390;
     return SafeArea(
       top: false,
@@ -1606,7 +1614,7 @@ class PremiumBottomNav extends StatelessWidget {
                       child: PressableScale(
                         onTap: () => onTap(i),
                         child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 260),
+                          duration: motionDuration(context, 260, leanMs: 60),
                           curve: Curves.easeOutCubic,
                           margin: const EdgeInsets.symmetric(horizontal: 3),
                           decoration: BoxDecoration(
@@ -1619,9 +1627,9 @@ class PremiumBottomNav extends StatelessWidget {
                             child: TweenAnimationBuilder<double>(
                               tween: Tween(
                                 begin: 1,
-                                end: currentIndex == i ? 1.16 : 1,
+                                end: !lean && currentIndex == i ? 1.10 : 1,
                               ),
-                              duration: const Duration(milliseconds: 280),
+                              duration: motionDuration(context, 280, leanMs: 50),
                               curve: Curves.elasticOut,
                               builder: (context, scale, child) =>
                                   Transform.scale(scale: scale, child: child),
@@ -1636,7 +1644,7 @@ class PremiumBottomNav extends StatelessWidget {
                                     size: 23,
                                   ),
                                   AnimatedSize(
-                                    duration: const Duration(milliseconds: 220),
+                                    duration: motionDuration(context, 220, leanMs: 50),
                                     curve: Curves.easeOutCubic,
                                     child: currentIndex == i && showLabel
                                         ? Padding(
@@ -1715,11 +1723,14 @@ class PremiumScrollView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final lean = prefersLeanMotion(context);
     return CustomScrollView(
-      cacheExtent: 900,
-      physics: const AlwaysScrollableScrollPhysics(
-        parent: BouncingScrollPhysics(),
-      ),
+      cacheExtent: lean ? 420 : 900,
+      physics: lean
+          ? const ClampingScrollPhysics()
+          : const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
       slivers: [
         if (showAppBar)
           SliverAppBar(
@@ -5033,30 +5044,32 @@ class SkeletonList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Shimmer.fromColors(
-      baseColor: const Color(0xFFE9EDF5),
-      highlightColor: Colors.white,
-      child: Column(
-        children: List.generate(
-          3,
-          (i) => AnimatedEntry(
-            index: i,
-            child: GlassCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  skeletonLine(width: 180, height: 16),
-                  const SizedBox(height: 12),
-                  skeletonLine(width: double.infinity, height: 12),
-                  const SizedBox(height: 9),
-                  skeletonLine(width: 120, height: 12),
-                ],
-              ),
+    final child = Column(
+      children: List.generate(
+        3,
+        (i) => AnimatedEntry(
+          index: i,
+          child: GlassCard(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                skeletonLine(width: 180, height: 16),
+                const SizedBox(height: 12),
+                skeletonLine(width: double.infinity, height: 12),
+                const SizedBox(height: 9),
+                skeletonLine(width: 120, height: 12),
+              ],
             ),
           ),
         ),
       ),
+    );
+    if (prefersLeanMotion(context)) return child;
+    return Shimmer.fromColors(
+      baseColor: const Color(0xFFE9EDF5),
+      highlightColor: Colors.white,
+      child: child,
     );
   }
 }
@@ -5079,12 +5092,14 @@ class AnimatedEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (index > 14) return RepaintBoundary(child: child);
-    final delayIndex = index.clamp(0, 8).toInt();
+    if (prefersLeanMotion(context) || index > 8) {
+      return RepaintBoundary(child: child);
+    }
+    final delayIndex = index.clamp(0, 4).toInt();
     return RepaintBoundary(
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0, end: 1),
-        duration: Duration(milliseconds: 180 + (delayIndex * 18)),
+        duration: Duration(milliseconds: 120 + (delayIndex * 14)),
         curve: Curves.easeOutCubic,
         builder: (context, value, child) => Opacity(
           opacity: value,
