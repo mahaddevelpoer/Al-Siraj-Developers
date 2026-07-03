@@ -97,6 +97,59 @@ Future<List<Map<String, dynamic>>> _loadDailyEntryRows(
   );
 }
 
+Future<List<Map<String, dynamic>>> _loadRpcReviewRows(
+  SupabaseClient supabase,
+  String filter,
+  int limit,
+) async {
+  return _safeSelectRows(
+    () => supabase.rpc(
+      'ceo_mobile_review_inbox',
+      params: {
+        'p_status': normalizeReviewStatus(filter),
+        'p_limit': limit,
+      },
+    ),
+    timeout: const Duration(seconds: 8),
+  );
+}
+
+List<Map<String, dynamic>> _finalizeReviewRows(
+  Iterable<Map<String, dynamic>> sourceRows,
+  String activeFilter,
+  int limit,
+) {
+  final rows = sourceRows
+      .map((row) {
+        final kind = '${row['_review_kind'] ?? row['review_kind'] ?? ''}';
+        if (kind == ReviewItemKind.dailyEntry.name) {
+          return {
+            ...normalizeDailyEntryReviewRow(row),
+            'status': normalizeReviewStatus(
+              row['review_status'] ??
+                  row['status'] ??
+                  safeRowValue(row, 'Review_Status'),
+            ),
+          };
+        }
+        return {
+          ...normalizeAppealReviewRow(row),
+          'status': normalizeReviewStatus(row['status']),
+        };
+      })
+      .where((row) => row['status'] == activeFilter)
+      .toList();
+
+  final seen = <String>{};
+  rows.sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
+  return rows.where((row) {
+    final prefix = isDailyReviewItem(row) ? 'entry' : 'appeal';
+    return seen.add(
+      '$prefix-${row['id'] ?? row['entry_id'] ?? safeRowValue(row, 'Entry_ID')}',
+    );
+  }).take(limit).toList();
+}
+
 Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
   SupabaseClient supabase, {
   required String filter,
@@ -104,6 +157,13 @@ Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
 }) async {
   final activeFilter = normalizeReviewStatus(filter);
   final cached = cachedApprovalReviewRows(filter: activeFilter, limit: limit);
+  final rpcRows = await _loadRpcReviewRows(supabase, activeFilter, limit);
+  final rpcCleanRows = _finalizeReviewRows(rpcRows, activeFilter, limit);
+  if (rpcCleanRows.isNotEmpty) {
+    _approvalRowsCache[_cacheKey(activeFilter, limit)] = rpcCleanRows;
+    return rpcCleanRows;
+  }
+
   final results = await Future.wait<List<Map<String, dynamic>>>([
     _loadAppealRows(supabase, limit).timeout(
       const Duration(seconds: 8),
@@ -117,7 +177,7 @@ Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
   final appealRows = results[0];
   final entryRows = results[1];
 
-  final rows = <Map<String, dynamic>>[
+  final cleanRows = _finalizeReviewRows([
     ...appealRows.map(
       (row) => {
         ...normalizeAppealReviewRow(row),
@@ -132,16 +192,7 @@ Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
         ),
       },
     ),
-  ].where((row) => row['status'] == activeFilter).toList();
-
-  final seen = <String>{};
-  rows.sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
-  final cleanRows = rows.where((row) {
-    final prefix = isDailyReviewItem(row) ? 'entry' : 'appeal';
-    return seen.add(
-      '$prefix-${row['id'] ?? row['entry_id'] ?? safeRowValue(row, 'Entry_ID')}',
-    );
-  }).take(limit).toList();
+  ], activeFilter, limit);
   if (cleanRows.isNotEmpty) {
     _approvalRowsCache[_cacheKey(activeFilter, limit)] = cleanRows;
     return cleanRows;
