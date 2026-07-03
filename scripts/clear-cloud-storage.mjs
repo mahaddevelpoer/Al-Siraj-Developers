@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const buckets = (process.env.SUPABASE_CLEAR_BUCKETS || 'zameen-khata,receipts,property-files,reports')
+const buckets = (process.env.SUPABASE_CLEAR_BUCKETS || 'zameenkhata-files,zameen-khata,receipts,property-files,reports')
   .split(',')
   .map((x) => x.trim())
   .filter(Boolean);
@@ -18,6 +18,7 @@ async function listAll(bucket, prefix = '') {
   const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
   if (error) {
     if (/not found/i.test(error.message || '')) return [];
+    if (/bucket/i.test(error.message || '') && /not/i.test(error.message || '')) return [];
     throw error;
   }
   const files = [];
