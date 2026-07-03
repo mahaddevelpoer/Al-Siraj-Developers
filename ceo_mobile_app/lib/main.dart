@@ -680,6 +680,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final scale = responsiveScale(context);
     return Scaffold(
       resizeToAvoidBottomInset: true,
       body: Stack(
@@ -690,7 +691,12 @@ class _LoginScreenState extends State<LoginScreen> {
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
                 SliverPadding(
-                  padding: EdgeInsets.fromLTRB(20, 14, 20, 22 + bottomInset),
+                  padding: EdgeInsets.fromLTRB(
+                    18 * scale,
+                    12 * scale,
+                    18 * scale,
+                    18 + bottomInset,
+                  ),
                   sliver: SliverList.list(
                     children: [
                       const LoginHeroCard(),
@@ -721,15 +727,16 @@ class LoginHeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 370;
+    final scale = responsiveScale(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 18),
+      padding: EdgeInsets.only(bottom: 14 * scale),
       child: Hero(
         tag: 'login-command-panel',
         child: Material(
           color: Colors.transparent,
           child: Container(
             width: double.infinity,
-            padding: EdgeInsets.all(compact ? 18 : 22),
+            padding: EdgeInsets.all(compact ? 16 : 20),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(32),
               gradient: const LinearGradient(
@@ -775,20 +782,20 @@ class LoginHeroCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 22),
+                SizedBox(height: 18 * scale),
                 Text(
                   'Approve decisions before money moves.',
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: compact ? 27 : 32,
+                    fontSize: compact ? 24 : 28,
                     height: 1.02,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0,
                   ),
                 ),
-                const SizedBox(height: 10),
+                SizedBox(height: 8 * scale),
                 Text(
                   'Town accountants, pending appeals, cash balance and nightly reports in one controlled app.',
                   maxLines: 3,
@@ -799,7 +806,7 @@ class LoginHeroCard extends StatelessWidget {
                     height: 1.28,
                   ),
                 ),
-                const SizedBox(height: 18),
+                SizedBox(height: 14 * scale),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -861,7 +868,7 @@ class LoginFormCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassCard(
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.all(16 * responsiveScale(context)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -869,7 +876,7 @@ class LoginFormCard extends StatelessWidget {
             'Secure sign in',
             style: TextStyle(
               color: kText,
-              fontSize: 20,
+              fontSize: 18,
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -878,7 +885,7 @@ class LoginFormCard extends StatelessWidget {
             'Only active CEO accounts can open this dashboard.',
             style: TextStyle(color: kMuted, fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           TextField(
             controller: email,
             keyboardType: TextInputType.emailAddress,
@@ -889,7 +896,7 @@ class LoginFormCard extends StatelessWidget {
               prefixIcon: Icon(Icons.alternate_email_rounded),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           TextField(
             controller: password,
             obscureText: true,
@@ -922,7 +929,7 @@ class LoginFormCard extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           FilledButton.icon(
             onPressed: busy ? null : onSubmit,
             icon: busy
@@ -1063,16 +1070,17 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lean = prefersLeanMotion(context);
+    final radius = 18.0 * responsiveScale(context);
     final card = PressableScale(
       onTap: onTap,
       child: RepaintBoundary(
-        child: AnimatedContainer(
-          duration: motionDuration(context, 160),
-          curve: Curves.easeOutCubic,
+        child: Container(
           padding: padding,
           decoration: BoxDecoration(
             color: kSurface,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(
+              radius.clamp(14, 20).toDouble(),
+            ),
             border: Border.all(color: kBorder),
             boxShadow: lean
                 ? const []
@@ -1148,6 +1156,7 @@ class GradientIconBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final lean = prefersLeanMotion(context);
     return Container(
       width: size,
       height: size,
@@ -1158,13 +1167,15 @@ class GradientIconBox extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: colors,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: colors.first.withValues(alpha: .22),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        boxShadow: lean
+            ? const []
+            : [
+                BoxShadow(
+                  color: colors.first.withValues(alpha: .18),
+                  blurRadius: 14,
+                  offset: const Offset(0, 7),
+                ),
+              ],
       ),
       child: Icon(icon, color: Colors.white, size: size * .48),
     );
@@ -1178,9 +1189,17 @@ class AnimatedMoneyText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (prefersLeanMotion(context)) {
+      return Text(
+        money.format(value),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: value.toDouble()),
-      duration: motionDuration(context, 420),
+      duration: motionDuration(context, 260),
       curve: Curves.easeOutCubic,
       builder: (context, v, _) => Text(
         money.format(v),
@@ -1521,7 +1540,7 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
         onTap: (i) => setState(() => _tab = i),
       ),
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 82),
+        padding: const EdgeInsets.only(bottom: 76),
         child: PressableScale(
           onTap: () {
             setState(() {
@@ -1529,13 +1548,13 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
               _tab = _tab == 2 ? 0 : 2;
             });
           },
-          child: AnimatedRotation(
-            turns: _fabTurns,
-            duration: motionDuration(context, 420, leanMs: 70),
-            curve: Curves.easeOutBack,
-            child: Container(
-              width: 58,
-              height: 58,
+            child: AnimatedRotation(
+              turns: _fabTurns,
+              duration: motionDuration(context, 240, leanMs: 0),
+              curve: Curves.easeOutBack,
+              child: Container(
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(_tab == 2 ? 18 : 29),
                 gradient: LinearGradient(
@@ -1548,8 +1567,8 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
                     color: (_tab == 2 ? kSecondary : kPrimary).withValues(
                       alpha: .24,
                     ),
-                    blurRadius: 26,
-                    offset: const Offset(0, 12),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
                   ),
                 ],
               ),
@@ -1592,19 +1611,19 @@ class PremiumBottomNav extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
         child: Container(
-          height: 72,
-          padding: const EdgeInsets.all(8),
+          height: 64,
+          padding: const EdgeInsets.all(7),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(24),
             border: Border.all(color: kBorder),
             boxShadow: [
               BoxShadow(
-                color: kPrimary.withValues(alpha: .12),
-                blurRadius: 24,
-                offset: const Offset(0, 10),
+                color: kPrimary.withValues(alpha: lean ? 0 : .10),
+                blurRadius: lean ? 0 : 18,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
@@ -1616,14 +1635,14 @@ class PremiumBottomNav extends StatelessWidget {
                       child: PressableScale(
                         onTap: () => onTap(i),
                         child: AnimatedContainer(
-                          duration: motionDuration(context, 260, leanMs: 60),
+                          duration: motionDuration(context, 170, leanMs: 0),
                           curve: Curves.easeOutCubic,
                           margin: const EdgeInsets.symmetric(horizontal: 3),
                           decoration: BoxDecoration(
                             color: currentIndex == i
                                 ? kPrimary.withValues(alpha: .12)
                                 : Colors.transparent,
-                            borderRadius: BorderRadius.circular(22),
+                            borderRadius: BorderRadius.circular(19),
                           ),
                           child: Center(
                             child: TweenAnimationBuilder<double>(
@@ -1643,10 +1662,10 @@ class PremiumBottomNav extends StatelessWidget {
                                     color: currentIndex == i
                                         ? kPrimary
                                         : kMuted,
-                                    size: 23,
+                                    size: 21,
                                   ),
                                   AnimatedSize(
-                                    duration: motionDuration(context, 220, leanMs: 50),
+                                    duration: motionDuration(context, 150, leanMs: 0),
                                     curve: Curves.easeOutCubic,
                                     child: currentIndex == i && showLabel
                                         ? Padding(
@@ -1692,12 +1711,12 @@ class PremiumBottomNav extends StatelessWidget {
 
 PageRouteBuilder<void> premiumRoute(Widget page) {
   return PageRouteBuilder<void>(
-    transitionDuration: const Duration(milliseconds: 360),
-    reverseTransitionDuration: const Duration(milliseconds: 260),
+    transitionDuration: const Duration(milliseconds: 220),
+    reverseTransitionDuration: const Duration(milliseconds: 160),
     pageBuilder: (_, __, ___) => page,
     transitionsBuilder: (_, animation, __, child) {
       final offset = Tween<Offset>(
-        begin: const Offset(.08, 0),
+        begin: const Offset(.035, 0),
         end: Offset.zero,
       ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation);
       return FadeTransition(
@@ -1712,13 +1731,13 @@ class PremiumScrollView extends StatelessWidget {
   const PremiumScrollView({
     super.key,
     required this.children,
-    this.padding = const EdgeInsets.fromLTRB(20, 20, 20, 110),
+    this.padding,
     this.appBarTitle = 'Overview',
     this.showAppBar = true,
     this.showNotificationAction = true,
   });
   final List<Widget> children;
-  final EdgeInsetsGeometry padding;
+  final EdgeInsetsGeometry? padding;
   final String appBarTitle;
   final bool showAppBar;
   final bool showNotificationAction;
@@ -1821,7 +1840,7 @@ class PremiumScrollView extends StatelessWidget {
                 : null,
           ),
         SliverPadding(
-          padding: padding,
+          padding: padding ?? responsivePagePadding(context),
           sliver: SliverList(delegate: SliverChildListDelegate.fixed(children)),
         ),
       ],
@@ -4461,15 +4480,17 @@ class HeaderBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 370;
-    return Material(
+    final lean = prefersLeanMotion(context);
+    final scale = responsiveScale(context);
+    final block = Material(
       color: Colors.transparent,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 18),
+        padding: EdgeInsets.only(bottom: 14 * scale),
         child: Container(
           width: double.infinity,
-          padding: EdgeInsets.all(compact ? 18 : 22),
+          padding: EdgeInsets.all(compact ? 15 : 18),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(30),
+            borderRadius: BorderRadius.circular(compact ? 22 : 26),
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -4479,13 +4500,15 @@ class HeaderBlock extends StatelessWidget {
                 Color(0xFF00A889),
               ],
             ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF2563EB).withValues(alpha: .22),
-                blurRadius: 34,
-                offset: const Offset(0, 16),
-              ),
-            ],
+            boxShadow: lean
+                ? const []
+                : [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withValues(alpha: .16),
+                      blurRadius: 22,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -4493,22 +4516,22 @@ class HeaderBlock extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    width: 44,
-                    height: 44,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: .18),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(
                         color: Colors.white.withValues(alpha: .22),
                       ),
                     ),
-                    child: Icon(icon, color: Colors.white),
+                    child: Icon(icon, color: Colors.white, size: 21),
                   ),
                   const Spacer(),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 7,
+                      horizontal: 9,
+                      vertical: 6,
                     ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: .14),
@@ -4521,34 +4544,34 @@ class HeaderBlock extends StatelessWidget {
                       'CEO',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 11,
+                        fontSize: 10,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
+              SizedBox(height: 14 * scale),
               Text(
                 title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.inter(
-                  fontSize: compact ? 25 : 30,
+                  fontSize: compact ? 22 : 26,
                   fontWeight: FontWeight.w900,
-                  height: 1.02,
+                  height: 1.04,
                   color: Colors.white,
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               Text(
                 subtitle,
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Color(0xDDFFFFFF),
-                  height: 1.45,
-                  fontSize: 13,
+                  height: 1.35,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -4556,10 +4579,12 @@ class HeaderBlock extends StatelessWidget {
           ),
         ),
       ),
-    )
+    );
+    if (lean) return block;
+    return block
         .animate()
-        .fadeIn(duration: 420.ms)
-        .slideY(begin: .12, curve: Curves.easeOutCubic);
+        .fadeIn(duration: 220.ms)
+        .slideY(begin: .04, curve: Curves.easeOutCubic);
   }
 }
 
@@ -4762,12 +4787,14 @@ class InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scale = responsiveScale(context);
+    final lean = prefersLeanMotion(context);
     final card = Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: EdgeInsets.only(bottom: 10 * scale),
       child:
           GlassCard(
                 onTap: () {},
-                padding: const EdgeInsets.all(14),
+                padding: EdgeInsets.all(12 * scale),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -4776,14 +4803,14 @@ class InfoCard extends StatelessWidget {
                       children: [
                         if (icon != null) ...[
                           icon!,
-                          const SizedBox(width: 10),
+                          SizedBox(width: 8 * scale),
                         ] else ...[
                           const GradientIconBox(
                             icon: Icons.layers_rounded,
-                            size: 42,
+                            size: 38,
                             colors: [kPrimary, Color(0xFF8A84FF)],
                           ),
-                          const SizedBox(width: 10),
+                          SizedBox(width: 8 * scale),
                         ],
                         Expanded(
                           child: Text(
@@ -4791,7 +4818,7 @@ class InfoCard extends StatelessWidget {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 16,
+                              fontSize: 14.5,
                               fontWeight: FontWeight.w900,
                               color: kText,
                             ),
@@ -4800,7 +4827,7 @@ class InfoCard extends StatelessWidget {
                         if (status != null) StatusPill(status: status!),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 7 * scale),
                     Text(
                       subtitle,
                       maxLines: 2,
@@ -4810,28 +4837,32 @@ class InfoCard extends StatelessWidget {
                         color: kText,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
                       meta,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: kMuted,
-                        fontSize: 12,
+                        fontSize: 11.5,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     if (body.trim().isNotEmpty) ...[
-                      const SizedBox(height: 12),
+                      SizedBox(height: 9 * scale),
                       Text(
                         body,
-                        maxLines: 5,
+                        maxLines: 4,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: kMuted, height: 1.4),
+                        style: const TextStyle(
+                          color: kMuted,
+                          height: 1.35,
+                          fontSize: 12.5,
+                        ),
                       ),
                     ],
                     if (actions.isNotEmpty) ...[
-                      const SizedBox(height: 14),
+                      SizedBox(height: 10 * scale),
                       LayoutBuilder(
                         builder: (context, constraints) {
                           final actionWidth = constraints.maxWidth < 340
@@ -4863,10 +4894,12 @@ class InfoCard extends StatelessWidget {
               ),
     );
     return animate
-        ? card
+        ? (lean
+            ? RepaintBoundary(child: card)
+            : card
             .animate()
-            .fadeIn(duration: 260.ms)
-            .slideY(begin: .04, curve: Curves.easeOutCubic)
+            .fadeIn(duration: 180.ms)
+            .slideY(begin: .025, curve: Curves.easeOutCubic))
         : card;
   }
 }
@@ -5021,8 +5054,8 @@ class StatusPill extends StatelessWidget {
         : const Color(0xFFB45309);
     return Container(
       margin: const EdgeInsets.only(left: 8),
-      constraints: const BoxConstraints(maxWidth: 96),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      constraints: const BoxConstraints(maxWidth: 82),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
@@ -5034,7 +5067,7 @@ class StatusPill extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: color,
-          fontSize: 10,
+          fontSize: 9.5,
           fontWeight: FontWeight.w900,
         ),
       ),
@@ -5056,10 +5089,10 @@ class FilterChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
+        spacing: 7,
+        runSpacing: 7,
         children: options.map((option) {
           final selected = option == value;
           return ChoiceChip(
@@ -5081,6 +5114,8 @@ class FilterChips extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(999),
             ),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           );
         }).toList(),
       ),
@@ -5095,7 +5130,7 @@ class SkeletonList extends StatelessWidget {
   Widget build(BuildContext context) {
     final child = Column(
       children: List.generate(
-        3,
+        prefersLeanMotion(context) ? 2 : 3,
         (i) => AnimatedEntry(
           index: i,
           child: GlassCard(
@@ -5141,19 +5176,19 @@ class AnimatedEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (prefersLeanMotion(context) || index > 8) {
+    if (prefersLeanMotion(context) || index > 5) {
       return RepaintBoundary(child: child);
     }
-    final delayIndex = index.clamp(0, 4).toInt();
+    final delayIndex = index.clamp(0, 3).toInt();
     return RepaintBoundary(
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0, end: 1),
-        duration: Duration(milliseconds: 120 + (delayIndex * 14)),
+        duration: Duration(milliseconds: 95 + (delayIndex * 10)),
         curve: Curves.easeOutCubic,
         builder: (context, value, child) => Opacity(
           opacity: value,
           child: Transform.translate(
-            offset: Offset(0, 8 * (1 - value)),
+            offset: Offset(0, 5 * (1 - value)),
             child: child,
           ),
         ),
