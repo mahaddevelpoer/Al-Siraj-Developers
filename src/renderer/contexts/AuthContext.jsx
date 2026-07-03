@@ -2,6 +2,51 @@ import { createContext, useState, useEffect, useContext } from 'react';
 import { supabase, auth } from '../lib/supabase';
 
 export const AuthContext = createContext();
+const LOCAL_ACCOUNTANT_SESSION_KEY = 'al_siraj_local_accountant_session';
+const ACCOUNTANT_UNLOCK_SESSION_KEY = 'al_siraj_accountant_unlocked_this_session';
+
+function readLocalAccountantSession() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_ACCOUNTANT_SESSION_KEY) || 'null');
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveLocalAccountantSession(user, profile) {
+  if (!profile || profile.role !== 'accountant') return;
+  localStorage.setItem(LOCAL_ACCOUNTANT_SESSION_KEY, JSON.stringify({
+    user: {
+      id: user?.id || profile.id,
+      email: user?.email || profile.email,
+    },
+    profile,
+    saved_at: new Date().toISOString(),
+  }));
+}
+
+function markAccountantUnlockedThisSession() {
+  try {
+    sessionStorage.setItem(ACCOUNTANT_UNLOCK_SESSION_KEY, '1');
+  } catch (_) {}
+}
+
+function isAccountantUnlockedThisSession() {
+  try {
+    return sessionStorage.getItem(ACCOUNTANT_UNLOCK_SESSION_KEY) === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function shouldRequireAdminUnlock(profile) {
+  if (!profile || profile.role !== 'accountant') return false;
+  if (isAccountantUnlockedThisSession()) return false;
+  const saved = readLocalAccountantSession();
+  const savedEmail = String(saved?.profile?.email || saved?.user?.email || '').toLowerCase();
+  const profileEmail = String(profile.email || '').toLowerCase();
+  return Boolean(savedEmail && profileEmail && savedEmail === profileEmail);
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -19,8 +64,15 @@ export function AuthProvider({ children }) {
 
     const { data: authListener } = auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
+        const profile = await fetchUserProfile(session.user.id);
+        if (shouldRequireAdminUnlock(profile)) {
+          await auth.signOut().catch(() => {});
+          setUser(null);
+          setUserRole(null);
+          setUserProfile(null);
+          return;
+        }
         setUser(session.user);
-        await fetchUserProfile(session.user.id);
       } else {
         setUser(null);
         setUserRole(null);
@@ -79,16 +131,20 @@ export function AuthProvider({ children }) {
     try {
       const { data: { session } } = await withTimeout(auth.getSession(), 5000, 'Auth session');
       if (session?.user) {
+        const profile = await fetchUserProfile(session.user.id);
+        if (shouldRequireAdminUnlock(profile)) {
+          await auth.signOut().catch(() => {});
+          setUser(null);
+          setUserRole(null);
+          setUserProfile(null);
+          return;
+        }
         setUser(session.user);
-        await fetchUserProfile(session.user.id);
         return;
       }
-      const savedLocal = JSON.parse(localStorage.getItem('al_siraj_local_accountant_session') || 'null');
-      if (savedLocal?.profile && savedLocal?.user && !savedLocal.profile.admin_password_set) {
-        setUser({ ...savedLocal.user, local_offline: true });
-        setUserProfile(savedLocal.profile);
-        setUserRole('accountant');
-      }
+      // If there is no Supabase session, keep the user on the login screen.
+      // Saved accountant details are used by AuthScreen for the local admin-password unlock.
+      readLocalAccountantSession();
     } catch (error) {
       console.error('Auth check error:', error);
     } finally {
@@ -108,10 +164,12 @@ export function AuthProvider({ children }) {
 
       setUserProfile(data);
       setUserRole(data.role);
+      return data;
     } catch (error) {
       console.error('Error fetching profile:', error);
       setUserProfile(null);
       setUserRole(null);
+      return null;
     }
   };
 
@@ -152,9 +210,26 @@ export function AuthProvider({ children }) {
 
   const signIn = async (email, password, role = '', options = {}) => {
     try {
+      if (role === 'accountant' && options.offlineUnlock && window.api?.unlockLocalAccountant) {
+        const saved = readLocalAccountantSession();
+        const unlockEmail = email || saved?.profile?.email || saved?.user?.email || '';
+        const local = await window.api.unlockLocalAccountant({ email: unlockEmail, adminPassword: options.adminPassword || '' });
+        if (local?.success && local.profile) {
+          const fakeUser = { ...(local.user || { id: local.profile.id, email: local.profile.email }), local_offline: true };
+          setUser(fakeUser);
+          setUserProfile(local.profile);
+          setUserRole('accountant');
+          saveLocalAccountantSession(fakeUser, local.profile);
+          markAccountantUnlockedThisSession();
+          return { success: true, user: fakeUser, profile: local.profile, localOffline: true, unlocked: true };
+        }
+        throw new Error(local?.error || 'Could not unlock this accountant system');
+      }
+
       if (role === 'accountant' && window.api?.localAccountantLogin) {
         const local = await window.api.localAccountantLogin({ email, password, adminPassword: options.adminPassword || '' });
         if (local?.success && local.profile) {
+          markAccountantUnlockedThisSession();
           let sessionUser = null;
           if (navigator.onLine) {
             try {
@@ -174,14 +249,14 @@ export function AuthProvider({ children }) {
           setUser(activeUser);
           setUserProfile(local.profile);
           setUserRole('accountant');
+          markAccountantUnlockedThisSession();
           if (options.remember !== false) {
-            localStorage.setItem('al_siraj_local_accountant_session', JSON.stringify({
-              user: activeUser,
-              profile: local.profile,
-              saved_at: new Date().toISOString(),
-            }));
+            saveLocalAccountantSession(activeUser, local.profile);
           }
           return { success: true, user: activeUser, profile: local.profile, localOffline: !sessionUser };
+        }
+        if (String(local?.error || '').toLowerCase().includes('administration password')) {
+          throw new Error(local.error);
         }
       }
       const { data, error } = await withTimeout(auth.signInWithPassword({
@@ -190,6 +265,8 @@ export function AuthProvider({ children }) {
       }), 8000, 'Online login');
 
       if (error) throw error;
+
+      if (role === 'accountant') markAccountantUnlockedThisSession();
 
       return { success: true, user: data.user };
     } catch (error) {
@@ -201,7 +278,8 @@ export function AuthProvider({ children }) {
     try {
       const { error } = await auth.signOut();
       if (error && user?.local_offline !== true) throw error;
-      localStorage.removeItem('al_siraj_local_accountant_session');
+      if (userRole !== 'accountant') localStorage.removeItem(LOCAL_ACCOUNTANT_SESSION_KEY);
+      try { sessionStorage.removeItem(ACCOUNTANT_UNLOCK_SESSION_KEY); } catch (_) {}
       setUser(null);
       setUserRole(null);
       setUserProfile(null);

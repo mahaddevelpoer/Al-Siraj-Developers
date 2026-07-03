@@ -1,7 +1,11 @@
 const { dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 
+let updaterStarted = false;
+
 function setupAutoUpdater(getWindow) {
+  if (updaterStarted) return;
+  updaterStarted = true;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
