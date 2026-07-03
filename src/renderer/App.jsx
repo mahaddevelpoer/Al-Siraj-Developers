@@ -147,25 +147,51 @@ function playNotificationChime(type = 'info') {
     if (!AudioContextCtor) return;
     const context = new AudioContextCtor();
     const now = context.currentTime;
-    const gain = context.createGain();
-    const main = context.createOscillator();
-    const overtone = context.createOscillator();
-    const base = type === 'error' ? 220 : type === 'warning' ? 330 : 523.25;
-    main.type = 'sine';
-    overtone.type = 'triangle';
-    main.frequency.setValueAtTime(base, now);
-    overtone.frequency.setValueAtTime(base * 1.5, now);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.11, now + 0.025);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.34);
-    main.connect(gain);
-    overtone.connect(gain);
-    gain.connect(context.destination);
-    main.start(now);
-    overtone.start(now + 0.035);
-    main.stop(now + 0.34);
-    overtone.stop(now + 0.30);
-    setTimeout(() => context.close?.().catch?.(() => {}), 520);
+    const master = context.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(0.12, now + 0.018);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.58);
+    master.connect(context.destination);
+
+    const patterns = {
+      success: [
+        [523.25, 0.00, 0.12, 'sine'],
+        [659.25, 0.10, 0.13, 'sine'],
+        [783.99, 0.22, 0.18, 'triangle'],
+      ],
+      error: [
+        [246.94, 0.00, 0.16, 'sawtooth'],
+        [185.00, 0.15, 0.22, 'sawtooth'],
+      ],
+      warning: [
+        [392.00, 0.00, 0.11, 'triangle'],
+        [392.00, 0.18, 0.11, 'triangle'],
+      ],
+      validation: [
+        [330.00, 0.00, 0.08, 'square'],
+        [277.18, 0.10, 0.12, 'square'],
+      ],
+      info: [
+        [523.25, 0.00, 0.12, 'sine'],
+        [659.25, 0.12, 0.14, 'triangle'],
+      ],
+    };
+
+    const selected = patterns[type] || patterns.info;
+    selected.forEach(([freq, delay, duration, wave]) => {
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      osc.type = wave;
+      osc.frequency.setValueAtTime(freq, now + delay);
+      gain.gain.setValueAtTime(0.0001, now + delay);
+      gain.gain.exponentialRampToValueAtTime(type === 'error' ? 0.08 : 0.065, now + delay + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + duration);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(now + delay);
+      osc.stop(now + delay + duration + 0.03);
+    });
+    setTimeout(() => context.close?.().catch?.(() => {}), 760);
   } catch {}
 }
 
@@ -267,6 +293,10 @@ function AppInner() {
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
+    const shouldBell = type === 'error' || type === 'warning' || /report|pdf|receipt|sync|approved|rejected/i.test(String(message || ''));
+    if (!shouldBell) {
+      playNotificationChime(type === 'success' ? 'success' : 'info');
+    }
     if (type === 'error' || type === 'warning') {
       pushBell(type === 'error' ? 'Action needs attention' : 'Business alert', message, type);
     } else if (/report|pdf|receipt|sync|approved|rejected/i.test(String(message || ''))) {
@@ -285,6 +315,12 @@ function AppInner() {
     }, 7000);
     return () => clearTimeout(timer);
   }, [ready, showToast]);
+
+  useEffect(() => {
+    const onInvalid = () => playNotificationChime('validation');
+    document.addEventListener('invalid', onInvalid, true);
+    return () => document.removeEventListener('invalid', onInvalid, true);
+  }, []);
 
   useEffect(() => {
     const scanLocalPendingAppeals = () => {
@@ -488,6 +524,12 @@ function AppInner() {
       const events = Array.isArray(change.events) ? change.events : [];
       if (events.includes('receipt:created') || events.includes('report:created')) {
         pushBell('Document ready', 'A receipt or report was updated. Related screens are refreshing now.', 'success');
+      }
+      if (events.includes('sync:success')) {
+        playNotificationChime('success');
+      }
+      if (events.includes('sync:failed')) {
+        pushBell('Sync failed', 'Cloud sync failed. Local Excel data is still saved.', 'error');
       }
       if (events.includes('sync:queued')) {
         pushBell('Saved locally', 'Cloud sync will retry automatically. Your local Excel data is safe.', 'warning');

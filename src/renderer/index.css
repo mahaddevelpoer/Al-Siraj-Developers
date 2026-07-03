@@ -10967,3 +10967,156 @@ body,
     grid-template-columns: 1fr;
   }
 }
+
+/* Subtle production motion: adds life without making accounting screens noisy. */
+@keyframes alSirajSoftRise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes alSirajPopIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(.96);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(1px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes alSirajPulseRing {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, .18);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(37, 99, 235, 0);
+  }
+}
+
+.ui-town-content > *,
+.pending-appeals-section,
+.pending-appeals-hero,
+.rupee-guard-panel,
+.ui-town-map-card,
+.collections-table-card,
+.commission-dashboard,
+.cash-banks-dashboard,
+.media-workspace,
+.appeal-dashboard {
+  animation: alSirajSoftRise 280ms ease-out both;
+}
+
+.ui-town-content > *:nth-child(2) {
+  animation-delay: 35ms;
+}
+
+.ui-town-content > *:nth-child(3) {
+  animation-delay: 70ms;
+}
+
+.ui-kpi-card-interactive,
+.ui-town-financial-item,
+.pending-appeal-card,
+.media-card,
+.commission-agent-card,
+.property-card,
+.kpi-item,
+.cash-bank-card,
+.account-card,
+.investor-card,
+.construction-card,
+.appeal-card {
+  transition:
+    transform 170ms ease,
+    box-shadow 170ms ease,
+    border-color 170ms ease,
+    background-color 170ms ease;
+}
+
+.ui-kpi-card-interactive:hover,
+.ui-town-financial-item:hover,
+.pending-appeal-card:hover,
+.media-card:hover,
+.commission-agent-card:hover,
+.property-card:hover,
+.kpi-item:hover,
+.cash-bank-card:hover,
+.account-card:hover,
+.investor-card:hover,
+.construction-card:hover,
+.appeal-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .09);
+}
+
+.btn,
+button,
+.ui-town-sidebar-item,
+.global-bell-button,
+.ui-town-burger-btn {
+  transition:
+    transform 120ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.btn:active,
+button:active,
+.ui-town-sidebar-item:active,
+.global-bell-button:active,
+.ui-town-burger-btn:active {
+  transform: scale(.975);
+}
+
+.global-bell-button span,
+.ui-town-topbar-badge.active,
+.pending-appeals-stat strong {
+  animation: alSirajPulseRing 2.4s ease-in-out infinite;
+}
+
+.toast,
+.global-bell-popover,
+.cloud-refresh-status {
+  animation: alSirajPopIn 220ms ease-out both;
+}
+
+.data-table tbody tr,
+table tbody tr {
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.data-table tbody tr:hover,
+table tbody tr:hover {
+  background: rgba(37, 99, 235, .035);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  transition: box-shadow 160ms ease, border-color 160ms ease, background-color 160ms ease;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, .10) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}
