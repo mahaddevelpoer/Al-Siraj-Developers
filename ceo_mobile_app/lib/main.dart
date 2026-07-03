@@ -22,6 +22,7 @@ import 'approval_helpers.dart';
 import 'approval_service.dart';
 import 'app_performance.dart';
 import 'app_theme.dart';
+import 'receipt_repository.dart';
 import 'widgets/brand_widgets.dart';
 import 'widgets/premium_foundation.dart';
 import 'widgets/vector_badges.dart';
@@ -612,15 +613,11 @@ class LoginHeroCard extends StatelessWidget {
             padding: EdgeInsets.all(compact ? 16 : 20),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(32),
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF172554), Color(0xFF2563EB)],
-              ),
+              color: kInk,
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF2563EB).withValues(alpha: .20),
-                  blurRadius: 30,
+                  color: kInk.withValues(alpha: .16),
+                  blurRadius: 28,
                   offset: const Offset(0, 16),
                 ),
               ],
@@ -629,8 +626,16 @@ class LoginHeroCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  children: [
-                    const AppBrandMark(size: 58),
+                children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Center(child: AppBrandMark(size: 46)),
+                    ),
                     const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -638,10 +643,10 @@ class LoginHeroCard extends StatelessWidget {
                         vertical: 7,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .12),
+                        color: kSecondary.withValues(alpha: .14),
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: .18),
+                          color: kSecondary.withValues(alpha: .28),
                         ),
                       ),
                       child: const Text(
@@ -657,7 +662,7 @@ class LoginHeroCard extends StatelessWidget {
                 ),
                 SizedBox(height: 18 * scale),
                 Text(
-                  'Approve decisions before money moves.',
+                  'CEO Control Room',
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -670,7 +675,7 @@ class LoginHeroCard extends StatelessWidget {
                 ),
                 SizedBox(height: 8 * scale),
                 Text(
-                  'Town accountants, pending appeals, cash balance and nightly reports in one controlled app.',
+                  'Approve appeals, review town cash, and open daily report receipts without touching operational records.',
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1310,17 +1315,17 @@ class PremiumBottomNav extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
         child: Container(
-          height: 64,
-          padding: const EdgeInsets.all(7),
+          height: 62,
+          padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: kBorder),
+            color: Colors.white.withValues(alpha: .96),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: Colors.white),
             boxShadow: [
               BoxShadow(
-                color: kPrimary.withValues(alpha: lean ? 0 : .10),
-                blurRadius: lean ? 0 : 18,
-                offset: const Offset(0, 8),
+                color: kInk.withValues(alpha: lean ? 0 : .10),
+                blurRadius: lean ? 0 : 22,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
@@ -1337,9 +1342,12 @@ class PremiumBottomNav extends StatelessWidget {
                           margin: const EdgeInsets.symmetric(horizontal: 3),
                           decoration: BoxDecoration(
                             color: currentIndex == i
-                                ? kPrimary.withValues(alpha: .12)
+                                ? const Color(0xFFEFF8FF)
                                 : Colors.transparent,
                             borderRadius: BorderRadius.circular(19),
+                            border: currentIndex == i
+                                ? Border.all(color: const Color(0xFFB2DDFF))
+                                : null,
                           ),
                           child: Center(
                             child: TweenAnimationBuilder<double>(
@@ -3492,53 +3500,22 @@ class _DailyLedgerReceiptPageState extends State<DailyLedgerReceiptPage> {
   DateTime _date = DateTime.now();
 
   Future<List<Map<String, dynamic>>> _loadSavedReceiptMediaRows() async {
-    final day = DateFormat('yyyy-MM-dd').format(_date);
-    try {
-      final media = await supabase
-          .from('media_library')
-          .select('*')
-          .eq('type', 'daily_ledger_receipt')
-          .eq('report_date', day)
-          .order('created_at', ascending: false)
-          .timeout(const Duration(seconds: 5));
-      return List<Map<String, dynamic>>.from(media);
-    } catch (_) {
-      return const <Map<String, dynamic>>[];
-    }
+    return loadReceiptMediaRows(supabase, date: _date);
   }
 
   Future<List<LedgerReceipt>> _loadReceipts() async {
-    final day = DateFormat('yyyy-MM-dd').format(_date);
-    final results = await Future.wait<List<Map<String, dynamic>>>([
-      safeSelectRows(
-        () => supabase
-            .from('daily_entries')
-            .select('*')
-            .order('created_at', ascending: false)
-            .timeout(const Duration(seconds: 6)),
-      ),
-      safeSelectRows(
-        () => supabase
-            .from('towns')
-            .select('*')
-            .timeout(const Duration(seconds: 6)),
-      ),
-      _loadSavedReceiptMediaRows(),
-    ]).timeout(
-      const Duration(seconds: 8),
-      onTimeout: () => const [
-        <Map<String, dynamic>>[],
-        <Map<String, dynamic>>[],
-        <Map<String, dynamic>>[],
-      ],
+    final bundle = await loadReceiptBundle(
+      supabase,
+      date: _date,
+      initialTown: widget.initialTown,
     );
-    final data = results[0];
-    final mediaRows = results[2];
-    final activeTownNames = results[1]
-        .where(isActiveTownRow)
+    final data = bundle.entryRows;
+    final mediaRows = bundle.mediaRows;
+    final activeTownNames = bundle.townRows
         .map((town) => '${rowVal(town, 'Town_Name')}'.trim())
         .where((town) => town.isNotEmpty && town != 'null')
         .toSet();
+    final day = DateFormat('yyyy-MM-dd').format(_date);
     final rows = List<Map<String, dynamic>>.from(
       data,
     ).where((row) {
@@ -4242,23 +4219,16 @@ class HeaderBlock extends StatelessWidget {
           width: double.infinity,
           padding: EdgeInsets.all(compact ? 15 : 18),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(compact ? 22 : 26),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF101C3D),
-                Color(0xFF2563EB),
-                Color(0xFF00A889),
-              ],
-            ),
+            color: Colors.white.withValues(alpha: .92),
+            borderRadius: BorderRadius.circular(compact ? 24 : 30),
+            border: Border.all(color: Colors.white.withValues(alpha: .86)),
             boxShadow: lean
                 ? const []
                 : [
                     BoxShadow(
-                      color: const Color(0xFF2563EB).withValues(alpha: .16),
-                      blurRadius: 22,
-                      offset: const Offset(0, 10),
+                      color: const Color(0xFF101828).withValues(alpha: .08),
+                      blurRadius: 28,
+                      offset: const Offset(0, 16),
                     ),
                   ],
           ),
@@ -4271,11 +4241,10 @@ class HeaderBlock extends StatelessWidget {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .18),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: .22),
+                      gradient: const LinearGradient(
+                        colors: [kPrimary, kSky],
                       ),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Icon(icon, color: Colors.white, size: 21),
                   ),
@@ -4286,16 +4255,16 @@ class HeaderBlock extends StatelessWidget {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .14),
+                      color: const Color(0xFFEFF8FF),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: Colors.white.withValues(alpha: .16),
+                        color: const Color(0xFFB2DDFF),
                       ),
                     ),
                     child: const Text(
                       'CEO',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: kPrimary,
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
                       ),
@@ -4312,7 +4281,7 @@ class HeaderBlock extends StatelessWidget {
                   fontSize: compact ? 22 : 26,
                   fontWeight: FontWeight.w900,
                   height: 1.04,
-                  color: Colors.white,
+                  color: kText,
                 ),
               ),
               const SizedBox(height: 8),
@@ -4321,7 +4290,7 @@ class HeaderBlock extends StatelessWidget {
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: Color(0xDDFFFFFF),
+                  color: kMuted,
                   height: 1.35,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,

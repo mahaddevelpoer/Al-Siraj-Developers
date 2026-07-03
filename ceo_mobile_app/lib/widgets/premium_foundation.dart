@@ -9,15 +9,70 @@ class PremiumBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DecoratedBox(
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: kBg,
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -120,
+            left: -90,
+            child: _SoftField(
+              size: 260,
+              color: Color(0xFFDBEAFE),
+            ),
+          ),
+          Positioned(
+            right: -110,
+            top: 130,
+            child: _SoftField(
+              size: 230,
+              color: Color(0xFFD1FAE5),
+            ),
+          ),
+          Positioned(
+            left: 18,
+            right: 18,
+            bottom: 80,
+            child: Container(
+              height: 180,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(44),
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.white.withValues(alpha: .62),
+                    Colors.white.withValues(alpha: .08),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SoftField extends StatelessWidget {
+  const _SoftField({required this.size, required this.color});
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFF9FAFF), kBg],
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            color.withValues(alpha: .70),
+            color.withValues(alpha: .0),
+          ],
         ),
       ),
-      child: SizedBox.expand(),
     );
   }
 }
@@ -38,7 +93,7 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lean = prefersLeanMotion(context);
-    final radius = 18.0 * responsiveScale(context);
+    final radius = 20.0 * responsiveScale(context);
     final card = PressableScale(
       onTap: onTap,
       child: RepaintBoundary(
@@ -47,16 +102,21 @@ class GlassCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: kSurface,
             borderRadius: BorderRadius.circular(
-              radius.clamp(14, 20).toDouble(),
+              radius.clamp(16, 24).toDouble(),
             ),
-            border: Border.all(color: kBorder),
+            border: Border.all(color: Colors.white.withValues(alpha: .78)),
             boxShadow: lean
                 ? const []
                 : [
                     BoxShadow(
-                      color: kPrimary.withValues(alpha: .055),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
+                      color: const Color(0xFF101828).withValues(alpha: .07),
+                      blurRadius: 22,
+                      offset: const Offset(0, 12),
+                    ),
+                    BoxShadow(
+                      color: kPrimary.withValues(alpha: .045),
+                      blurRadius: 36,
+                      offset: const Offset(0, 18),
                     ),
                   ],
           ),
