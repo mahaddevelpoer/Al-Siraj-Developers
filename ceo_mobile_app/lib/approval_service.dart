@@ -9,17 +9,19 @@ String normalizeReviewStatus(dynamic status) {
 }
 
 DateTime _dateOf(Map<String, dynamic> row) {
+  final requestedData = safeMapFromAny(row['requested_data']);
   final value = row['created_at'] ??
       row['date'] ??
       row['Date'] ??
-      row['requested_data']?['date'];
+      requestedData['date'] ??
+      requestedData['Date'];
   return DateTime.tryParse('$value') ??
       DateTime.fromMillisecondsSinceEpoch(0);
 }
 
 Future<List<Map<String, dynamic>>> _safeSelectRows(
   Future<dynamic> Function() loader, {
-  Duration timeout = const Duration(seconds: 3),
+  Duration timeout = const Duration(seconds: 2),
 }) async {
   try {
     final data = await loader().timeout(timeout);
@@ -32,7 +34,6 @@ Future<List<Map<String, dynamic>>> _safeSelectRows(
 Future<List<Map<String, dynamic>>> _loadAppealRows(
   SupabaseClient supabase,
   int limit,
-  String status,
 ) async {
   final rows = await _safeSelectRows(
     () => supabase
@@ -40,9 +41,8 @@ Future<List<Map<String, dynamic>>> _loadAppealRows(
         .select(
           'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id,reason',
         )
-        .eq('status', status)
         .order('created_at', ascending: false)
-        .limit(limit),
+        .limit(limit * 3),
   );
   if (rows.isNotEmpty) return rows;
   return _safeSelectRows(
@@ -51,14 +51,13 @@ Future<List<Map<String, dynamic>>> _loadAppealRows(
         .select(
           'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id,reason',
         )
-        .limit(limit * 2),
+        .limit(limit * 3),
   );
 }
 
 Future<List<Map<String, dynamic>>> _loadDailyEntryRows(
   SupabaseClient supabase,
   int limit,
-  String status,
 ) async {
   final rows = await _safeSelectRows(
     () => supabase
@@ -66,9 +65,8 @@ Future<List<Map<String, dynamic>>> _loadDailyEntryRows(
         .select(
           'id,entry_id,date,type,amount,town_name,review_status,created_at,description,category,account_type,time',
         )
-        .eq('review_status', status)
         .order('created_at', ascending: false)
-        .limit(limit),
+        .limit(limit * 3),
   );
   if (rows.isNotEmpty) return rows;
   return _safeSelectRows(
@@ -77,7 +75,7 @@ Future<List<Map<String, dynamic>>> _loadDailyEntryRows(
         .select(
           'id,entry_id,date,type,amount,town_name,review_status,created_at,description,category,account_type,time',
         )
-        .limit(limit * 2),
+        .limit(limit * 3),
   );
 }
 
@@ -87,8 +85,18 @@ Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
   required int limit,
 }) async {
   final activeFilter = normalizeReviewStatus(filter);
-  final appealRows = await _loadAppealRows(supabase, limit, activeFilter);
-  final entryRows = await _loadDailyEntryRows(supabase, limit, activeFilter);
+  final results = await Future.wait<List<Map<String, dynamic>>>([
+    _loadAppealRows(supabase, limit),
+    _loadDailyEntryRows(supabase, limit),
+  ]).timeout(
+    const Duration(seconds: 5),
+    onTimeout: () => const [
+      <Map<String, dynamic>>[],
+      <Map<String, dynamic>>[],
+    ],
+  );
+  final appealRows = results[0];
+  final entryRows = results[1];
 
   final rows = <Map<String, dynamic>>[
     ...appealRows.map(

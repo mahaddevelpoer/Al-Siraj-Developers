@@ -34,7 +34,7 @@ final appNavigatorKey = GlobalKey<NavigatorState>();
 final selectedTabNotifier = ValueNotifier<int>(0);
 final liveRefreshNotifier = ValueNotifier<int>(0);
 final appStartedAt = DateTime.now();
-const startupSplashDuration = Duration.zero;
+const startupSplashDuration = Duration(milliseconds: 900);
 const reviewListLimit = 60;
 Future<void>? _firebaseStartupFuture;
 
@@ -477,7 +477,9 @@ class _StartupSplashGateState extends State<StartupSplashGate> {
   @override
   void initState() {
     super.initState();
-    _done = true;
+    _timer = Timer(startupSplashDuration, () {
+      if (mounted) setState(() => _done = true);
+    });
   }
 
   @override
@@ -489,7 +491,7 @@ class _StartupSplashGateState extends State<StartupSplashGate> {
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: Duration.zero,
+      duration: const Duration(milliseconds: 160),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       child: _done ? const AuthGate() : const StartupSplashScreen(),
