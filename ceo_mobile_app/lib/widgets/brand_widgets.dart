@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-const _brandText = Color(0xFF1A1D2E);
-const _brandMuted = Color(0xFF8A94A6);
+import '../app_theme.dart';
 
 class StartupSplashScreen extends StatelessWidget {
   const StartupSplashScreen({super.key});
@@ -29,7 +28,7 @@ class StartupSplashScreen extends StatelessWidget {
                       'AL SIRAJ DEVELOPERS',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: _brandText,
+                        color: kText,
                         fontSize: 22,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0,
@@ -39,7 +38,7 @@ class StartupSplashScreen extends StatelessWidget {
                     Text(
                       'CEO command center',
                       style: TextStyle(
-                        color: _brandMuted,
+                        color: kMuted,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
