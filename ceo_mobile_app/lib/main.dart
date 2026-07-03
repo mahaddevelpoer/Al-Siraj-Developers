@@ -40,6 +40,9 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  ErrorWidget.builder = (details) => SafeFlutterErrorScreen(
+    message: friendlyDbError(details.exception),
+  );
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
   };
@@ -126,6 +129,79 @@ class StartupFailureApp extends StatelessWidget {
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class SafeFlutterErrorScreen extends StatelessWidget {
+  const SafeFlutterErrorScreen({super.key, required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Material(
+        color: kBg,
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final maxWidth = constraints.maxWidth.clamp(240.0, 520.0);
+              return Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(18),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxWidth),
+                    child: Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: const Color(0xFFFECACA)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: .08),
+                            blurRadius: 24,
+                            offset: const Offset(0, 12),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const AppBrandMark(size: 64),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Screen needs refresh',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: kText,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            breakLongText(message),
+                            textAlign: TextAlign.center,
+                            softWrap: true,
+                            style: const TextStyle(
+                              color: Color(0xFF991B1B),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -434,10 +510,7 @@ class StartupSplashScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Hero(
-                      tag: 'app-brand-mark',
-                      child: const AppBrandMark(size: 96),
-                    ),
+                    const AppBrandMark(size: 96),
                     const SizedBox(height: 18),
                     const Text(
                       'AL SIRAJ DEVELOPERS',
@@ -673,10 +746,7 @@ class LoginHeroCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Hero(
-                      tag: 'app-brand-mark',
-                      child: AppBrandMark(size: 58),
-                    ),
+                    const AppBrandMark(size: 58),
                     const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -4331,9 +4401,7 @@ class HeaderBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 370;
-    return Hero(
-          tag: 'header-$title',
-          child: Material(
+    return Material(
             color: Colors.transparent,
             child: Padding(
               padding: const EdgeInsets.only(bottom: 18),
