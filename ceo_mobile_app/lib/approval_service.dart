@@ -2,10 +2,28 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'approval_helpers.dart';
 
+final Map<String, List<Map<String, dynamic>>> _approvalRowsCache = {};
+
 String normalizeReviewStatus(dynamic status) {
   final clean = '${status ?? 'pending'}'.trim().toLowerCase();
   if (clean == 'approved' || clean == 'rejected') return clean;
   return 'pending';
+}
+
+String _cacheKey(String filter, int limit) =>
+    '${normalizeReviewStatus(filter)}:$limit';
+
+List<Map<String, dynamic>> cachedApprovalReviewRows({
+  required String filter,
+  required int limit,
+}) {
+  return List<Map<String, dynamic>>.from(
+    _approvalRowsCache[_cacheKey(filter, limit)] ?? const [],
+  );
+}
+
+void clearApprovalReviewCache() {
+  _approvalRowsCache.clear();
 }
 
 DateTime _dateOf(Map<String, dynamic> row) {
@@ -21,7 +39,7 @@ DateTime _dateOf(Map<String, dynamic> row) {
 
 Future<List<Map<String, dynamic>>> _safeSelectRows(
   Future<dynamic> Function() loader, {
-  Duration timeout = const Duration(seconds: 2),
+  Duration timeout = const Duration(seconds: 8),
 }) async {
   try {
     final data = await loader().timeout(timeout);
@@ -85,16 +103,17 @@ Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
   required int limit,
 }) async {
   final activeFilter = normalizeReviewStatus(filter);
+  final cached = cachedApprovalReviewRows(filter: activeFilter, limit: limit);
   final results = await Future.wait<List<Map<String, dynamic>>>([
-    _loadAppealRows(supabase, limit),
-    _loadDailyEntryRows(supabase, limit),
-  ]).timeout(
-    const Duration(seconds: 5),
-    onTimeout: () => const [
-      <Map<String, dynamic>>[],
-      <Map<String, dynamic>>[],
-    ],
-  );
+    _loadAppealRows(supabase, limit).timeout(
+      const Duration(seconds: 8),
+      onTimeout: () => const <Map<String, dynamic>>[],
+    ),
+    _loadDailyEntryRows(supabase, limit).timeout(
+      const Duration(seconds: 8),
+      onTimeout: () => const <Map<String, dynamic>>[],
+    ),
+  ]);
   final appealRows = results[0];
   final entryRows = results[1];
 
@@ -117,10 +136,15 @@ Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
 
   final seen = <String>{};
   rows.sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
-  return rows.where((row) {
+  final cleanRows = rows.where((row) {
     final prefix = isDailyReviewItem(row) ? 'entry' : 'appeal';
     return seen.add(
       '$prefix-${row['id'] ?? row['entry_id'] ?? safeRowValue(row, 'Entry_ID')}',
     );
   }).take(limit).toList();
+  if (cleanRows.isNotEmpty) {
+    _approvalRowsCache[_cacheKey(activeFilter, limit)] = cleanRows;
+    return cleanRows;
+  }
+  return cached;
 }

@@ -36,7 +36,7 @@ final appNavigatorKey = GlobalKey<NavigatorState>();
 final selectedTabNotifier = ValueNotifier<int>(0);
 final liveRefreshNotifier = ValueNotifier<int>(0);
 final appStartedAt = DateTime.now();
-const startupSplashDuration = Duration(milliseconds: 900);
+const startupSplashDuration = Duration.zero;
 const reviewListLimit = 40;
 Future<void>? _firebaseStartupFuture;
 
@@ -465,15 +465,18 @@ class StartupSplashGate extends StatefulWidget {
 }
 
 class _StartupSplashGateState extends State<StartupSplashGate> {
-  bool _done = false;
+  bool _done = true;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer(startupSplashDuration, () {
-      if (mounted) setState(() => _done = true);
-    });
+    if (startupSplashDuration.inMilliseconds > 0) {
+      _done = false;
+      _timer = Timer(startupSplashDuration, () {
+        if (mounted) setState(() => _done = true);
+      });
+    }
   }
 
   @override
@@ -485,7 +488,7 @@ class _StartupSplashGateState extends State<StartupSplashGate> {
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 160),
+      duration: Duration.zero,
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       child: _done ? const AuthGate() : const StartupSplashScreen(),
@@ -1546,7 +1549,7 @@ Future<List<Map<String, dynamic>>> safeSelectRows(
   Future<dynamic> Function() loader,
 ) async {
   try {
-    final data = await loader();
+    final data = await loader().timeout(const Duration(seconds: 4));
     return List<Map<String, dynamic>>.from(data);
   } catch (_) {
     return const <Map<String, dynamic>>[];
@@ -1558,7 +1561,7 @@ Future<List<Map<String, dynamic>>> resilientSelectRows(
   Future<dynamic> Function() fallback,
 ) async {
   try {
-    final data = await primary();
+    final data = await primary().timeout(const Duration(seconds: 4));
     return List<Map<String, dynamic>>.from(data);
   } catch (_) {
     return safeSelectRows(fallback);
@@ -2996,6 +2999,10 @@ class _AppealsPageState extends State<AppealsPage> {
   @override
   void initState() {
     super.initState();
+    _items = cachedApprovalReviewRows(
+      filter: _filter,
+      limit: reviewListLimit,
+    );
     _future = _load();
     liveRefreshNotifier.addListener(_handleLiveRefresh);
   }
@@ -3031,9 +3038,6 @@ class _AppealsPageState extends State<AppealsPage> {
       supabase,
       filter: filter ?? _filter,
       limit: reviewListLimit,
-    ).timeout(
-      const Duration(seconds: 6),
-      onTimeout: () => const <Map<String, dynamic>>[],
     );
   }
 
@@ -3075,6 +3079,7 @@ class _AppealsPageState extends State<AppealsPage> {
         'ceo_review_appeal',
         params: {'appeal_id': id, 'new_status': status},
       );
+      clearApprovalReviewCache();
       _badgeCountCache.clear();
       _townPulsesCache.clear();
       liveRefreshNotifier.value++;
@@ -3172,9 +3177,7 @@ class _AppealsPageState extends State<AppealsPage> {
       future: _future,
       builder: (context, snap) {
         final currentError = snap.hasError ? friendlyDbError(snap.error!) : _error;
-        if (snap.connectionState == ConnectionState.done &&
-            snap.hasData &&
-            _items == null) {
+        if (snap.connectionState == ConnectionState.done && snap.hasData) {
           _items = snap.data;
         }
         final isFreshLoading =
@@ -3200,7 +3203,10 @@ class _AppealsPageState extends State<AppealsPage> {
                   final future = _load(next);
                   setState(() {
                     _filter = next;
-                    _items = null;
+                    _items = cachedApprovalReviewRows(
+                      filter: next,
+                      limit: reviewListLimit,
+                    );
                     _error = null;
                     _future = future;
                   });
@@ -3261,6 +3267,10 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
   @override
   void initState() {
     super.initState();
+    _items = cachedApprovalReviewRows(
+      filter: _filter,
+      limit: reviewListLimit,
+    ).where(isDailyReviewItem).toList();
     _future = _load();
     liveRefreshNotifier.addListener(_handleLiveRefresh);
   }
@@ -3293,16 +3303,12 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
 
   Future<List<Map<String, dynamic>>> _load([String? filter]) async {
     final activeFilter = filter ?? _filter;
-    final query = supabase.from('daily_entries').select('*');
-    final data = await query
-        .eq('review_status', activeFilter)
-        .order('created_at', ascending: false)
-        .limit(reviewListLimit)
-        .timeout(const Duration(seconds: 8));
-    final rows = List<Map<String, dynamic>>.from(data)
-        .where(
-          (row) => reviewStatusOf(row) == activeFilter,
-        )
+    final rows = (await loadApprovalReviewRows(
+      supabase,
+      filter: activeFilter,
+      limit: reviewListLimit,
+    ))
+        .where(isDailyReviewItem)
         .toList();
     rows.sort((a, b) {
       final bDate = '${rowVal(b, 'Date') ?? rowVal(b, 'created_at') ?? ''}';
@@ -3355,6 +3361,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
       } else {
         throw Exception('Entry id missing in cloud row');
       }
+      clearApprovalReviewCache();
       _badgeCountCache.clear();
       _townPulsesCache.clear();
       liveRefreshNotifier.value++;
@@ -3389,9 +3396,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.done &&
-            snap.hasData &&
-            _items == null) {
+        if (snap.connectionState == ConnectionState.done && snap.hasData) {
           _items = snap.data;
         }
         final isFreshLoading =
@@ -3418,7 +3423,10 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
                   final future = _load(next);
                   setState(() {
                     _filter = next;
-                    _items = null;
+                    _items = cachedApprovalReviewRows(
+                      filter: next,
+                      limit: reviewListLimit,
+                    ).where(isDailyReviewItem).toList();
                     _error = null;
                     _future = future;
                   });
