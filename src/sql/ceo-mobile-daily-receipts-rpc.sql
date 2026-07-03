@@ -6,6 +6,8 @@ ALTER TABLE IF EXISTS public.daily_entries
   ADD COLUMN IF NOT EXISTS account_type text,
   ADD COLUMN IF NOT EXISTS time text;
 
+DROP FUNCTION IF EXISTS public.ceo_mobile_daily_receipt_rows(date);
+
 CREATE OR REPLACE FUNCTION public.ceo_mobile_daily_receipt_rows(
   p_report_date date DEFAULT CURRENT_DATE
 )
@@ -19,7 +21,7 @@ RETURNS TABLE (
   amount numeric,
   description text,
   account_type text,
-  time text,
+  entry_time text,
   review_status text,
   created_at timestamptz
 )
@@ -51,7 +53,7 @@ BEGIN
     d."Amount"::numeric AS amount,
     d."Description"::text AS description,
     d.account_type::text AS account_type,
-    d.time::text AS time,
+    d."time"::text AS entry_time,
     coalesce(d.review_status, 'approved')::text AS review_status,
     d.created_at
   FROM public.daily_entries d
