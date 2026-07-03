@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui';
+import 'dart:ui' as ui;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -143,7 +143,7 @@ class SafeFlutterErrorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Directionality(
-      textDirection: TextDirection.ltr,
+      textDirection: ui.TextDirection.ltr,
       child: Material(
         color: kBg,
         child: SafeArea(
@@ -425,11 +425,11 @@ class SmoothAppScrollBehavior extends MaterialScrollBehavior {
   }
 
   @override
-  Set<PointerDeviceKind> get dragDevices => {
-    PointerDeviceKind.touch,
-    PointerDeviceKind.mouse,
-    PointerDeviceKind.trackpad,
-    PointerDeviceKind.stylus,
+  Set<ui.PointerDeviceKind> get dragDevices => {
+    ui.PointerDeviceKind.touch,
+    ui.PointerDeviceKind.mouse,
+    ui.PointerDeviceKind.trackpad,
+    ui.PointerDeviceKind.stylus,
   };
 }
 
@@ -4402,102 +4402,101 @@ class HeaderBlock extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 370;
     return Material(
-            color: Colors.transparent,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 18),
-              child: Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(compact ? 18 : 22),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(30),
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFF101C3D),
-                      Color(0xFF2563EB),
-                      Color(0xFF00A889),
-                    ],
+      color: Colors.transparent,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 18),
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(compact ? 18 : 22),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(30),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFF101C3D),
+                Color(0xFF2563EB),
+                Color(0xFF00A889),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF2563EB).withValues(alpha: .22),
+                blurRadius: 34,
+                offset: const Offset(0, 16),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .18),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: .22),
+                      ),
+                    ),
+                    child: Icon(icon, color: Colors.white),
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF2563EB).withValues(alpha: .22),
-                      blurRadius: 34,
-                      offset: const Offset(0, 16),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
                     ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: .18),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: .22),
-                            ),
-                          ),
-                          child: Icon(icon, color: Colors.white),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 7,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: .14),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: .16),
-                            ),
-                          ),
-                          child: const Text(
-                            'CEO',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      ],
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .14),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: .16),
+                      ),
                     ),
-                    const SizedBox(height: 18),
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.inter(
-                        fontSize: compact ? 25 : 30,
-                        fontWeight: FontWeight.w900,
-                        height: 1.02,
+                    child: const Text(
+                      'CEO',
+                      style: TextStyle(
                         color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      subtitle,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xDDFFFFFF),
-                        height: 1.45,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: compact ? 25 : 30,
+                  fontWeight: FontWeight.w900,
+                  height: 1.02,
+                  color: Colors.white,
                 ),
               ),
-            ),
+              const SizedBox(height: 10),
+              Text(
+                subtitle,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xDDFFFFFF),
+                  height: 1.45,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
-        )
+        ),
+      ),
+    )
         .animate()
         .fadeIn(duration: 420.ms)
         .slideY(begin: .12, curve: Curves.easeOutCubic);
