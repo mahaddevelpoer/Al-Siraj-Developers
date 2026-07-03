@@ -63,6 +63,30 @@ let forceQuit = false;
 let backgroundBackupInFlight = false;
 let lastDailyStorageBackupDate = '';
 
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+  app.quit();
+}
+
+function showExistingWindow() {
+  const target = activeWindow && !activeWindow.isDestroyed()
+    ? activeWindow
+    : launcherWindow && !launcherWindow.isDestroyed()
+      ? launcherWindow
+      : null;
+  if (target) {
+    if (target.isMinimized()) target.restore();
+    target.show();
+    target.focus();
+    return true;
+  }
+  return false;
+}
+
+app.on('second-instance', () => {
+  if (!showExistingWindow()) openInitialWindow();
+});
+
 function isTestBuildExpired() {
   if (!buildMeta || buildMeta.channel !== 'test' || !buildMeta.expiresAt) return false;
   const expiryTime = new Date(buildMeta.expiresAt).getTime();
@@ -329,15 +353,14 @@ function createTray() {
     return;
   }
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show Zameen Khata', click: () => { if (activeWindow) { activeWindow.show(); activeWindow.focus(); } else { openInitialWindow(); } } },
+    { label: 'Show Zameen Khata', click: () => { if (!showExistingWindow()) openInitialWindow(); } },
     { type: 'separator' },
     { label: 'Quit', click: () => { forceQuit = true; app.quit(); } }
   ]);
   tray.setToolTip('AL SIRAJ DEVELOPERS ERP');
   tray.setContextMenu(contextMenu);
   tray.on('double-click', () => {
-    if (activeWindow) { activeWindow.show(); activeWindow.focus(); }
-    else { openInitialWindow(); }
+    if (!showExistingWindow()) openInitialWindow();
   });
 }
 

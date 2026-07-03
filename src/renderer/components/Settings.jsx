@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { getSoundSettings, saveSoundSettings, playClick, playSuccess, playFailed, playWarning, playNotify } from '../services/soundService';
 
 export default function Settings({ onClose }) {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -10,6 +11,7 @@ export default function Settings({ onClose }) {
   const [dailySettings, setDailySettings] = useState(null);
   const [dailySaving, setDailySaving] = useState(false);
   const [dailyGenerating, setDailyGenerating] = useState(false);
+  const [soundSettings, setSoundSettings] = useState(() => getSoundSettings());
 
   useEffect(() => {
     if (window.api?.onSyncProgress) {
@@ -18,6 +20,7 @@ export default function Settings({ onClose }) {
         setSyncMsg(msg);
         if (percent >= 100) {
           toast.success('Sync complete! Data updated without reload.');
+          playSuccess();
           setIsSyncing(false);
         }
       });
@@ -49,12 +52,14 @@ export default function Settings({ onClose }) {
       setSyncProgress(0);
       setSyncMsg('Starting sync...');
       toast.info('Cloud Sync Started');
+      playNotify();
       
       const result = await window.api.syncFromCloud();
       
       if (result?.error) throw new Error(result.error);
     } catch (e) {
       toast.error('Sync failed: ' + e.message);
+      playFailed();
       setIsSyncing(false);
     }
   };
@@ -65,10 +70,27 @@ export default function Settings({ onClose }) {
       const result = await window.api?.runBusinessAudit?.();
       if (result?.error) throw new Error(result.error);
       setAuditResult(result);
-      if ((result?.issueCount || 0) > 0) toast.warning(`System audit found ${result.issueCount} issue(s)`);
-      else toast.success('System audit passed with no issues');
+      if ((result?.issueCount || 0) > 0) { toast.warning(`System audit found ${result.issueCount} issue(s)`); playWarning(); }
+      else { toast.success('System audit passed with no issues'); playSuccess(); }
     } catch (e) {
       toast.error('System audit failed: ' + e.message);
+      playFailed();
+    } finally {
+      setAuditBusy(false);
+    }
+  };
+
+  const handleRunHandoverAudit = async () => {
+    try {
+      setAuditBusy(true);
+      const result = await window.api?.runHandoverAudit?.();
+      if (result?.error) throw new Error(result.error);
+      setAuditResult(result);
+      if ((result?.issueCount || 0) > 0) { toast.warning(`Handover audit found ${result.issueCount} issue(s)`); playWarning(); }
+      else { toast.success('Handover audit passed with no issues'); playSuccess(); }
+    } catch (e) {
+      toast.error('Handover audit failed: ' + e.message);
+      playFailed();
     } finally {
       setAuditBusy(false);
     }
@@ -81,8 +103,10 @@ export default function Settings({ onClose }) {
       if (result?.error) throw new Error(result.error);
       setDailySettings(result);
       toast.success('Daily CEO report settings saved');
+      playSuccess();
     } catch (e) {
       toast.error('Daily report settings failed: ' + e.message);
+      playFailed();
     } finally {
       setDailySaving(false);
     }
@@ -97,8 +121,10 @@ export default function Settings({ onClose }) {
       const refreshed = await window.api?.getDailyReportSettings?.();
       if (refreshed && !refreshed.error) setDailySettings(refreshed);
       toast.success('Daily reports generated and CEO notification queued');
+      playNotify();
     } catch (e) {
       toast.error('Daily report generation failed: ' + e.message);
+      playFailed();
     } finally {
       setDailyGenerating(false);
     }
@@ -106,6 +132,12 @@ export default function Settings({ onClose }) {
 
   const patchDailySettings = (patch) => {
     setDailySettings((prev) => ({ ...(prev || {}), ...patch }));
+  };
+
+  const patchSoundSettings = (patch) => {
+    const next = saveSoundSettings(patch);
+    setSoundSettings(next);
+    if (patch.enabled !== false) playClick();
   };
 
   return (
@@ -184,6 +216,9 @@ export default function Settings({ onClose }) {
             <button onClick={handleRunAudit} className="btn btn-primary" disabled={auditBusy}>
               {auditBusy ? 'Running Audit...' : 'Run System Audit'}
             </button>
+            <button onClick={handleRunHandoverAudit} className="btn btn-ghost" disabled={auditBusy}>
+              Handover Audit
+            </button>
             {auditResult?.outPath && (
               <button onClick={() => window.api?.openReportFile?.(auditResult.outPath)} className="btn btn-ghost">
                 Open Audit Report
@@ -231,6 +266,50 @@ export default function Settings({ onClose }) {
               {dailyGenerating ? 'Generating...' : 'Generate Now / Resend'}
             </button>
           </div>
+        </div>
+
+        <div style={{
+          padding: 16, borderRadius: 12, background: 'rgba(15,23,42,0.04)',
+          border: '1px solid rgba(15,23,42,0.12)', marginBottom: 24,
+        }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color: '#0f172a', marginBottom: 6 }}>
+            Professional Sound Effects
+          </div>
+          <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.55, marginBottom: 12 }}>
+            Subtle sounds for saves, failures, approvals, receipts, sync alerts and important bell notifications.
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
+            <input
+              type="checkbox"
+              checked={soundSettings.enabled !== false}
+              onChange={(e) => patchSoundSettings({ enabled: e.target.checked })}
+            />
+            Enable sound effects
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px', gap: 12, alignItems: 'center' }}>
+            <input
+              type="range"
+              min="0"
+              max="0.45"
+              step="0.01"
+              value={soundSettings.volume ?? 0.22}
+              disabled={soundSettings.enabled === false}
+              onChange={(e) => patchSoundSettings({ volume: Number(e.target.value) })}
+            />
+            <strong style={{ fontSize: 12 }}>{Math.round((soundSettings.volume ?? 0.22) * 100)}%</strong>
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ marginTop: 12 }}
+            onClick={() => {
+              playSuccess();
+              toast.success('Sound test played');
+            }}
+            disabled={soundSettings.enabled === false}
+          >
+            Test Sound
+          </button>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>

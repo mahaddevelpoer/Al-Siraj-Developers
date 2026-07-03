@@ -22,6 +22,7 @@ import { LanguageProvider } from './LanguageContext';
 import { useAuth } from './contexts/AuthContext';
 import { supabase } from './lib/supabase';
 import { BellIcon } from './components/Icons';
+import { playForToast, playNotify, playWarning } from './services/soundService';
 
 const PAGE_TITLES = {
   dashboard: 'Dashboard', addTown: 'Add Town', addProperty: 'Add Plot / Shop',
@@ -277,6 +278,11 @@ function playSynthSfx(type = 'info') {
 }
 
 function playNotificationChime(type = 'info') {
+  if (type === 'error') return playForToast('error');
+  if (type === 'warning' || type === 'validation') return playWarning();
+  if (type === 'success') return playForToast('success');
+  playNotify();
+  return;
   if (playCachedSfx(type)) return;
   playSynthSfx(type);
 }

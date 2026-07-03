@@ -20,6 +20,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import 'approval_helpers.dart';
+import 'approval_service.dart';
 import 'app_performance.dart';
 
 const supabaseUrl = 'https://wdislbdftnwmaexqtfmn.supabase.co';
@@ -3313,60 +3314,11 @@ class _AppealsPageState extends State<AppealsPage> {
   }
 
   Future<List<Map<String, dynamic>>> _load([String? filter]) async {
-    final activeFilter = filter ?? _filter;
-    final results = await Future.wait<List<Map<String, dynamic>>>([
-      safeSelectRows(
-        () => supabase
-            .from('appeals')
-            .select(
-              'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id,reason',
-            )
-            .not('appeal_type', 'eq', 'agent_registration')
-            .eq('status', activeFilter)
-            .order('created_at', ascending: false)
-            .limit(reviewListLimit)
-            .timeout(const Duration(seconds: 8)),
-      ),
-      safeSelectRows(
-        () => supabase
-            .from('daily_entries')
-            .select('*')
-            .eq('review_status', activeFilter)
-            .order('created_at', ascending: false)
-            .limit(reviewListLimit)
-            .timeout(const Duration(seconds: 8)),
-      ),
-    ]);
-    var rows = [
-      ...results[0].map(
-        (row) => {
-          ...normalizeAppealReviewRow(row),
-          'status': normalizeStatus(row['status']),
-        },
-      ),
-      ...results[1].map(
-        (row) => {
-          ...normalizeDailyEntryReviewRow(row),
-          'status': reviewStatusOf(row),
-        },
-      ),
-    ];
-
-    rows = rows
-        .where((row) => row['status'] == activeFilter)
-        .toList();
-    final seen = <String>{};
-    rows.sort((a, b) {
-      final aDate = parseAnyDate(a['created_at'] ?? rowVal(a, 'Date')) ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      final bDate = parseAnyDate(b['created_at'] ?? rowVal(b, 'Date')) ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      return bDate.compareTo(aDate);
-    });
-    return rows.where((row) {
-      final prefix = isDailyReviewItem(row) ? 'entry' : 'appeal';
-      return seen.add('$prefix-${row['id'] ?? row['entry_id'] ?? rowVal(row, 'Entry_ID')}');
-    }).toList();
+    return loadApprovalReviewRows(
+      supabase,
+      filter: filter ?? _filter,
+      limit: reviewListLimit,
+    );
   }
 
   Future<void> _refresh() async {
