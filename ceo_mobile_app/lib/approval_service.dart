@@ -51,6 +51,7 @@ Future<List<Map<String, dynamic>>> _safeSelectRows(
 
 Future<List<Map<String, dynamic>>> _loadAppealRows(
   SupabaseClient supabase,
+  String filter,
   int limit,
 ) async {
   final rows = await _safeSelectRows(
@@ -59,17 +60,21 @@ Future<List<Map<String, dynamic>>> _loadAppealRows(
         .select(
           'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id,reason',
         )
+        .eq('status', normalizeReviewStatus(filter))
         .order('created_at', ascending: false)
         .limit(limit * 3),
   );
   if (rows.isNotEmpty) return rows;
-  return _safeSelectRows(
+  final rawStatusRows = await _safeSelectRows(
     () => supabase
         .from('appeals')
-        .select(
-          'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id,reason',
-        )
+        .select('*')
+        .eq('status', normalizeReviewStatus(filter))
         .limit(limit * 3),
+  );
+  if (rawStatusRows.isNotEmpty) return rawStatusRows;
+  return _safeSelectRows(
+    () => supabase.from('appeals').select('*').limit(limit * 3),
   );
 }
 
@@ -81,19 +86,14 @@ Future<List<Map<String, dynamic>>> _loadDailyEntryRows(
     () => supabase
         .from('daily_entries')
         .select(
-          'id,entry_id,date,type,amount,town_name,review_status,created_at,description,category,account_type,time',
+          'id,entry_id,date,type,amount,town_name,review_status,created_at,description,category,account_type',
         )
         .order('created_at', ascending: false)
         .limit(limit * 3),
   );
   if (rows.isNotEmpty) return rows;
   return _safeSelectRows(
-    () => supabase
-        .from('daily_entries')
-        .select(
-          'id,entry_id,date,type,amount,town_name,review_status,created_at,description,category,account_type,time',
-        )
-        .limit(limit * 3),
+    () => supabase.from('daily_entries').select('*').limit(limit * 3),
   );
 }
 
@@ -165,7 +165,7 @@ Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
   }
 
   final results = await Future.wait<List<Map<String, dynamic>>>([
-    _loadAppealRows(supabase, limit).timeout(
+    _loadAppealRows(supabase, activeFilter, limit).timeout(
       const Duration(seconds: 8),
       onTimeout: () => const <Map<String, dynamic>>[],
     ),
