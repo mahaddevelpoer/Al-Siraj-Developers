@@ -132,29 +132,40 @@ class CeoRepository {
         _safeRows(
           () => supabase
               .from('appeals')
-              .select('*')
-              .eq('status', status)
+              .select('*, requested_by_user_id(*)')
               .order('created_at', ascending: false)
-              .limit(reviewLimit),
+              .limit(reviewLimit * 4),
+          timeout: const Duration(seconds: 5),
+        ),
+        _safeRows(
+          () => supabase
+              .from('appeals')
+              .select('*')
+              .order('created_at', ascending: false)
+              .limit(reviewLimit * 4),
           timeout: const Duration(seconds: 5),
         ),
         _safeRows(
           () => supabase
               .from('daily_entries')
               .select('*')
-              .eq('review_status', status)
               .order('created_at', ascending: false)
-              .limit(reviewLimit),
+              .limit(reviewLimit * 4),
           timeout: const Duration(seconds: 5),
         ),
       ]).timeout(const Duration(seconds: 7));
     } catch (_) {
-      results = const [<Map<String, dynamic>>[], <Map<String, dynamic>>[]];
+      results = const [
+        <Map<String, dynamic>>[],
+        <Map<String, dynamic>>[],
+        <Map<String, dynamic>>[],
+      ];
     }
 
+    final appealRows = results[0].isNotEmpty ? results[0] : results[1];
     final directItems = _normalizeReviewRows([
-      ...results[0].map((row) => {...row, 'review_kind': 'appeal'}),
-      ...results[1].map((row) => {...row, 'review_kind': 'dailyEntry'}),
+      ...appealRows.map((row) => {...row, 'review_kind': 'appeal'}),
+      ...results[2].map((row) => {...row, 'review_kind': 'dailyEntry'}),
     ], status);
     if (directItems.isNotEmpty) return directItems;
 
@@ -183,9 +194,9 @@ class CeoRepository {
       if (id.isEmpty) continue;
       final key = '${isDaily ? 'entry' : 'appeal'}:$id';
       if (!seen.add(key)) continue;
-      final itemStatus = normalizeStatus(
-        isDaily ? row['review_status'] ?? row['status'] : row['status'],
-      );
+      final rawStatus = isDaily ? row['review_status'] ?? row['status'] : row['status'];
+      if (isDaily && textOf(rawStatus).isEmpty) continue;
+      final itemStatus = normalizeStatus(rawStatus);
       if (itemStatus != status) continue;
       final town = isDaily
           ? textOf(row['town_name'] ?? rowValue(row, 'Town_Name') ?? data['town_name'], 'No town')
