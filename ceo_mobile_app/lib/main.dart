@@ -2854,31 +2854,30 @@ class _AppealsPageState extends State<AppealsPage> {
                 const LoadingStateBlock(
                   text: 'Loading approval inbox from secure cloud...',
                 ),
-              for (var i = 0; i < rows.length; i++)
-                AnimatedEntry(
-                  index: i,
-                  child: AppealInfoCard(
-                    row: rows[i],
-                    actions: [
-                      if (_filter == 'pending') ...[
-                        OutlinedButton.icon(
-                          onPressed: _reviewing
-                              ? null
-                              : () => _reviewRow(rows[i], 'rejected'),
-                          icon: const Icon(Icons.close),
-                          label: const Text('Reject'),
-                        ),
-                        FilledButton.icon(
-                          onPressed: _reviewing
-                              ? null
-                              : () => _reviewRow(rows[i], 'approved'),
-                          icon: const Icon(Icons.check),
-                          label: const Text('Approve'),
-                        ),
-                      ],
+              ReviewRowsList(
+                rows: rows,
+                itemBuilder: (context, row, index) => AppealInfoCard(
+                  row: row,
+                  actions: [
+                    if (_filter == 'pending') ...[
+                      OutlinedButton.icon(
+                        onPressed: _reviewing
+                            ? null
+                            : () => _reviewRow(row, 'rejected'),
+                        icon: const Icon(Icons.close),
+                        label: const Text('Reject'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _reviewing
+                            ? null
+                            : () => _reviewRow(row, 'approved'),
+                        icon: const Icon(Icons.check),
+                        label: const Text('Approve'),
+                      ),
                     ],
-                  ),
+                  ],
                 ),
+              ),
               if (!_loading && rows.isEmpty && _error == null)
                 EmptyBlock(text: 'No $_filter appeals.'),
             ],
@@ -3065,45 +3064,74 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
                 const LoadingStateBlock(
                   text: 'Loading daily entry reviews from secure cloud...',
                 ),
-              for (var i = 0; i < rows.length; i++)
-                AnimatedEntry(
-                  index: i,
-                  child: InfoCard(
-                    icon: badgeForStatus(
-                      reviewStatusOf(rows[i]),
-                    ),
-                    status: reviewStatusOf(rows[i]),
-                    title:
-                        '${rowVal(rows[i], 'Type') ?? 'Entry'} - ${money.format(asNum(rowVal(rows[i], 'Amount')))}',
-                    subtitle:
-                        '${rowVal(rows[i], 'Town_Name') ?? 'No town'} - ${rowVal(rows[i], 'Category') ?? 'General'}',
-                    meta:
-                        '${formatDate(rowVal(rows[i], 'Date'))} - ${reviewStatusOf(rows[i])}',
-                    body: '${rowVal(rows[i], 'Description') ?? ''}',
-                    actions: [
-                      if (_filter == 'pending') ...[
-                        OutlinedButton.icon(
-                          onPressed: _reviewing
-                              ? null
-                              : () => _mark(rows[i], 'rejected'),
-                          icon: const Icon(Icons.report),
-                          label: const Text('Reject'),
-                        ),
-                        FilledButton.icon(
-                          onPressed: _reviewing
-                              ? null
-                              : () => _mark(rows[i], 'approved'),
-                          icon: const Icon(Icons.verified),
-                          label: const Text('Approve'),
-                        ),
-                      ],
+              ReviewRowsList(
+                rows: rows,
+                itemBuilder: (context, row, index) => InfoCard(
+                  icon: badgeForStatus(reviewStatusOf(row)),
+                  status: reviewStatusOf(row),
+                  title:
+                      '${rowVal(row, 'Type') ?? 'Entry'} - ${money.format(asNum(rowVal(row, 'Amount')))}',
+                  subtitle:
+                      '${rowVal(row, 'Town_Name') ?? 'No town'} - ${rowVal(row, 'Category') ?? 'General'}',
+                  meta:
+                      '${formatDate(rowVal(row, 'Date'))} - ${reviewStatusOf(row)}',
+                  body: '${rowVal(row, 'Description') ?? ''}',
+                  actions: [
+                    if (_filter == 'pending') ...[
+                      OutlinedButton.icon(
+                        onPressed: _reviewing
+                            ? null
+                            : () => _mark(row, 'rejected'),
+                        icon: const Icon(Icons.report),
+                        label: const Text('Reject'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _reviewing
+                            ? null
+                            : () => _mark(row, 'approved'),
+                        icon: const Icon(Icons.verified),
+                        label: const Text('Approve'),
+                      ),
                     ],
-                  ),
+                  ],
                 ),
+              ),
               if (!_loading && rows.isEmpty && _error == null)
                 EmptyBlock(text: 'No $_filter daily entries.'),
             ],
           ),
+    );
+  }
+}
+
+class ReviewRowsList extends StatelessWidget {
+  const ReviewRowsList({
+    super.key,
+    required this.rows,
+    required this.itemBuilder,
+  });
+
+  final List<Map<String, dynamic>> rows;
+  final Widget Function(
+    BuildContext context,
+    Map<String, dynamic> row,
+    int index,
+  ) itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Column(
+      children: List<Widget>.generate(rows.length, (index) {
+        final child = itemBuilder(context, rows[index], index);
+        if (index >= 12) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: child,
+          );
+        }
+        return AnimatedEntry(index: index, child: child);
+      }),
     );
   }
 }
