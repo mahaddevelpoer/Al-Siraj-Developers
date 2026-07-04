@@ -1476,7 +1476,10 @@ Future<int> _loadNotificationBadgeCountUncached() async {
 
 Future<List<CeoInboxItem>> loadCeoInboxItems() async {
   final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  final inboxRows = await loadCeoInboxRows(supabase, limit: 60);
+  final inboxRows = await loadCeoInboxRowsWithDiskFallback(
+    supabase,
+    limit: 60,
+  );
 
   final items = <CeoInboxItem>[];
   for (final row in inboxRows.appeals) {

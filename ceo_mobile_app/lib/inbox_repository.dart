@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CeoInboxRows {
@@ -17,6 +21,14 @@ class CeoInboxRows {
 
 final Map<String, Future<CeoInboxRows>> _inboxRowsInFlight = {};
 Future<int>? _badgeCountInFlight;
+const _inboxDiskCachePrefix = 'ceo_inbox_rows_v1';
+
+bool _hasAnyInboxRows(CeoInboxRows rows) {
+  return rows.appeals.isNotEmpty ||
+      rows.dailyEntries.isNotEmpty ||
+      rows.notifications.isNotEmpty ||
+      rows.ledgerReceipts.isNotEmpty;
+}
 
 Future<List<Map<String, dynamic>>> _safeRows(
   Future<dynamic> Function() loader, {
@@ -30,13 +42,70 @@ Future<List<Map<String, dynamic>>> _safeRows(
   }
 }
 
+String _inboxCacheKey(DateTime? date, int limit) {
+  return '${DateFormat('yyyy-MM-dd').format(date ?? DateTime.now())}:$limit';
+}
+
+Future<CeoInboxRows?> loadCachedCeoInboxRowsFromDisk({
+  DateTime? date,
+  int limit = 40,
+}) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(
+      '$_inboxDiskCachePrefix:${_inboxCacheKey(date, limit)}',
+    );
+    if (raw == null || raw.trim().isEmpty) return null;
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return null;
+    List<Map<String, dynamic>> rows(String key) {
+      final value = decoded[key];
+      if (value is! List) return const [];
+      return value
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+    }
+
+    return CeoInboxRows(
+      appeals: rows('appeals'),
+      dailyEntries: rows('dailyEntries'),
+      notifications: rows('notifications'),
+      ledgerReceipts: rows('ledgerReceipts'),
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _saveCeoInboxRowsToDisk(
+  DateTime? date,
+  int limit,
+  CeoInboxRows rows,
+) async {
+  if (!_hasAnyInboxRows(rows)) return;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      '$_inboxDiskCachePrefix:${_inboxCacheKey(date, limit)}',
+      jsonEncode({
+        'appeals': rows.appeals,
+        'dailyEntries': rows.dailyEntries,
+        'notifications': rows.notifications,
+        'ledgerReceipts': rows.ledgerReceipts,
+      }),
+    );
+  } catch (_) {
+    // Disk cache is best effort and should never block inbox rendering.
+  }
+}
+
 Future<CeoInboxRows> loadCeoInboxRows(
   SupabaseClient supabase, {
   DateTime? date,
   int limit = 40,
 }) async {
-  final cacheKey =
-      '${DateFormat('yyyy-MM-dd').format(date ?? DateTime.now())}:$limit';
+  final cacheKey = _inboxCacheKey(date, limit);
   final existing = _inboxRowsInFlight[cacheKey];
   if (existing != null) return existing;
   final future = _loadCeoInboxRowsUncached(
@@ -101,6 +170,36 @@ Future<CeoInboxRows> _loadCeoInboxRowsUncached(
   );
 }
 
+Future<CeoInboxRows> loadCeoInboxRowsWithDiskFallback(
+  SupabaseClient supabase, {
+  DateTime? date,
+  int limit = 40,
+}) async {
+  final cached = await loadCachedCeoInboxRowsFromDisk(date: date, limit: limit);
+  try {
+    final rows = await loadCeoInboxRows(supabase, date: date, limit: limit);
+    if (_hasAnyInboxRows(rows)) {
+      unawaited(_saveCeoInboxRowsToDisk(date, limit, rows));
+      return rows;
+    }
+    if (cached != null && _hasAnyInboxRows(cached)) return cached;
+    return rows;
+  } catch (_) {
+    if (cached != null) return cached;
+    rethrow;
+  }
+}
+
+Future<CeoInboxRows> loadCeoInboxRowsAndPersist(
+  SupabaseClient supabase, {
+  DateTime? date,
+  int limit = 40,
+}) async {
+  final rows = await loadCeoInboxRows(supabase, date: date, limit: limit);
+  unawaited(_saveCeoInboxRowsToDisk(date, limit, rows));
+  return rows;
+}
+
 Future<int> loadCeoInboxBadgeCount(
   SupabaseClient supabase, {
   DateTime? date,
@@ -118,7 +217,11 @@ Future<int> _loadCeoInboxBadgeCountUncached(
   SupabaseClient supabase, {
   DateTime? date,
 }) async {
-  final rows = await loadCeoInboxRows(supabase, date: date, limit: 120);
+  final rows = await loadCeoInboxRowsWithDiskFallback(
+    supabase,
+    date: date,
+    limit: 120,
+  );
   return rows.appeals.length +
       rows.dailyEntries.length +
       rows.notifications.length +
