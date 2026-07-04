@@ -15,6 +15,9 @@ class CeoInboxRows {
   final List<Map<String, dynamic>> ledgerReceipts;
 }
 
+final Map<String, Future<CeoInboxRows>> _inboxRowsInFlight = {};
+Future<int>? _badgeCountInFlight;
+
 Future<List<Map<String, dynamic>>> _safeRows(
   Future<dynamic> Function() loader, {
   Duration timeout = const Duration(seconds: 5),
@@ -28,6 +31,24 @@ Future<List<Map<String, dynamic>>> _safeRows(
 }
 
 Future<CeoInboxRows> loadCeoInboxRows(
+  SupabaseClient supabase, {
+  DateTime? date,
+  int limit = 40,
+}) async {
+  final cacheKey =
+      '${DateFormat('yyyy-MM-dd').format(date ?? DateTime.now())}:$limit';
+  final existing = _inboxRowsInFlight[cacheKey];
+  if (existing != null) return existing;
+  final future = _loadCeoInboxRowsUncached(
+    supabase,
+    date: date,
+    limit: limit,
+  ).whenComplete(() => _inboxRowsInFlight.remove(cacheKey));
+  _inboxRowsInFlight[cacheKey] = future;
+  return future;
+}
+
+Future<CeoInboxRows> _loadCeoInboxRowsUncached(
   SupabaseClient supabase, {
   DateTime? date,
   int limit = 40,
@@ -81,6 +102,19 @@ Future<CeoInboxRows> loadCeoInboxRows(
 }
 
 Future<int> loadCeoInboxBadgeCount(
+  SupabaseClient supabase, {
+  DateTime? date,
+}) async {
+  if (_badgeCountInFlight != null) return _badgeCountInFlight!;
+  final future = _loadCeoInboxBadgeCountUncached(
+    supabase,
+    date: date,
+  ).whenComplete(() => _badgeCountInFlight = null);
+  _badgeCountInFlight = future;
+  return future;
+}
+
+Future<int> _loadCeoInboxBadgeCountUncached(
   SupabaseClient supabase, {
   DateTime? date,
 }) async {
