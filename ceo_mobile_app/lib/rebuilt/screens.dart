@@ -388,19 +388,54 @@ class ApprovalsScreen extends StatefulWidget {
 
 class _ApprovalsScreenState extends State<ApprovalsScreen> {
   String _status = 'pending';
-  late Future<List<ReviewItem>> _future = widget.repo.loadReviews(_status);
+  List<ReviewItem> _rows = const [];
+  Object? _error;
+  bool _loading = true;
   bool _reviewing = false;
+  int _loadToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load(force: true));
+  }
 
   Future<void> _refresh({bool force = true}) async {
-    setState(() => _future = widget.repo.loadReviews(_status, force: force));
-    await _future;
+    await _load(force: force);
   }
 
   void _change(String status) {
+    if (_status == status && _loading) return;
     setState(() {
       _status = status;
-      _future = widget.repo.loadReviews(status, force: true);
     });
+    unawaited(_load(force: true));
+  }
+
+  Future<void> _load({bool force = true}) async {
+    final token = ++_loadToken;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _rows = const [];
+    });
+    try {
+      final rows = await widget.repo
+          .loadReviews(_status, force: force)
+          .timeout(const Duration(seconds: 13), onTimeout: () => <ReviewItem>[]);
+      if (!mounted || token != _loadToken) return;
+      setState(() {
+        _rows = rows;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted || token != _loadToken) return;
+      setState(() {
+        _error = e;
+        _rows = const [];
+        _loading = false;
+      });
+    }
   }
 
   Future<void> _review(ReviewItem item, String status) async {
@@ -424,113 +459,117 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<ReviewItem>>(
-      future: _future,
-      builder: (context, snap) {
-        final rows = snap.data ?? const <ReviewItem>[];
-        return ScreenScaffold(
-          title: 'Approvals',
-          onRefresh: _refresh,
-          children: [
-            AppCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    final rows = _rows;
+    return ScreenScaffold(
+      title: 'Approvals',
+      onRefresh: _refresh,
+      children: [
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'CEO approvals',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _loading ? 'Checking $_status approvals...' : '${rows.length} $_status approvals found.',
+                style: const TextStyle(color: kMuted),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  const Text(
-                    'CEO approvals',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Pending requests load through a fresh simple path. No old heavy pending UI is used.',
-                    style: TextStyle(color: kMuted),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      _FilterChip(label: 'pending', value: _status, onTap: _change),
-                      _FilterChip(label: 'approved', value: _status, onTap: _change),
-                      _FilterChip(label: 'rejected', value: _status, onTap: _change),
-                    ],
-                  ),
+                  _FilterChip(label: 'pending', value: _status, onTap: _change),
+                  _FilterChip(label: 'approved', value: _status, onTap: _change),
+                  _FilterChip(label: 'rejected', value: _status, onTap: _change),
                 ],
               ),
-            ),
-            if (snap.connectionState == ConnectionState.waiting && rows.isEmpty)
-              const LoadingBlock(text: 'Loading approvals...'),
-            if (snap.hasError && rows.isEmpty)
-              ErrorBlock(error: snap.error!, onRetry: _refresh),
-            if (rows.isEmpty && !snap.hasError && snap.connectionState != ConnectionState.waiting)
-              EmptyBlock(text: 'No $_status approvals.'),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: rows.length,
-              itemBuilder: (context, index) {
-                final item = rows[index];
-                final color = item.status == 'approved'
-                    ? kGreen
-                    : item.status == 'rejected'
-                        ? kRed
-                        : kAmber;
-                return AppCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(item.icon, color: color),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              item.title,
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                            ),
-                          ),
-                          StatusPill(text: item.status, color: color),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Text('Town: ${item.townName}', style: const TextStyle(fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 4),
-                      Text('By: ${item.accountantName} | ${item.dateText}', style: const TextStyle(color: kMuted)),
-                      if (item.amount > 0) ...[
-                        const SizedBox(height: 4),
-                        Text('Amount: ${money.format(item.amount)}', style: const TextStyle(color: kText)),
-                      ],
-                      const SizedBox(height: 8),
-                      Text(item.summary, style: const TextStyle(color: kMuted)),
-                      if (_status == 'pending') ...[
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _reviewing ? null : () => _review(item, 'rejected'),
-                                icon: const Icon(Icons.close_rounded),
-                                label: const Text('Reject'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: _reviewing ? null : () => _review(item, 'approved'),
-                                icon: const Icon(Icons.check_rounded),
-                                label: const Text('Approve'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
+            ],
+          ),
+        ),
+        if (_loading) const LoadingBlock(text: 'Loading approvals...'),
+        if (!_loading && _error != null) ErrorBlock(error: _error!, onRetry: _refresh),
+        if (!_loading && _error == null && rows.isEmpty) EmptyBlock(text: 'No $_status approvals.'),
+        for (final item in rows) _ApprovalCard(item: item, status: _status, reviewing: _reviewing, onReview: _review),
+      ],
+    );
+  }
+}
+
+class _ApprovalCard extends StatelessWidget {
+  const _ApprovalCard({
+    required this.item,
+    required this.status,
+    required this.reviewing,
+    required this.onReview,
+  });
+
+  final ReviewItem item;
+  final String status;
+  final bool reviewing;
+  final Future<void> Function(ReviewItem item, String status) onReview;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = item.status == 'approved'
+        ? kGreen
+        : item.status == 'rejected'
+            ? kRed
+            : kAmber;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(item.icon, color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  item.title,
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                ),
+              ),
+              StatusPill(text: item.status, color: color),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text('Town: ${item.townName}', style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          Text('By: ${item.accountantName} | ${item.dateText}', style: const TextStyle(color: kMuted)),
+          if (item.amount > 0) ...[
+            const SizedBox(height: 4),
+            Text('Amount: ${money.format(item.amount)}', style: const TextStyle(color: kText)),
+          ],
+          const SizedBox(height: 8),
+          Text(item.summary, style: const TextStyle(color: kMuted)),
+          if (status == 'pending') ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: reviewing ? null : () => onReview(item, 'rejected'),
+                    icon: const Icon(Icons.close_rounded),
+                    label: const Text('Reject'),
                   ),
-                );
-              },
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: reviewing ? null : () => onReview(item, 'approved'),
+                    icon: const Icon(Icons.check_rounded),
+                    label: const Text('Approve'),
+                  ),
+                ),
+              ],
             ),
           ],
-        );
-      },
+        ],
+      ),
     );
   }
 }
@@ -656,6 +695,20 @@ class MoreScreen extends StatelessWidget {
         ),
         AppCard(
           child: ListTile(
+            leading: const Icon(Icons.people_alt_rounded, color: kTeal),
+            title: const Text('Who is online'),
+            subtitle: const Text('Town operators and last activity'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => WhoOnlineScreen(repo: repo)),
+              );
+            },
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        AppCard(
+          child: ListTile(
             leading: const Icon(Icons.logout_rounded, color: kRed),
             title: const Text('Logout'),
             subtitle: const Text('Sign out from CEO mobile app'),
@@ -681,6 +734,135 @@ class MoreScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class WhoOnlineScreen extends StatefulWidget {
+  const WhoOnlineScreen({super.key, required this.repo});
+  final CeoRepository repo;
+
+  @override
+  State<WhoOnlineScreen> createState() => _WhoOnlineScreenState();
+}
+
+class _WhoOnlineScreenState extends State<WhoOnlineScreen> {
+  List<OperatorPresence> _rows = const [];
+  bool _loading = true;
+  Object? _error;
+  RealtimeChannel? _channel;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+    _channel = Supabase.instance.client
+        .channel('ceo-operator-presence')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'operator_presence',
+          callback: (_) => unawaited(_load(silent: true)),
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    final channel = _channel;
+    if (channel != null) {
+      Supabase.instance.client.removeChannel(channel);
+    }
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final rows = await widget.repo
+          .loadOperatorPresence()
+          .timeout(const Duration(seconds: 8), onTimeout: () => <OperatorPresence>[]);
+      if (!mounted) return;
+      setState(() {
+        _rows = rows;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final onlineCount = _rows.where((row) => row.online).length;
+    return Scaffold(
+      backgroundColor: kBg,
+      body: SafeArea(
+        child: ScreenScaffold(
+          title: 'Who is online',
+          onRefresh: () => _load(),
+          actions: [
+            IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.close_rounded),
+            ),
+          ],
+          children: [
+            MetricCard(
+              label: 'Online now',
+              value: '$onlineCount / ${_rows.length}',
+              icon: Icons.wifi_tethering_rounded,
+              color: onlineCount > 0 ? kGreen : kAmber,
+            ),
+            if (_loading) const LoadingBlock(text: 'Checking operators...'),
+            if (!_loading && _error != null) ErrorBlock(error: _error!, onRetry: () => _load()),
+            if (!_loading && _error == null && _rows.isEmpty)
+              const EmptyBlock(text: 'No operator presence found yet.'),
+            for (final row in _rows)
+              AppCard(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: (row.online ? kGreen : kMuted).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(
+                        row.online ? Icons.check_circle_rounded : Icons.schedule_rounded,
+                        color: row.online ? kGreen : kMuted,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(row.name, style: const TextStyle(fontWeight: FontWeight.w900)),
+                          const SizedBox(height: 3),
+                          Text('${row.role} | ${row.townName}', style: const TextStyle(color: kMuted)),
+                          const SizedBox(height: 3),
+                          Text('Last seen: ${row.lastSeenText}', style: const TextStyle(color: kMuted, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    StatusPill(text: row.online ? 'online' : 'away', color: row.online ? kGreen : kAmber),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

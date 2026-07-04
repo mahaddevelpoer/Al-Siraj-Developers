@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Solid launch background to transition instantly to Flutter-side custom splash -->
+<!-- Native launch background. Shows logo immediately while Flutter engine starts. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/splash_background" />
+    <item
+        android:width="144dp"
+        android:height="144dp"
+        android:gravity="center"
+        android:drawable="@drawable/splash_logo" />
 </layer-list>

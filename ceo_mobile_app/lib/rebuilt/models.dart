@@ -89,3 +89,19 @@ class LedgerReceiptSummary {
 
   num get cash => income - expense;
 }
+
+class OperatorPresence {
+  const OperatorPresence({
+    required this.name,
+    required this.role,
+    required this.townName,
+    required this.online,
+    required this.lastSeenText,
+  });
+
+  final String name;
+  final String role;
+  final String townName;
+  final bool online;
+  final String lastSeenText;
+}
