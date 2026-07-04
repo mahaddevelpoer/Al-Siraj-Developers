@@ -20,6 +20,7 @@ class CeoRepository {
   }) async {
     try {
       final data = await loader().timeout(timeout);
+      if (data is! List) return const [];
       return List<Map<String, dynamic>>.from(data);
     } catch (_) {
       return const [];
@@ -117,44 +118,54 @@ class CeoRepository {
   Future<List<ReviewItem>> loadReviews(String status, {bool force = false}) {
     final key = normalizeStatus(status);
     if (!force && _reviewInFlight[key] != null) return _reviewInFlight[key]!;
-    final future = _loadReviews(key).whenComplete(() => _reviewInFlight.remove(key));
+    final future = _loadReviews(key)
+        .timeout(const Duration(seconds: 12), onTimeout: () => <ReviewItem>[])
+        .whenComplete(() => _reviewInFlight.remove(key));
     _reviewInFlight[key] = future;
     return future;
   }
 
   Future<List<ReviewItem>> _loadReviews(String status) async {
+    List<List<Map<String, dynamic>>> results;
+    try {
+      results = await Future.wait<List<Map<String, dynamic>>>([
+        _safeRows(
+          () => supabase
+              .from('appeals')
+              .select('*')
+              .eq('status', status)
+              .order('created_at', ascending: false)
+              .limit(reviewLimit),
+          timeout: const Duration(seconds: 5),
+        ),
+        _safeRows(
+          () => supabase
+              .from('daily_entries')
+              .select('*')
+              .eq('review_status', status)
+              .order('created_at', ascending: false)
+              .limit(reviewLimit),
+          timeout: const Duration(seconds: 5),
+        ),
+      ]).timeout(const Duration(seconds: 7));
+    } catch (_) {
+      results = const [<Map<String, dynamic>>[], <Map<String, dynamic>>[]];
+    }
+
+    final directItems = _normalizeReviewRows([
+      ...results[0].map((row) => {...row, 'review_kind': 'appeal'}),
+      ...results[1].map((row) => {...row, 'review_kind': 'dailyEntry'}),
+    ], status);
+    if (directItems.isNotEmpty) return directItems;
+
     final rpcRows = await _safeRows(
       () => supabase.rpc(
         'ceo_mobile_review_inbox',
         params: {'p_status': status, 'p_limit': reviewLimit},
       ),
-      timeout: const Duration(seconds: 6),
+      timeout: const Duration(seconds: 5),
     );
-    final rpcItems = _normalizeReviewRows(rpcRows, status);
-    if (rpcItems.isNotEmpty) return rpcItems;
-
-    final results = await Future.wait<List<Map<String, dynamic>>>([
-      _safeRows(
-        () => supabase
-            .from('appeals')
-            .select('*, requested_by_user_id(full_name,email,town_name,town_id)')
-            .eq('status', status)
-            .order('created_at', ascending: false)
-            .limit(reviewLimit),
-      ),
-      _safeRows(
-        () => supabase
-            .from('daily_entries')
-            .select('*')
-            .eq('review_status', status)
-            .order('created_at', ascending: false)
-            .limit(reviewLimit),
-      ),
-    ]);
-    return _normalizeReviewRows([
-      ...results[0].map((row) => {...row, 'review_kind': 'appeal'}),
-      ...results[1].map((row) => {...row, 'review_kind': 'dailyEntry'}),
-    ], status);
+    return _normalizeReviewRows(rpcRows, status);
   }
 
   List<ReviewItem> _normalizeReviewRows(
