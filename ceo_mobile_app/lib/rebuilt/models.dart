@@ -105,3 +105,15 @@ class OperatorPresence {
   final bool online;
   final String lastSeenText;
 }
+
+class TownDashboardDetail {
+  const TownDashboardDetail({
+    required this.summary,
+    required this.recentApprovals,
+    required this.receipt,
+  });
+
+  final TownSummary summary;
+  final List<ReviewItem> recentApprovals;
+  final LedgerReceiptSummary? receipt;
+}

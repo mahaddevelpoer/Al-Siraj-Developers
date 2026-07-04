@@ -346,6 +346,13 @@ class _OverviewScreenState extends State<OverviewScreen> {
               if (data.towns.isEmpty) const EmptyBlock(text: 'No active towns found.'),
               for (final town in data.towns)
                 AppCard(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => TownDashboardScreen(repo: widget.repo, town: town),
+                      ),
+                    );
+                  },
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -367,6 +374,14 @@ class _OverviewScreenState extends State<OverviewScreen> {
                       Text('Cash: ${money.format(town.cash)}', style: const TextStyle(fontWeight: FontWeight.w800)),
                       const SizedBox(height: 4),
                       Text('Pending: ${money.format(town.pendingCollection)} | Sales: ${town.salesCount}', style: const TextStyle(color: kMuted)),
+                      const SizedBox(height: 8),
+                      const Row(
+                        children: [
+                          Text('Open town dashboard', style: TextStyle(color: kBlue, fontWeight: FontWeight.w800)),
+                          SizedBox(width: 4),
+                          Icon(Icons.arrow_forward_rounded, size: 16, color: kBlue),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -374,6 +389,138 @@ class _OverviewScreenState extends State<OverviewScreen> {
           ],
         );
       },
+    );
+  }
+}
+
+class TownDashboardScreen extends StatefulWidget {
+  const TownDashboardScreen({super.key, required this.repo, required this.town});
+  final CeoRepository repo;
+  final TownSummary town;
+
+  @override
+  State<TownDashboardScreen> createState() => _TownDashboardScreenState();
+}
+
+class _TownDashboardScreenState extends State<TownDashboardScreen> {
+  DateTime _date = DateTime.now();
+  late Future<TownDashboardDetail> _future = widget.repo.loadTownDashboard(widget.town.name, reportDate: _date);
+
+  Future<void> _refresh() async {
+    setState(() {
+      _future = widget.repo.loadTownDashboard(widget.town.name, reportDate: _date, force: true);
+    });
+    await _future;
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDate: _date,
+    );
+    if (picked == null) return;
+    setState(() {
+      _date = picked;
+      _future = widget.repo.loadTownDashboard(widget.town.name, reportDate: _date, force: true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBg,
+      body: SafeArea(
+        child: FutureBuilder<TownDashboardDetail>(
+          future: _future,
+          builder: (context, snap) {
+            final detail = snap.data;
+            final summary = detail?.summary ?? widget.town;
+            final receipt = detail?.receipt;
+            return ScreenScaffold(
+              title: summary.name,
+              onRefresh: _refresh,
+              actions: [
+                IconButton(onPressed: _pickDate, icon: const Icon(Icons.calendar_month_rounded)),
+                IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close_rounded)),
+              ],
+              children: [
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(summary.name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 22)),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Town dashboard | ${shortDate.format(_date)}',
+                        style: const TextStyle(color: kMuted, fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                ),
+                if (snap.connectionState == ConnectionState.waiting && detail == null)
+                  const LoadingBlock(text: 'Loading town dashboard...'),
+                if (snap.hasError && detail == null)
+                  ErrorBlock(error: snap.error!, onRetry: _refresh),
+                MetricCard(label: 'Cash balance', value: money.format(summary.cash), icon: Icons.account_balance_wallet_rounded, color: kBlue),
+                MetricCard(label: 'Total received', value: money.format(summary.received), icon: Icons.south_west_rounded, color: kGreen),
+                MetricCard(label: 'Total expenses', value: money.format(summary.expenses), icon: Icons.north_east_rounded, color: kRed),
+                MetricCard(label: 'Pending collection', value: money.format(summary.pendingCollection), icon: Icons.pending_actions_rounded, color: kAmber),
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('8PM daily ledger receipt', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                      const SizedBox(height: 6),
+                      Text(
+                        receipt == null
+                            ? 'No uploaded/approved receipt rows for this town and date yet.'
+                            : '${receipt.rows.length} rows ready for CEO review.',
+                        style: const TextStyle(color: kMuted),
+                      ),
+                      if (receipt != null) ...[
+                        const SizedBox(height: 12),
+                        Text('Income: ${money.format(receipt.income)}'),
+                        Text('Expense: ${money.format(receipt.expense)}'),
+                        Text('Cash: ${money.format(receipt.cash)}', style: const TextStyle(fontWeight: FontWeight.w900)),
+                      ],
+                    ],
+                  ),
+                ),
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Pending approvals for this town', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                      const SizedBox(height: 8),
+                      if ((detail?.recentApprovals ?? const <ReviewItem>[]).isEmpty)
+                        const Text('No pending approvals for this town.', style: TextStyle(color: kMuted)),
+                      for (final item in detail?.recentApprovals ?? const <ReviewItem>[])
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Row(
+                            children: [
+                              Icon(item.icon, color: kAmber),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  '${item.title} | ${money.format(item.amount)}',
+                                  style: const TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                              const StatusPill(text: 'pending', color: kAmber),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 }
@@ -641,9 +788,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Daily ledger receipts', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22)),
+                  const Text('8PM daily report bundle', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22)),
                   const SizedBox(height: 6),
-                  Text(shortDate.format(_date), style: const TextStyle(color: kMuted, fontWeight: FontWeight.w700)),
+                  Text(
+                    'CEO receives one grouped notification when town receipts are ready.',
+                    style: const TextStyle(color: kMuted, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: StatusPill(
+                          text: '${rows.length} town receipts',
+                          color: rows.isEmpty ? kAmber : kGreen,
+                        ),
+                      ),
+                      Text(shortDate.format(_date), style: const TextStyle(color: kText, fontWeight: FontWeight.w900)),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -652,9 +814,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
             if (snap.hasError && rows.isEmpty)
               ErrorBlock(error: snap.error!, onRetry: _refresh),
             if (rows.isEmpty && !snap.hasError && snap.connectionState != ConnectionState.waiting)
-              const EmptyBlock(text: 'No daily receipt rows for this date.'),
+              const EmptyBlock(text: 'No 8PM receipt rows for this date yet. If a town was offline, it will appear after sync.'),
             for (final row in rows)
               AppCard(
+                onTap: () => _showReceipt(context, row),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -665,10 +828,73 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     Text('Cash: ${money.format(row.cash)}', style: const TextStyle(fontWeight: FontWeight.w900)),
                     const SizedBox(height: 6),
                     Text('${row.rows.length} ledger rows', style: const TextStyle(color: kMuted)),
+                    const SizedBox(height: 8),
+                    const Text('Tap to preview receipt rows', style: TextStyle(color: kBlue, fontWeight: FontWeight.w800)),
                   ],
                 ),
               ),
           ],
+        );
+      },
+    );
+  }
+
+  void _showReceipt(BuildContext context, LedgerReceiptSummary receipt) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: kSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.78,
+            minChildSize: 0.35,
+            maxChildSize: 0.94,
+            builder: (context, controller) {
+              return ListView(
+                controller: controller,
+                padding: const EdgeInsets.all(18),
+                children: [
+                  Text(receipt.townName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 6),
+                  Text('Daily ledger receipt | ${receipt.reportDate}', style: const TextStyle(color: kMuted)),
+                  const SizedBox(height: 14),
+                  MetricCard(label: 'Income', value: money.format(receipt.income), icon: Icons.south_west_rounded, color: kGreen),
+                  MetricCard(label: 'Expense', value: money.format(receipt.expense), icon: Icons.north_east_rounded, color: kRed),
+                  MetricCard(label: 'Cash movement', value: money.format(receipt.cash), icon: Icons.account_balance_rounded, color: kBlue),
+                  const SizedBox(height: 8),
+                  const Text('Receipt rows', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                  const SizedBox(height: 8),
+                  if (receipt.rows.isEmpty)
+                    const EmptyBlock(text: 'No rows inside this receipt.'),
+                  for (final row in receipt.rows)
+                    AppCard(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            pretty(row['type'] ?? rowValue(row, 'Type')),
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(textOf(row['description'] ?? rowValue(row, 'Description'), 'No description')),
+                          const SizedBox(height: 4),
+                          Text(
+                            money.format(asNum(row['amount'] ?? rowValue(row, 'Amount'))),
+                            style: const TextStyle(fontWeight: FontWeight.w900, color: kBlue),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
         );
       },
     );

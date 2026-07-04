@@ -295,16 +295,17 @@ class CeoRepository {
 
   Future<List<LedgerReceiptSummary>> loadDailyReceipts({
     DateTime? date,
+    String? townName,
     bool force = false,
   }) {
-    if (!force && _receiptInFlight != null) return _receiptInFlight!;
-    final future = _loadDailyReceipts(date ?? DateTime.now())
+    if (!force && townName == null && _receiptInFlight != null) return _receiptInFlight!;
+    final future = _loadDailyReceipts(date ?? DateTime.now(), townName: townName)
         .whenComplete(() => _receiptInFlight = null);
-    _receiptInFlight = future;
+    if (townName == null) _receiptInFlight = future;
     return future;
   }
 
-  Future<List<LedgerReceiptSummary>> _loadDailyReceipts(DateTime date) async {
+  Future<List<LedgerReceiptSummary>> _loadDailyReceipts(DateTime date, {String? townName}) async {
     final day = shortDate.format(date);
     final rpcRows = await _safeRows(
       () => supabase.rpc(
@@ -323,9 +324,11 @@ class CeoRepository {
                 .limit(500),
           );
     final cleanRows = rows.where((row) {
-      final dateText = textOf(row['date'] ?? rowValue(row, 'Date'));
+      final rowTown = textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town');
+      if (townName != null && rowTown != townName) return false;
+      final dateText = formatAnyDate(row['date'] ?? rowValue(row, 'Date') ?? row['created_at']);
       final status = normalizeStatus(row['review_status'] ?? rowValue(row, 'Review_Status') ?? 'approved');
-      return dateText.startsWith(day) && status != 'pending' && status != 'rejected';
+      return dateText == day && status != 'pending' && status != 'rejected';
     }).toList();
     final towns = cleanRows
         .map((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town'))
@@ -350,6 +353,36 @@ class CeoRepository {
         rows: townRows,
       );
     }).toList();
+  }
+
+  Future<TownDashboardDetail> loadTownDashboard(
+    String townName, {
+    DateTime? reportDate,
+    bool force = false,
+  }) async {
+    final dashboard = await loadDashboard(force: force);
+    final summary = dashboard.towns.firstWhere(
+      (town) => town.name == townName,
+      orElse: () => TownSummary(
+        name: townName,
+        received: 0,
+        expenses: 0,
+        pendingCollection: 0,
+        pendingApprovals: 0,
+        salesCount: 0,
+      ),
+    );
+    final pending = await loadReviews('pending', force: true);
+    final receipts = await loadDailyReceipts(
+      date: reportDate ?? DateTime.now(),
+      townName: townName,
+      force: true,
+    );
+    return TownDashboardDetail(
+      summary: summary,
+      recentApprovals: pending.where((item) => item.townName == townName).take(10).toList(),
+      receipt: receipts.isEmpty ? null : receipts.first,
+    );
   }
 
   Future<List<OperatorPresence>> loadOperatorPresence() async {
