@@ -1,9 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'approval_helpers.dart';
 
 final Map<String, List<Map<String, dynamic>>> _approvalRowsCache = {};
 final Map<String, Future<List<Map<String, dynamic>>>> _approvalRowsInFlight = {};
+const _approvalDiskCachePrefix = 'ceo_approval_review_rows_v1';
 
 String normalizeReviewStatus(dynamic status) {
   final clean = '${status ?? 'pending'}'.trim().toLowerCase();
@@ -26,6 +31,47 @@ List<Map<String, dynamic>> cachedApprovalReviewRows({
 void clearApprovalReviewCache() {
   _approvalRowsCache.clear();
   _approvalRowsInFlight.clear();
+}
+
+Future<List<Map<String, dynamic>>> loadCachedApprovalReviewRowsFromDisk({
+  required String filter,
+  required int limit,
+}) async {
+  final key = _cacheKey(normalizeReviewStatus(filter), limit);
+  final memoryRows = cachedApprovalReviewRows(filter: filter, limit: limit);
+  if (memoryRows.isNotEmpty) return memoryRows;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('$_approvalDiskCachePrefix:$key');
+    if (raw == null || raw.trim().isEmpty) return const [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const [];
+    final rows = decoded
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+    if (rows.isNotEmpty) {
+      _approvalRowsCache[key] = rows;
+    }
+    return rows;
+  } catch (_) {
+    return const [];
+  }
+}
+
+Future<void> _saveApprovalRowsToDisk(
+  String filter,
+  int limit,
+  List<Map<String, dynamic>> rows,
+) async {
+  if (rows.isEmpty) return;
+  try {
+    final key = _cacheKey(normalizeReviewStatus(filter), limit);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$_approvalDiskCachePrefix:$key', jsonEncode(rows));
+  } catch (_) {
+    // Cache is a speed/stability layer only; never block approval loading.
+  }
 }
 
 DateTime _dateOf(Map<String, dynamic> row) {
@@ -181,6 +227,7 @@ Future<List<Map<String, dynamic>>> _loadApprovalReviewRowsUncached(
   final rpcCleanRows = _finalizeReviewRows(rpcRows, activeFilter, limit);
   if (rpcCleanRows.isNotEmpty) {
     _approvalRowsCache[_cacheKey(activeFilter, limit)] = rpcCleanRows;
+    unawaited(_saveApprovalRowsToDisk(activeFilter, limit, rpcCleanRows));
     return rpcCleanRows;
   }
 
@@ -215,7 +262,12 @@ Future<List<Map<String, dynamic>>> _loadApprovalReviewRowsUncached(
   ], activeFilter, limit);
   if (cleanRows.isNotEmpty) {
     _approvalRowsCache[_cacheKey(activeFilter, limit)] = cleanRows;
+    unawaited(_saveApprovalRowsToDisk(activeFilter, limit, cleanRows));
     return cleanRows;
   }
-  return cached;
+  if (cached.isNotEmpty) return cached;
+  return loadCachedApprovalReviewRowsFromDisk(
+    filter: activeFilter,
+    limit: limit,
+  );
 }

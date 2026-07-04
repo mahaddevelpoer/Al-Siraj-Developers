@@ -2650,6 +2650,7 @@ class _AppealsPageState extends State<AppealsPage> {
       filter: _filter,
       limit: reviewListLimit,
     );
+    unawaited(_hydrateFromDisk(_filter));
     unawaited(_refreshFromCloud(showLoading: _items?.isEmpty ?? true));
     liveRefreshNotifier.addListener(_handleLiveRefresh);
   }
@@ -2671,6 +2672,21 @@ class _AppealsPageState extends State<AppealsPage> {
       filter: filter ?? _filter,
       limit: reviewListLimit,
     );
+  }
+
+  Future<void> _hydrateFromDisk(String filter) async {
+    final rows = await loadCachedApprovalReviewRowsFromDisk(
+      filter: filter,
+      limit: reviewListLimit,
+    );
+    if (!mounted || rows.isEmpty || filter != _filter || (_items?.isNotEmpty ?? false)) {
+      return;
+    }
+    setState(() {
+      _items = rows;
+      _loading = false;
+      _error = null;
+    });
   }
 
   Future<void> _refreshFromCloud({
@@ -2840,6 +2856,7 @@ class _AppealsPageState extends State<AppealsPage> {
                     _error = null;
                     _loading = cached.isEmpty;
                   });
+                  unawaited(_hydrateFromDisk(next));
                   unawaited(
                     _refreshFromCloud(
                       filter: next,
@@ -2907,6 +2924,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
       filter: _filter,
       limit: reviewListLimit,
     ).where(isDailyReviewItem).toList();
+    unawaited(_hydrateFromDisk(_filter));
     unawaited(_refreshFromCloud(showLoading: _items?.isEmpty ?? true));
     liveRefreshNotifier.addListener(_handleLiveRefresh);
   }
@@ -2937,6 +2955,23 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
       return bDate.compareTo(aDate);
     });
     return rows;
+  }
+
+  Future<void> _hydrateFromDisk(String filter) async {
+    final rows = (await loadCachedApprovalReviewRowsFromDisk(
+      filter: filter,
+      limit: reviewListLimit,
+    ))
+        .where(isDailyReviewItem)
+        .toList();
+    if (!mounted || rows.isEmpty || filter != _filter || (_items?.isNotEmpty ?? false)) {
+      return;
+    }
+    setState(() {
+      _items = rows;
+      _loading = false;
+      _error = null;
+    });
   }
 
   Future<void> _refreshFromCloud({
@@ -3050,6 +3085,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
                     _error = null;
                     _loading = cached.isEmpty;
                   });
+                  unawaited(_hydrateFromDisk(next));
                   unawaited(
                     _refreshFromCloud(
                       filter: next,
