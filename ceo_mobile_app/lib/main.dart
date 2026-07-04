@@ -936,9 +936,22 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     selectedTabNotifier.addListener(_applySelectedTab);
     _tab = selectedTabNotifier.value;
-    unawaited(_startPushServices());
-    _subscribeToLiveAlerts();
-    _startPresenceHeartbeat();
+
+    // Lightweight startup: heavy services ko UI render ke baad start karein.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Push init (FCM token + initial message routing)
+      unawaited(_startPushServices());
+
+      // Realtime subscriptions (multiple tables) ko thoda delay de dein.
+      Future<void>.delayed(const Duration(milliseconds: 650), () {
+        if (mounted) _subscribeToLiveAlerts();
+      });
+
+      // Presence heartbeat (Supabase writes) ko aur delay ke baad start karein.
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (mounted) _startPresenceHeartbeat();
+      });
+    });
   }
 
   Future<void> _startPushServices() async {
@@ -3160,8 +3173,13 @@ class ReviewRowsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) return const SizedBox.shrink();
-    return Column(
-      children: List<Widget>.generate(rows.length, (index) {
+
+    // Lazy rendering: Column + List.generate se jank hota hai.
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: rows.length,
+      itemBuilder: (context, index) {
         final child = itemBuilder(context, rows[index], index);
         if (index >= 12) {
           return Padding(
@@ -3170,7 +3188,7 @@ class ReviewRowsList extends StatelessWidget {
           );
         }
         return AnimatedEntry(index: index, child: child);
-      }),
+      },
     );
   }
 }
