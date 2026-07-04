@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ReceiptLoadBundle {
@@ -16,6 +20,8 @@ class ReceiptLoadBundle {
 }
 
 final Map<String, ReceiptLoadBundle> _receiptCache = {};
+final Map<String, Future<ReceiptLoadBundle>> _receiptInFlight = {};
+const _receiptDiskCachePrefix = 'ceo_receipt_bundle_v1';
 
 dynamic receiptRowValue(Map<String, dynamic> row, String key) {
   final lower = key
@@ -25,6 +31,14 @@ dynamic receiptRowValue(Map<String, dynamic> row, String key) {
 }
 
 String _dayKey(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
+String _cacheKey(DateTime date, String? initialTown) =>
+    '${_dayKey(date)}:${initialTown ?? '*'}';
+
+bool _hasReceiptData(ReceiptLoadBundle bundle) {
+  return bundle.entryRows.isNotEmpty ||
+      bundle.townRows.isNotEmpty ||
+      bundle.mediaRows.isNotEmpty;
+}
 
 bool _activeTownRow(Map<String, dynamic> row) {
   final deletedAt =
@@ -45,6 +59,60 @@ Future<List<Map<String, dynamic>>> _safeRows(
     return List<Map<String, dynamic>>.from(data);
   } catch (_) {
     return const <Map<String, dynamic>>[];
+  }
+}
+
+Future<ReceiptLoadBundle?> _loadReceiptBundleFromDisk(
+  DateTime date,
+  String? initialTown,
+) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(
+      '$_receiptDiskCachePrefix:${_cacheKey(date, initialTown)}',
+    );
+    if (raw == null || raw.trim().isEmpty) return null;
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return null;
+    List<Map<String, dynamic>> rows(String key) {
+      final value = decoded[key];
+      if (value is! List) return const [];
+      return value
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+    }
+
+    return ReceiptLoadBundle(
+      entryRows: rows('entryRows'),
+      townRows: rows('townRows'),
+      mediaRows: rows('mediaRows'),
+      source: '${decoded['source'] ?? 'disk'}',
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _saveReceiptBundleToDisk(
+  DateTime date,
+  String? initialTown,
+  ReceiptLoadBundle bundle,
+) async {
+  if (!_hasReceiptData(bundle)) return;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      '$_receiptDiskCachePrefix:${_cacheKey(date, initialTown)}',
+      jsonEncode({
+        'entryRows': bundle.entryRows,
+        'townRows': bundle.townRows,
+        'mediaRows': bundle.mediaRows,
+        'source': bundle.source,
+      }),
+    );
+  } catch (_) {
+    // Receipt cache is best effort and must not affect report loading.
   }
 }
 
@@ -81,7 +149,26 @@ Future<ReceiptLoadBundle> loadReceiptBundle(
   required DateTime date,
   String? initialTown,
 }) async {
+  final cacheKey = _cacheKey(date, initialTown);
+  final existing = _receiptInFlight[cacheKey];
+  if (existing != null) return existing;
+  final future = _loadReceiptBundleUncached(
+    supabase,
+    date: date,
+    initialTown: initialTown,
+  ).whenComplete(() => _receiptInFlight.remove(cacheKey));
+  _receiptInFlight[cacheKey] = future;
+  return future;
+}
+
+Future<ReceiptLoadBundle> _loadReceiptBundleUncached(
+  SupabaseClient supabase, {
+  required DateTime date,
+  String? initialTown,
+}) async {
   final day = _dayKey(date);
+  final cacheKey = _cacheKey(date, initialTown);
+  final diskBundle = await _loadReceiptBundleFromDisk(date, initialTown);
   final mediaFuture = loadReceiptMediaRows(supabase, date: date);
   final rpcRows = await _loadRpcRows(supabase, date: date);
   final mediaRows = await mediaFuture;
@@ -99,7 +186,8 @@ Future<ReceiptLoadBundle> loadReceiptBundle(
       mediaRows: mediaRows,
       source: 'rpc',
     );
-    _receiptCache['$day:${initialTown ?? '*'}'] = bundle;
+    _receiptCache[cacheKey] = bundle;
+    unawaited(_saveReceiptBundleToDisk(date, initialTown, bundle));
     return bundle;
   }
 
@@ -135,10 +223,10 @@ Future<ReceiptLoadBundle> loadReceiptBundle(
     mediaRows: mediaRows,
     source: 'direct',
   );
-  final cacheKey = '$day:${initialTown ?? '*'}';
   if (entryRows.isNotEmpty || mediaRows.isNotEmpty) {
     _receiptCache[cacheKey] = bundle;
+    unawaited(_saveReceiptBundleToDisk(date, initialTown, bundle));
     return bundle;
   }
-  return _receiptCache[cacheKey] ?? bundle;
+  return _receiptCache[cacheKey] ?? diskBundle ?? bundle;
 }
