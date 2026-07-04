@@ -929,9 +929,6 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
   double _fabTurns = 0;
   String _pushStatus = 'Checking push setup...';
   String _realtimeStatus = 'Connecting realtime...';
-  // Pages are stored as a fixed list — IndexedStack keeps them all alive
-  // so switching tabs never triggers a page rebuild / data re-fetch.
-  late final List<Widget> _pages;
   RealtimeSubscriptionManager? _realtimeManager;
   StreamSubscription<RemoteMessage>? _foregroundPushSub;
   StreamSubscription<RemoteMessage>? _openedPushSub;
@@ -940,18 +937,6 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    // Build pages once — IndexedStack keeps them alive the entire session.
-    _pages = [
-      OverviewPage(
-        pushStatus: _pushStatus,
-        realtimeStatus: _realtimeStatus,
-      ),
-      const TownsOverviewPage(),
-      const AppealsPage(),
-      const DailyLedgerReceiptPage(),
-      const MorePage(),
-    ];
-
     WidgetsBinding.instance.addObserver(this);
     selectedTabNotifier.addListener(_applySelectedTab);
     _tab = selectedTabNotifier.value;
@@ -1129,25 +1114,55 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
           const PremiumBackground(),
           SafeArea(
             bottom: false,
-            // IndexedStack keeps all pages alive — zero rebuild/refetch on tab switch.
+            // IndexedStack dynamically populated via LazyLoadPage.
+            // Pages are only instantiated when the tab becomes active.
             child: IndexedStack(
               index: _tab,
-              children: _pages,
+              children: [
+                LazyLoadPage(
+                  isSelected: _tab == 0,
+                  child: OverviewPage(
+                    pushStatus: _pushStatus,
+                    realtimeStatus: _realtimeStatus,
+                  ),
+                ),
+                LazyLoadPage(
+                  isSelected: _tab == 1,
+                  child: const TownsOverviewPage(),
+                ),
+                LazyLoadPage(
+                  isSelected: _tab == 2,
+                  child: const AppealsPage(),
+                ),
+                LazyLoadPage(
+                  isSelected: _tab == 3,
+                  child: const DailyLedgerReceiptPage(),
+                ),
+                LazyLoadPage(
+                  isSelected: _tab == 4,
+                  child: const MorePage(),
+                ),
+              ],
             ),
           ),
         ],
       ),
       bottomNavigationBar: PremiumBottomNav(
         currentIndex: _tab,
-        onTap: (i) => setState(() => _tab = i),
+        onTap: (i) {
+          selectedTabNotifier.value = i;
+          setState(() => _tab = i);
+        },
       ),
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 76),
         child: PressableScale(
           onTap: () {
+            final nextTab = _tab == 2 ? 0 : 2;
+            selectedTabNotifier.value = nextTab;
             setState(() {
               _fabTurns += .5;
-              _tab = _tab == 2 ? 0 : 2;
+              _tab = nextTab;
             });
           },
             child: AnimatedRotation(
@@ -1614,6 +1629,7 @@ class _OverviewPageState extends State<OverviewPage> {
 
   void _handleLiveRefresh() {
     if (!mounted) return;
+    if (selectedTabNotifier.value != 0) return; // Discard background loads on inactive tab
     setState(() => _future = _load(force: true));
   }
 
@@ -2676,6 +2692,7 @@ class _AppealsPageState extends State<AppealsPage> {
 
   void _handleLiveRefresh() {
     if (!mounted || _reviewing) return;
+    if (selectedTabNotifier.value != 2) return; // Discard background loads on inactive tab
     unawaited(_refreshFromCloud(showLoading: false));
   }
 
@@ -5132,4 +5149,45 @@ Future<void> handleNotificationResponse(NotificationResponse response) async {
 void ceoNotificationTapBackground(NotificationResponse response) {
   // Background isolate cannot safely navigate. The foreground response handler
   // processes action payloads when Android opens the app.
+}
+
+class LazyLoadPage extends StatefulWidget {
+  final bool isSelected;
+  final Widget child;
+
+  const LazyLoadPage({
+    super.key,
+    required this.isSelected,
+    required this.child,
+  });
+
+  @override
+  State<LazyLoadPage> createState() => _LazyLoadPageState();
+}
+
+class _LazyLoadPageState extends State<LazyLoadPage> {
+  bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isSelected) {
+      _initialized = true;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant LazyLoadPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isSelected && !_initialized) {
+      setState(() {
+        _initialized = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _initialized ? widget.child : const SizedBox.shrink();
+  }
 }
