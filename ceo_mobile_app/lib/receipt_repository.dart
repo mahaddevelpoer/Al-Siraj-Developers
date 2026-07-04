@@ -47,7 +47,11 @@ bool _activeTownRow(Map<String, dynamic> row) {
       '${receiptRowValue(row, 'Status') ?? row['status'] ?? 'Active'}'
           .trim()
           .toLowerCase();
-  return deletedAt.isEmpty && status != 'deleted' && status != 'inactive';
+  final notDeleted = deletedAt.isEmpty || deletedAt.toLowerCase() == 'null';
+  return notDeleted &&
+      status != 'deleted' &&
+      status != 'inactive' &&
+      status != 'archived';
 }
 
 Future<List<Map<String, dynamic>>> _safeRows(
