@@ -1,61 +1,193 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../app_theme.dart';
 
-class StartupSplashScreen extends StatelessWidget {
+class StartupSplashScreen extends StatefulWidget {
   const StartupSplashScreen({super.key});
 
   @override
+  State<StartupSplashScreen> createState() => _StartupSplashScreenState();
+}
+
+class _StartupSplashScreenState extends State<StartupSplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          _SplashBackground(),
+          // Premium gradient background
+          const _SplashBackground(),
+
+          // Subtle decorative circles
+          Positioned(
+            top: -80,
+            right: -80,
+            child: _GlowCircle(color: kPrimary.withValues(alpha: .08), size: 320),
+          ),
+          Positioned(
+            bottom: -60,
+            left: -60,
+            child: _GlowCircle(color: kSecondary.withValues(alpha: .07), size: 260),
+          ),
+
+          // Main content
           SafeArea(
             child: Center(
-              child: RepaintBoundary(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Hero(
-                      tag: 'app-logo',
-                      child: SvgPictureAssetLogo(size: 104),
-                    ),
-                    SizedBox(height: 18),
-                    Text(
-                      'AL SIRAJ DEVELOPERS',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: kText,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Logo container with glow
+                  RepaintBoundary(
+                    child: AnimatedBuilder(
+                      animation: _pulse,
+                      builder: (context, child) {
+                        return Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: kPrimary.withValues(
+                                  alpha: 0.08 + _pulse.value * 0.10,
+                                ),
+                                blurRadius: 40 + _pulse.value * 20,
+                                spreadRadius: 4,
+                              ),
+                            ],
+                          ),
+                          child: child,
+                        );
+                      },
+                      child: Container(
+                        width: 120,
+                        height: 120,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(34),
+                          border: Border.all(
+                            color: const Color(0xFFE2E8F0),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: kInk.withValues(alpha: .10),
+                              blurRadius: 32,
+                              offset: const Offset(0, 12),
+                            ),
+                          ],
+                        ),
+                        padding: const EdgeInsets.all(16),
+                        child: SvgPicture.asset(
+                          'assets/logo.svg',
+                          fit: BoxFit.contain,
+                        ),
                       ),
                     ),
-                    SizedBox(height: 8),
-                    Text(
-                      'CEO command center',
-                      style: TextStyle(
-                        color: kMuted,
-                        fontWeight: FontWeight.w700,
+                  )
+                      .animate()
+                      .fadeIn(duration: 500.ms, curve: Curves.easeOut)
+                      .scale(
+                        begin: const Offset(.82, .82),
+                        end: const Offset(1, 1),
+                        duration: 600.ms,
+                        curve: Curves.easeOutBack,
                       ),
+
+                  const SizedBox(height: 28),
+
+                  // Brand name
+                  const Text(
+                    'AL SIRAJ DEVELOPERS',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: kText,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: .5,
                     ),
-                    SizedBox(height: 22),
-                    SizedBox(
-                      width: 112,
+                  )
+                      .animate(delay: 200.ms)
+                      .fadeIn(duration: 400.ms)
+                      .slideY(begin: .15, curve: Curves.easeOut),
+
+                  const SizedBox(height: 6),
+
+                  // Tagline
+                  Text(
+                    'CEO command center',
+                    style: TextStyle(
+                      color: kMuted.withValues(alpha: .85),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: .2,
+                    ),
+                  )
+                      .animate(delay: 320.ms)
+                      .fadeIn(duration: 400.ms)
+                      .slideY(begin: .15, curve: Curves.easeOut),
+
+                  const SizedBox(height: 48),
+
+                  // Progress bar
+                  SizedBox(
+                    width: 100,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(99),
                       child: LinearProgressIndicator(
-                        minHeight: 4,
-                        borderRadius: BorderRadius.all(Radius.circular(99)),
+                        minHeight: 3,
+                        backgroundColor: kPrimary.withValues(alpha: .12),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          kPrimary.withValues(alpha: .7),
+                        ),
                       ),
                     ),
-                  ],
-                ),
+                  )
+                      .animate(delay: 450.ms)
+                      .fadeIn(duration: 400.ms),
+                ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _GlowCircle extends StatelessWidget {
+  const _GlowCircle({required this.color, required this.size});
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color,
       ),
     );
   }
@@ -157,7 +289,7 @@ class _SplashBackground extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             Color(0xFFF8FAFC),
-            Color(0xFFF4F7F6),
+            Color(0xFFF0F9FF),
             Color(0xFFEFF6FF),
           ],
         ),

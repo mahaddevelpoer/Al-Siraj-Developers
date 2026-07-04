@@ -1,9 +1,17 @@
 import { useState } from 'react';
 
+const money = (value) => `PKR ${(Number(value) || 0).toLocaleString()}`;
+const cleanType = (value) => String(value || 'Appeal').replace(/_/g, ' ');
+
 export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }) {
   const [showContact, setShowContact] = useState(false);
 
   const requesterData = appeal.requested_by_user_id;
+  const requestedData = appeal.requested_data || {};
+  const townName = requestedData.townName || requestedData.Town_Name || requestedData.town_name || appeal.town_name || requesterData?.town_name || requesterData?.agent_town || '-';
+  const appealTitle = appeal.appeal_type === 'backdated_daily_entry' ? 'Backdated Entry Request'
+    : appeal.appeal_type === 'future_daily_entry' ? 'Future Date Entry Request'
+      : cleanType(appeal.appeal_type);
 
   return (
     <div className={`appeal-card appeal-card-${appeal.status || 'pending'}`}>
@@ -11,15 +19,13 @@ export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-              {appeal.appeal_type === 'backdated_daily_entry' ? 'Backdated Entry Request'
-                : appeal.appeal_type === 'future_daily_entry' ? 'Future Date Entry Request'
-                : appeal.appeal_type.replace(/_/g, ' ')}
+              {appealTitle}
             </div>
             <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>
-              {requesterData?.full_name}
+              {requesterData?.full_name || requestedData.accountantName || 'Unknown requester'}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-              {requesterData?.email}
+              {requesterData?.email || requestedData.accountantEmail || 'No email saved'}
             </div>
           </div>
           <div style={{
@@ -40,6 +46,11 @@ export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase' }}>
           Changes Requested
         </div>
+        <div className="appeal-meta-strip">
+          <div><span>Town</span><b>{townName}</b></div>
+          <div><span>Date</span><b>{requestedData.date || appeal.created_at?.slice?.(0, 10) || '-'}</b></div>
+          <div><span>Amount</span><b>{requestedData.amount !== undefined ? money(requestedData.amount) : '-'}</b></div>
+        </div>
         <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>
           {appeal.reason && (
             <div style={{ marginBottom: 8 }}><strong>Reason:</strong> {appeal.reason}</div>
@@ -59,7 +70,7 @@ export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }
                 </div>
               </div>
               <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--text-muted)' }}>
-                Agent: <strong>{appeal.requested_data.employeeName}</strong> — Town: <strong>{appeal.requested_data.townName}</strong>
+                Employee: <strong>{appeal.requested_data.employeeName}</strong> - Town: <strong>{appeal.requested_data.townName}</strong>
               </div>
             </div>
           ) : appeal.appeal_type === 'delete_employee' && appeal.requested_data ? (
@@ -93,7 +104,7 @@ export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }
                   <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>Type</div>
                   <div style={{ fontWeight: 800, fontSize: 13,
                     color: appeal.requested_data.type === 'Income' ? '#166534' : '#991b1b' }}>
-                    {appeal.requested_data.type === 'Income' ? '●' : '●'} {appeal.requested_data.type}
+                    {appeal.requested_data.type}
                   </div>
                 </div>
               </div>
@@ -113,7 +124,7 @@ export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }
               </div>
             </div>
           ) : (
-            <div><strong>Details:</strong> {appeal.requested_data && Object.keys(appeal.requested_data).length > 0 ? JSON.stringify(appeal.requested_data, null, 2) : 'N/A'}</div>
+            <div className="appeal-raw-detail">{appeal.requested_data && Object.keys(appeal.requested_data).length > 0 ? Object.entries(appeal.requested_data).slice(0, 10).map(([key, value]) => (<div key={key}><span>{cleanType(key)}</span><b>{String(value ?? '-')}</b></div>)) : <div><span>Details</span><b>N/A</b></div>}</div>
           )}
         </div>
       </div>
@@ -180,7 +191,7 @@ export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }
               <div style={{ fontSize: 14, fontWeight: 900, color: '#1d4ed8' }}>
                 {appeal?.otp_expires_at
                   ? `${Math.max(0, Math.floor((new Date(appeal.otp_expires_at).getTime() - Date.now()) / 1000))}s`
-                  : '—'}
+                  : '-'}
               </div>
             </div>
           </div>

@@ -2,6 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { CrossIcon } from '../../components/Icons';
 
 const fmt = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
+const clean = (value, fallback = '-') => {
+  const text = String(value ?? '').trim();
+  return text && text !== '-' && !text.includes('â') ? text : fallback;
+};
+const entryTime = (entry) => clean(entry.Time || entry.time, '-');
+const entryAccount = (entry) => clean(entry.Account_Name || entry.accountName, 'General / Walk-in');
+const paymentAccount = (entry) => clean(entry.Payment_Account_Name || entry.paymentAccountName, 'Cash in Hand');
 
 export default function DailyReceipt({ entries, date, townName, mode, onClose }) {
   const printRef = useRef(null);
@@ -42,7 +49,39 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
     full: 'Daily Cash Flow Statement',
   };
 
-  const handlePrint = () => {
+  const saveArchive = async () => {
+    const townPart = String(townName || 'GLOBAL').replace(/[^a-zA-Z0-9]+/g, '').toUpperCase() || 'GLOBAL';
+    const receiptNumber = `DAY-${townPart}-${String(mode || 'FULL').toUpperCase()}-${String(date || '').replace(/-/g, '')}`;
+    try {
+      await window.api?.saveDailyReceiptArchive?.({
+        Receipt_Number: receiptNumber,
+        Receipt_Type: `daily_${mode || 'full'}`,
+        Town_Name: townName,
+        Entity_ID: `${townName || 'Global'}-${date}-${mode}`,
+        Entity_Name: titleMap[mode] || 'Daily Receipt',
+        Amount: mode === 'expense' ? totalExpense : mode === 'income' ? totalIncome : netBalance,
+        Receipt_Date: date,
+        Payload_JSON: {
+          receiptNumber,
+          type: `daily_${mode || 'full'}`,
+          title: titleMap[mode] || 'Daily Receipt',
+          townName,
+          date,
+          totalIncome,
+          totalExpense,
+          netBalance,
+          townIncome,
+          townExpense,
+          townNet,
+          runningBalance,
+          entries: filtered,
+        },
+      });
+    } catch (_) {}
+  };
+
+  const handlePrint = async () => {
+    await saveArchive();
     let styleTag = document.getElementById('daily-receipt-print-style');
     if (!styleTag) {
       styleTag = document.createElement('style');
@@ -121,6 +160,8 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
                       {mode === 'full' && (
                         <th style={{ padding: '8px 6px', textAlign: 'left', fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>Type</th>
                       )}
+                      <th style={{ padding: '8px 6px', textAlign: 'left', fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>Party</th>
+                      <th style={{ padding: '8px 6px', textAlign: 'left', fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>Cash / Bank</th>
                       <th style={{ padding: '8px 6px', textAlign: 'left', fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>Description</th>
                       <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>Amount</th>
                     </tr>
@@ -129,7 +170,7 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
                     {filtered.map((e, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid #e0e0e0' }}>
                         <td style={{ padding: '7px 6px', color: '#666' }}>{i + 1}</td>
-                        <td style={{ padding: '7px 6px' }}>{e.Time || 'â€”'}</td>
+                        <td style={{ padding: '7px 6px' }}>{entryTime(e)}</td>
                         {mode === 'full' && (
                           <td style={{ padding: '7px 6px' }}>
                             <span style={{
@@ -140,7 +181,9 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
                             </span>
                           </td>
                         )}
-                        <td style={{ padding: '7px 6px' }}>{e.Description}</td>
+                        <td style={{ padding: '7px 6px' }}>{entryAccount(e)}</td>
+                        <td style={{ padding: '7px 6px' }}>{paymentAccount(e)}</td>
+                        <td style={{ padding: '7px 6px' }}>{clean(e.Description, 'Daily entry')}</td>
                         <td style={{
                           padding: '7px 6px', textAlign: 'right', fontWeight: 700,
                           color: mode === 'full'
@@ -199,7 +242,7 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
                 background: '#f9fafb'
               }}>
                 <div style={{ fontWeight: 800, fontSize: 11, marginBottom: 8, textTransform: 'uppercase' }}>
-                  Town Overall Financial Position &mdash; {townName}
+                  Town Overall Financial Position - {townName}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, fontSize: 11 }}>
                   <div>
@@ -231,7 +274,7 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
                   Overall Remaining Balance
                 </div>
                 <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>
-                  Today Income ({fmt(totalIncome)}) + Town Balance ({fmt(townNet)}) &minus; Today Expenses ({fmt(totalExpense)})
+                  Today Income ({fmt(totalIncome)}) + Town Balance ({fmt(townNet)}) - Today Expenses ({fmt(totalExpense)})
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: runningBalance >= 0 ? '#107c41' : '#c5221f' }}>
                   {fmt(runningBalance)}
@@ -257,7 +300,7 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
 
             {/* Footer */}
             <div style={{ marginTop: 20, borderTop: '1px dashed #ccc', paddingTop: 10, textAlign: 'center', fontSize: 9, color: '#999' }}>
-              This is a computer-generated document &mdash; AL SIRAJ DEVELOPERS ERP
+              This is a computer-generated document - AL SIRAJ DEVELOPERS ERP
             </div>
           </div>
         </div>
@@ -265,3 +308,6 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
     </div>
   );
 }
+
+
+

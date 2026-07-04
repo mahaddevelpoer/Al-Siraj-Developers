@@ -12,6 +12,7 @@ const {
   syncMirrorsForFile,
 } = require('./core');
 const { getMoneyLedger } = require('./moneyLedger');
+const { parseMoney } = require('./moneyUtils');
 
 const FILE_NAME = 'Cash_Bank_Accounts.xlsx';
 const COLUMNS = [
@@ -28,8 +29,7 @@ function nowIso() {
 }
 
 function money(value) {
-  const n = Number(String(value ?? '').replace(/,/g, ''));
-  return Number.isFinite(n) ? n : 0;
+  return parseMoney(value);
 }
 
 async function ensureCashBankFile() {

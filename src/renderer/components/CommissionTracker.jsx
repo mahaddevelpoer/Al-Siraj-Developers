@@ -35,6 +35,24 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
     setLoading(false);
   };
 
+  useEffect(() => {
+    const onDataChanged = (event) => {
+      const detail = event?.detail || {};
+      const events = Array.isArray(detail.events) ? detail.events : [];
+      const sameTown = !detail.townName || !townName || String(detail.townName) === String(townName);
+      if (!sameTown) return;
+      if (events.some((name) => ['commission:changed', 'sale:changed', 'ledger:changed', 'agent:changed'].includes(name))) {
+        loadData();
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', onDataChanged);
+    window.addEventListener('al-siraj-data-refreshed', onDataChanged);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', onDataChanged);
+      window.removeEventListener('al-siraj-data-refreshed', onDataChanged);
+    };
+  }, [townName]);
+
   const townFiltered = townName ? sales.filter(s => s.Town_Name === townName) : sales;
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
@@ -142,7 +160,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
   );
 
   return (
-    <div>
+    <div className="commission-dashboard">
       {payTarget && (
         <div className="commission-pay-backdrop" onClick={closePayModal}>
           <div className="commission-pay-modal" onClick={(e) => e.stopPropagation()}>
@@ -206,19 +224,14 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
         </div>
       </div>
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-        gap: 12,
-        marginBottom: 18,
-      }}>
+      <div className="commission-summary-grid">
         {[
           { label: 'Group Sales', value: overallCommission.sales, money: false, color: '#1d4ed8' },
           { label: 'Group Earned', value: overallCommission.earned, money: true, color: '#b45309' },
           { label: 'Group Paid', value: overallCommission.paid, money: true, color: '#0f766e' },
           { label: 'Group Remaining', value: overallCommission.remaining, money: true, color: overallCommission.remaining > 0 ? '#dc2626' : '#0f766e' },
         ].map((item) => (
-          <div key={item.label} style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16 }}>
+          <div key={item.label} className="commission-summary-card">
             <div style={{ fontSize: 10, fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{item.label}</div>
             <div style={{ fontSize: 20, fontWeight: 900, color: item.color, marginTop: 6 }}>
               {item.money ? fmt(item.value) : item.value}
@@ -229,13 +242,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
 
       {/* Agent Summary Cards */}
       {Object.keys(agentSummary).length > 0 && (
-        <div style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 20,
-        }}>
+        <div className="commission-agent-panel">
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
             Agent-wise Commission Summary
           </div>
@@ -254,16 +261,8 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
               return (
               <div
                 key={agent}
+                className={`commission-agent-card ${agentFilter === agent ? 'active' : ''}`}
                 onClick={() => { setAgentFilter(agentFilter === agent ? 'all' : agent); setSelectedAgent(agent); }}
-                style={{
-                  padding: '10px 16px',
-                  borderRadius: 10,
-                  border: `2px solid ${agentFilter === agent ? 'var(--accent-blue)' : 'var(--border-color)'}`,
-                  background: agentFilter === agent ? '#eff4ff' : 'var(--bg-secondary)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  minWidth: 160,
-                }}
               >
                 <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', marginBottom: 4, display:'flex', alignItems:'center', gap:4 }}>
                   {agent === 'No Agent'
@@ -271,7 +270,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
                     : <><UsersIcon size={13}/> {agent}</>}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  {data.count} sale{data.count !== 1 ? 's' : ''}{data.email ? ` • ${data.email}` : ''}
+                  {data.count} sale{data.count !== 1 ? 's' : ''}{data.email ? ` - ${data.email}` : ''}
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 800, color: data.commission > 0 ? 'var(--accent-red)' : 'var(--text-muted)', marginTop: 4 }}>
                   Earned: {data.commission > 0 ? fmt(data.commission) : 'PKR 0'}
@@ -298,7 +297,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
       )}
 
       {selectedAgentSummary && (
-        <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, marginBottom: 20 }}>
+        <div className="commission-ledger-panel">
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Individual Agent Ledger</div>

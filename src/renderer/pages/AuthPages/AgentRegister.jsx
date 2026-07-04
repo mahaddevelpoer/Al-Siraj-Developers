@@ -97,25 +97,13 @@ export default function AgentRegister() {
       const { error: profileError } = await supabase.from('users').upsert([profile], { onConflict: 'id' });
       if (profileError) throw profileError;
 
-      const { error: appealError } = await supabase.from('appeals').upsert([{
-        requested_by_user_id: tempUserId,
-        requested_by_role: 'agent',
-        appeal_type: 'agent_registration',
-        entity_type: 'agent',
-        entity_id: tempUserId,
-        town_name: selectedTownNames,
-        requested_data: {
-          townName: selectedTownNames,
-          agent_town: selectedTownNames,
-          agent_towns: selectedTownNames,
-          email,
-          full_name: fullName,
-          phone_number: phone,
-          license_number: licenseNumber,
-        },
-        reason: `Agent registration approval request for ${selectedTownNames}`,
-        status: 'pending',
-      }], { onConflict: 'requested_by_user_id,entity_id,appeal_type' });
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+      const { error: appealError } = await supabase.rpc('create_agent_registration_appeal', {
+        p_user_id: tempUserId,
+        p_otp_code: null,
+        p_otp_expires_at: expiresAt.toISOString(),
+      });
       if (appealError) throw appealError;
 
       setStep(3);

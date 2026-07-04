@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { createBusinessAppeal } from '../../lib/appeals';
 
@@ -62,7 +62,7 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
         overflowY: 'auto',
       }}>
         <div style={{ marginBottom: 24 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>📝 Request Change</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>Request Change</h3>
           <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             Submit a request to CEO for approval
           </p>
@@ -80,9 +80,9 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
               value={appealType}
               onChange={(e) => setAppealType(e.target.value)}
             >
-              <option value="date_change">📅 Date Change</option>
-              <option value="amount_change">💰 Amount Change</option>
-              <option value="other">📋 Other</option>
+              <option value="date_change">Date Change</option>
+              <option value="amount_change">Amount Change</option>
+              <option value="other">Other</option>
             </select>
           </div>
 
@@ -119,7 +119,7 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
 
           {error && (
             <div style={{ padding: 10, background: '#fee2e2', color: '#991b1b', borderRadius: 'var(--radius-sm)', marginBottom: 16, fontSize: 12 }}>
-              ❌ {error}
+              {error}
             </div>
           )}
 
@@ -130,7 +130,7 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
               className="btn btn-primary"
               style={{ flex: 1, padding: '10px', opacity: loading || submitted ? 0.6 : 1 }}
             >
-              {loading ? '⏳ Submitting...' : '✅ Submit Appeal'}
+              {loading ? 'â³ Submitting...' : 'âœ… Submit Appeal'}
             </button>
             <button
               type="button"
@@ -146,3 +146,4 @@ export default function CreateAppeal({ entityId, entityType, currentData, onClos
     </div>
   );
 }
+

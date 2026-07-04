@@ -109,7 +109,7 @@ export default function CashBanksDashboard({ townName, showToast }) {
         <button className="btn btn-secondary" type="button" onClick={load} disabled={loading}>Refresh</button>
       </div>
 
-      <div className="ui-kpi-grid-4" style={{ marginBottom: 18 }}>
+      <div className="cash-bank-summary" style={{ marginBottom: 18 }}>
         <div className="ui-town-financial-item"><div className="ui-town-financial-lbl">Cash in Hand</div><div className="ui-town-financial-val" style={{ color: '#16a34a' }}>{money(summary.cashBalance)}</div></div>
         <div className="ui-town-financial-item"><div className="ui-town-financial-lbl">Cash Received</div><div className="ui-town-financial-val" style={{ color: '#0f766e' }}>{money(summary.cashReceived)}</div></div>
         <div className="ui-town-financial-item"><div className="ui-town-financial-lbl">Cash Paid</div><div className="ui-town-financial-val" style={{ color: '#dc2626' }}>{money(summary.cashPaid)}</div></div>
@@ -120,10 +120,10 @@ export default function CashBanksDashboard({ townName, showToast }) {
         <div className="accounts-grid">
           {loading && <div className="property-board-loading">Loading cash and bank accounts...</div>}
           {!loading && accounts.map((account) => (
-            <div key={account.Account_ID} className={`account-card ${account.Account_ID === 'cash-in-hand' ? 'active' : ''}`}>
+            <div key={account.Account_ID} className={`account-card cash-bank-card ${account.Account_ID === 'cash-in-hand' ? 'active' : ''}`}>
               <span>{account.Account_Type === 'bank' ? 'Bank Account' : 'Default Cash'}</span>
               <strong>{account.Account_Name}</strong>
-              <div>
+              <div className="cash-bank-flow">
                 <small>Credit {money(account.Total_Credit)}</small>
                 <small>Debit {money(account.Total_Debit)}</small>
               </div>

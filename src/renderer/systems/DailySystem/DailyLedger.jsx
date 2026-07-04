@@ -55,6 +55,26 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   useEffect(() => { loadEntries(); }, [selectedDate, townName, refreshKey]);
   useEffect(() => { loadAccountOptions(); }, [townName, refreshKey]);
 
+  useEffect(() => {
+    const refresh = (event) => {
+      const detail = event?.detail || {};
+      const events = Array.isArray(detail.events) ? detail.events : [detail.type].filter(Boolean);
+      const targetTown = detail.townName || detail.town_name || detail.Town_Name;
+      const sameTown = !targetTown || !townName || String(targetTown).trim().toLowerCase() === String(townName).trim().toLowerCase();
+      if (!sameTown) return;
+      if (events.some((name) => ['daily-entry:changed', 'ledger:changed', 'collection:changed', 'installment:changed', 'remaining:changed', 'receipt:created', 'data:changed'].includes(String(name).toLowerCase()))) {
+        loadEntries();
+        loadAccountOptions();
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', refresh);
+    window.addEventListener('al-siraj-data-refreshed', refresh);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', refresh);
+      window.removeEventListener('al-siraj-data-refreshed', refresh);
+    };
+  }, [selectedDate, townName]);
+
   const addOption = (map, type, name) => {
     const clean = String(name || '').trim();
     if (!clean) return;
@@ -97,12 +117,12 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'appeals', filter: `id=eq.${appealId}` },
         async (p) => {
           if (p.new.status === 'approved') {
-            showToast?.('✅ CEO approved! Saving entry...');
+            showToast?.('CEO approved. Saving entry...');
             setModalStep(null);
             await submitEntryToApi(pendingPayload);
           } else if (p.new.status === 'rejected') {
             window.api?.showNotification?.('Daily Entry Rejected', `${pendingPayload?.type || 'Entry'} ${pendingPayload?.date || ''} was rejected by CEO`);
-            showToast?.('❌ CEO rejected the appeal', 'error');
+            showToast?.('CEO rejected the appeal', 'error');
             setModalStep(null);
           }
         })
@@ -152,11 +172,11 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
       }
       const r = await window.api.addDailyEntry(nextPayload);
       if (r?.error) showToast?.(r.error, 'error');
-      else { showToast?.('✅ Entry saved!'); await loadEntries(); onEntryAdded?.(); }
+      else { showToast?.('Entry saved'); await loadEntries(); onEntryAdded?.(); }
     } catch { showToast?.('Failed to add entry', 'error'); }
   };
 
-  // Child form calls this — intercept if accountant + non-today
+  // Child form calls this - intercept if accountant + non-today
   const handleAddEntry = async (data) => {
     const timeStr = new Date().toTimeString().split(' ')[0].substring(0, 5);
     const payload = { ...data, townName, date: selectedDate, time: timeStr };
@@ -246,7 +266,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
       }
 
       setOtpSent(true);
-      showToast?.('📧 OTP sent to CEO email successfully');
+      showToast?.('OTP sent to CEO email successfully');
     } catch (e) { showToast?.('Failed to send OTP: ' + e.message, 'error'); }
     setBusy(false);
   };
@@ -260,9 +280,9 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
         .select('otp_code, otp_expires_at, status')
         .eq('id', appealId).single();
       if (error || !data) throw new Error('Appeal not found');
-      if (!data.otp_code) throw new Error('OTP not generated yet — click "Send OTP to CEO" first');
-      if (new Date(data.otp_expires_at) < new Date()) throw new Error('OTP expired — click "Resend OTP" to get a new one');
-      if (String(data.otp_code).trim() !== otpInput.trim()) throw new Error('Incorrect OTP — please check and try again');
+      if (!data.otp_code) throw new Error('OTP not generated yet - click "Send OTP to CEO" first');
+      if (new Date(data.otp_expires_at) < new Date()) throw new Error('OTP expired - click "Resend OTP" to get a new one');
+      if (String(data.otp_code).trim() !== otpInput.trim()) throw new Error('Incorrect OTP - please check and try again');
 
       showToast?.('OTP verified. Waiting for CEO approval from dashboard/app.');
       setOtpInput('');
@@ -287,7 +307,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   const netAmount = totalIncome - totalExpense;
   const cleanCell = (value) => {
     const text = String(value ?? '').trim();
-    return text && text !== '-' && text !== '—' ? text : '';
+    return text && text !== '-' && text !== '-' ? text : '';
   };
   const entryTime = (e) => cleanCell(e.Time) || cleanCell(e.time) || (e.Created_At ? new Date(e.Created_At).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-');
   const entryAccount = (e) => cleanCell(e.Account_Name) || cleanCell(e.accountName) || cleanCell(e.Payment_Account_Name) || cleanCell(e.paymentAccountName) || 'Cash in Hand';
@@ -322,15 +342,15 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="daily-ledger-shell" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* Warning banner — accountant picked non-today date */}
+      {/* Warning banner - accountant picked non-today date */}
       {isNonToday && (
         <div style={{ background: 'linear-gradient(135deg, #fffbeb, #fef3c7)', border: '1px solid #f59e0b', borderRadius: 14, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 14, boxShadow: '0 2px 10px rgba(245,158,11,0.18)' }}>
           <span style={{ fontSize: 26 }}><IconWarning size={26} /></span>
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#92400e' }}>
-              CEO Approval Required — {selectedDate > todayStr ? 'Future' : 'Past'} Date Selected
+              CEO Approval Required - {selectedDate > todayStr ? 'Future' : 'Past'} Date Selected
             </div>
             <div style={{ fontSize: 12, color: '#b45309', marginTop: 3, lineHeight: 1.5 }}>
               You selected <strong>{selectedDate}</strong>. Accountants can only add entries for <strong>today ({todayStr})</strong> without approval. A CEO approval popup will open when you submit.
@@ -340,7 +360,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
       )}
 
       {/* Date Header */}
-      <div style={{ background: 'var(--bg-card)', border: isNonToday ? '2px solid #f59e0b' : '1px solid var(--border-color)', borderRadius: 16, padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="daily-ledger-head" style={{ background: 'var(--bg-card)', border: isNonToday ? '2px solid #f59e0b' : '1px solid var(--border-color)', borderRadius: 16, padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>Daily Cash Ledger</h3>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Log and audit cash transactions</span>
@@ -353,17 +373,17 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 12, borderBottom: '2px solid var(--border-color)', paddingBottom: 16 }}>
+      <div className="daily-ledger-tabs" style={{ display: 'flex', gap: 12, borderBottom: '2px solid var(--border-color)', paddingBottom: 16 }}>
         {[['income', 'Daily Income', 'var(--accent-green)'], ['expense', 'Daily Expense', 'var(--accent-red)']].map(([key, label, color]) => (
           <button key={key} onClick={() => setActiveTab(key)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === key ? `3px solid ${color}` : 'none', color: activeTab === key ? color : 'var(--text-secondary)', cursor: 'pointer', fontWeight: activeTab === key ? 700 : 600, fontSize: 14, transition: 'all 0.15s' }}>{label}</button>
         ))}
       </div>
 
       {/* Main Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20 }}>
+      <div className="daily-ledger-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20 }}>
 
         {/* Left: Forms */}
-        <div style={{ height: 'fit-content', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="daily-ledger-form-column" style={{ height: 'fit-content', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: activeTab === 'income' ? 'block' : 'none' }}>
             <DailyIncomeEntry townName={townName} onSubmit={handleAddEntry} isAppealMode={isNonToday} accountOptions={accountOptions} />
           </div>
@@ -378,8 +398,8 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
         </div>
 
         {/* Right: Summary + Table */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+        <div className="daily-ledger-log-column" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div className="daily-ledger-summary" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
             {[['Total Income', fmtPkr(totalIncome), '#E6F4EA', '#C4EED0', '#137333'], ['Total Expense', fmtPkr(totalExpense), '#FCE8E6', '#FAD2CF', '#C5221F'], ['Net Balance', fmtPkr(netAmount), netAmount >= 0 ? '#E8F0FE' : '#FEF7E0', netAmount >= 0 ? '#D2E3FC' : '#FDE293', netAmount >= 0 ? '#1A73E8' : '#B06000']].map(([label, val, bg, border, color]) => (
               <div key={label} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 14, padding: 16 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>{label}</span>
@@ -388,7 +408,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
             ))}
           </div>
 
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, overflow: 'hidden' }}>
+          <div className="daily-ledger-table-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, overflow: 'hidden' }}>
             <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, fontSize: 13 }}>Entries Log ({entries.length})</div>
             {loading ? (
               <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
@@ -441,9 +461,9 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
 
       {receiptMode && <DailyReceipt entries={entries} date={selectedDate} townName={townName} mode={receiptMode} onClose={() => setReceiptMode(null)} />}
 
-      {/* ══════════════════════════════════════════════
+      {/* ==============================================
           MODAL 1: Choose Approval Method
-          ══════════════════════════════════════════════ */}
+          ============================================== */}
       {modalStep === 'choose' && (
         <div className="ui-modal-overlay" onClick={(e) => e.target === e.currentTarget && closeModal()}>
           <div className="ui-modal-shell" style={{ maxWidth: 500 }}>
@@ -487,9 +507,9 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════
+      {/* ==============================================
           MODAL 2a: OTP Flow
-          ══════════════════════════════════════════════ */}
+          ============================================== */}
       {modalStep === 'otp' && (
         <div className="ui-modal-overlay" onClick={(e) => e.target === e.currentTarget && closeModal()}>
           <div className="ui-modal-shell" style={{ maxWidth: 440 }}>
@@ -545,9 +565,9 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════
-          MODAL 2b: Dashboard Appeal — waiting for CEO
-          ══════════════════════════════════════════════ */}
+      {/* ==============================================
+          MODAL 2b: Dashboard Appeal - waiting for CEO
+          ============================================== */}
       {modalStep === 'dashboard' && (
         <div className="ui-modal-overlay" onClick={(e) => e.target === e.currentTarget && closeModal()}>
           <div className="ui-modal-shell" style={{ maxWidth: 440 }}>
@@ -580,3 +600,4 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
     </div>
   );
 }
+

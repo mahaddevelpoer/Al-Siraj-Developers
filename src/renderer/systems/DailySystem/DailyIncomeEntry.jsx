@@ -105,7 +105,12 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
     const fallback = Array.from(
       { length: Math.max(0, total - paid) },
       (_, index) => ({
-        id: `${prop.id}|fallback-${paid + index + 1}`,
+        id: `missing|${prop.id}|${paid + index + 1}`,
+        saleId: prop.saleId || '',
+        propertyType: prop.propertyType || prop.Type || 'Property',
+        propertyNumber: prop.propertyNumber || prop.Plot_Shop_Number || '',
+        townName: prop.townName || prop.Town_Name || townName,
+        customerName: prop.buyerName || prop.Customer_Name || '',
         installmentNumber: paid + index + 1,
         totalInstallments: total,
         dueDate: '',
@@ -145,6 +150,15 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
       installmentPaymentPayload: selectedInstallment ? {
         Tracker_ID: selectedInstallment.id,
         Paid_Date: new Date().toISOString().split('T')[0],
+        Sale_ID: selectedInstallment.saleId || selectedProperty?.saleId || '',
+        Type: selectedInstallment.propertyType || selectedProperty?.propertyType || '',
+        Plot_Shop_Number: selectedInstallment.propertyNumber || selectedProperty?.propertyNumber || '',
+        Town_Name: selectedInstallment.townName || selectedProperty?.townName || townName,
+        Customer_Name: selectedInstallment.customerName || selectedProperty?.buyerName || '',
+        Monthly_Amount: selectedInstallment.dueAmount,
+        Due_Date: selectedInstallment.dueDate || '',
+        Month_Number: selectedInstallment.installmentNumber,
+        Total_Months: selectedInstallment.totalInstallments,
         ...paymentAccount,
       } : null,
       collectionPayload: selectedReceivable ? {
@@ -342,7 +356,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
                   <div
                     key={inst.id}
                     onClick={() => {
-                      if (!inst.isPaid && !inst.isSynthetic) {
+                      if (!inst.isPaid) {
                         handleInstallmentSelect(inst);
                       }
                     }}
@@ -351,8 +365,8 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
                       border: selectedInstallment?.id === inst.id ? '2px solid var(--accent-blue)' : '1px solid var(--border-color)',
                       borderRadius: 'var(--radius-md)',
                       background: selectedInstallment?.id === inst.id ? 'rgba(0,102,204,0.08)' : inst.isPaid ? 'rgba(0,0,0,0.02)' : 'var(--bg-card)',
-                      cursor: inst.isPaid || inst.isSynthetic ? 'not-allowed' : 'pointer',
-                      opacity: inst.isPaid || inst.isSynthetic ? 0.6 : 1,
+                      cursor: inst.isPaid ? 'not-allowed' : 'pointer',
+                      opacity: inst.isPaid ? 0.6 : 1,
                       transition: 'all 0.15s',
                     }}
                   >

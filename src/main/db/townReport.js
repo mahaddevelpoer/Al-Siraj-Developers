@@ -14,9 +14,10 @@ const {
     },
   };
 })();
+const { parseMoney, formatPKR } = require('./moneyUtils');
 
 function money(value) {
-  return parseFloat(value) || 0;
+  return parseMoney(value);
 }
 
 function clean(value) {
@@ -344,7 +345,7 @@ function safeFilePart(value) {
 }
 
 function pkr(value) {
-  return `PKR ${Math.round(money(value)).toLocaleString()}`;
+  return formatPKR(value);
 }
 
 function htmlTable(headers, rows) {

@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 bool prefersLeanMotion(BuildContext context) {
   final media = MediaQuery.maybeOf(context);
   if (media == null) return false;
-  return media.disableAnimations ||
-      media.size.width < 430 ||
-      media.devicePixelRatio < 2.25;
+  return media.disableAnimations;
 }
 
 Duration motionDuration(
@@ -13,7 +11,9 @@ Duration motionDuration(
   int normalMs, {
   int leanMs = 0,
 }) {
-  return Duration(milliseconds: prefersLeanMotion(context) ? leanMs : normalMs);
+  return Duration(
+    milliseconds: prefersLeanMotion(context) ? leanMs : normalMs,
+  );
 }
 
 double responsiveScale(BuildContext context) {

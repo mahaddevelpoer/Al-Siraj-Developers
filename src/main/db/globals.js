@@ -265,9 +265,32 @@ async function upsertDueInstallmentNotifications({ leadDays = 7 } = {}) {
 async function markInstallmentPaid(data) {
   const { Tracker_ID } = data;
   const filePath = path.join(getGlobalsPath(), 'Installments_Tracker.xlsx');
-  await ensureSheetColumns(filePath, 'Data', ['Receipt_Number', 'Paid_By', 'Payee_Name']);
-  const all = await readExcelFile(filePath, 'Data');
-  const item = all.find(i => i.Tracker_ID === Tracker_ID);
+  await ensureSheetColumns(filePath, 'Data', ['Sale_ID', 'Receipt_Number', 'Paid_By', 'Payee_Name']);
+  let all = await readExcelFile(filePath, 'Data');
+  let item = all.find(i => i.Tracker_ID === Tracker_ID);
+  if (!item && String(Tracker_ID || '').startsWith('missing|')) {
+    const syntheticRow = {
+      Tracker_ID,
+      Sale_ID: data.Sale_ID || data.saleId || '',
+      Plot_Shop_Number: data.Plot_Shop_Number || data.propertyNumber || '',
+      Type: data.Type || data.propertyType || 'Property',
+      Town_Name: data.Town_Name || data.townName || '',
+      Customer_Name: data.Customer_Name || data.customerName || data.buyerName || '',
+      Phone_Number: data.Phone_Number || data.phoneNumber || '',
+      Monthly_Amount: parseFloat(data.Monthly_Amount || data.dueAmount || data.amount) || 0,
+      Due_Date: data.Due_Date || data.dueDate || '',
+      Status: 'Due',
+      Paid_Date: '',
+      Month_Number: parseInt(data.Month_Number || data.installmentNumber, 10) || 1,
+      Total_Months: parseInt(data.Total_Months || data.totalInstallments, 10) || 1,
+      Received_Amount: 0,
+      Remaining_Amount: parseFloat(data.Monthly_Amount || data.dueAmount || data.amount) || 0,
+      Agent_Name: data.Agent_Name || data.agentName || '',
+    };
+    await appendToExcel(filePath, 'Data', syntheticRow);
+    all = await readExcelFile(filePath, 'Data');
+    item = all.find(i => i.Tracker_ID === Tracker_ID);
+  }
   if (!item) throw new Error('Installment not found');
   if (String(item.Status || '').toLowerCase() === 'paid') {
     await reconcileInstallmentSaleTotals(item.Town_Name);
@@ -808,12 +831,14 @@ async function getTownPerformance(townName) {
 }
 
 async function getInstallmentProperties(townName) {
+  await reconcileInstallmentSaleTotals(townName).catch(() => {});
   const sales = await readExcelFile(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data');
   const installments = await readExcelFile(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data');
 
   // Build a set of properties that actually have installment records
   const propsWithInstRecords = new Set();
   installments.filter(inst => String(inst.Town_Name) === String(townName)).forEach(inst => {
+    if (inst.Sale_ID) propsWithInstRecords.add(`sale:${inst.Sale_ID}`);
     propsWithInstRecords.add(`${inst.Type}|${inst.Plot_Shop_Number}`);
   });
 
@@ -821,17 +846,13 @@ async function getInstallmentProperties(townName) {
   const townSales = sales.filter(s => {
     if (String(s.Town_Name) !== String(townName)) return false;
     const key = `${s.Type}|${s.Plot_Shop_Number}`;
-    const hasInstRecords = propsWithInstRecords.has(key);
+    const hasInstRecords = propsWithInstRecords.has(key) || propsWithInstRecords.has(`sale:${s.Sale_ID}`);
     const hasInstField = parseInt(s.Total_Installments) > 0;
     return hasInstRecords || hasInstField;
   });
 
   return townSales.map(sale => {
-    const propInstallments = installments.filter(inst =>
-      String(inst.Type) === String(sale.Type) &&
-      String(inst.Plot_Shop_Number) === String(sale.Plot_Shop_Number) &&
-      String(inst.Town_Name) === String(sale.Town_Name)
-    );
+    const propInstallments = installments.filter(inst => saleMatchesInstallment(sale, inst));
 
     const paidInst = propInstallments.filter(inst => String(inst.Status || '').toLowerCase() === 'paid');
     const activeInst = propInstallments.filter(inst => String(inst.Status || '').toLowerCase() !== 'paid');
@@ -879,6 +900,11 @@ async function getPropertyInstallments(propertyId) {
 
   return propInstallments.map(inst => ({
     id: inst.Tracker_ID,
+    saleId: inst.Sale_ID || '',
+    propertyType: inst.Type || type,
+    propertyNumber: inst.Plot_Shop_Number || number,
+    townName: inst.Town_Name || townName,
+    customerName: inst.Customer_Name || '',
     installmentNumber: parseInt(inst.Month_Number) || 0,
     totalInstallments: parseInt(inst.Total_Months) || 0,
     dueDate: inst.Due_Date || '',

@@ -3,8 +3,9 @@ import { BellIcon } from './Icons';
 
 export default function NotificationPanel({ notifications, onRefresh, showToast }) {
   const [filter, setFilter] = useState('all');
+  const safeNotifications = Array.isArray(notifications) ? notifications : [];
 
-  const filtered = notifications.filter(n => {
+  const filtered = safeNotifications.filter(n => {
     if (filter === 'all') return true;
     if (filter === 'due') return n.Type === 'Due';
     if (filter === 'overdue') return n.Type === 'Overdue';
@@ -31,14 +32,17 @@ export default function NotificationPanel({ notifications, onRefresh, showToast 
     try { await window.api.dismissNotification(id); onRefresh(); } catch (e) {}
   };
 
-  const overdueCount = notifications.filter(n => n.Type === 'Overdue').length;
-  const dueCount = notifications.filter(n => n.Type === 'Due').length;
+  const overdueCount = safeNotifications.filter(n => n.Type === 'Overdue').length;
+  const dueCount = safeNotifications.filter(n => n.Type === 'Due').length;
 
   return (
     <div className="notification-panel">
       <div className="notif-header">
-        <h3>Installment Notifications</h3>
-        {notifications.length > 0 && <span className="notif-badge">{notifications.length}</span>}
+        <div>
+          <h3>Collection Alerts</h3>
+          <small>Due installments and account follow-ups</small>
+        </div>
+        {safeNotifications.length > 0 && <span className="notif-badge">{safeNotifications.length}</span>}
       </div>
       <div className="notif-tabs">
         <button className={`btn btn-sm ${filter === 'all' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilter('all')}>All</button>
@@ -55,8 +59,7 @@ export default function NotificationPanel({ notifications, onRefresh, showToast 
           filtered.map((n, i) => (
             <div key={i} className={`notif-item ${n.Type === 'Overdue' ? 'overdue' : ''} ${n.Type === 'Due' ? 'due' : ''} ${n.Type === 'Warning' ? 'warning' : ''}`}>
               <div className="notif-title">{n.Customer_Name || n.Type}</div>
-              <div className="notif-subtitle">{n.Message}</div>
-              <div className="notif-desc">{n.Message}</div>
+              <div className="notif-subtitle">{n.Message || 'No details saved'}</div>
               {n.Due_Date && <div className="notif-date">Due Date: {n.Due_Date}</div>}
               {(n.Type === 'Due' || n.Type === 'Overdue') && (
                 <div className="notif-actions">

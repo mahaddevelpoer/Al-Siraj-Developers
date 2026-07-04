@@ -4,6 +4,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, ArcElement, PointElement,
 import { useLang } from '../LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { setBusinessAppealOtp } from '../lib/appeals';
 import PendingCollections from './PendingCollections';
 
 ChartJS.register(CategoryScale, LinearScale, ArcElement, PointElement, LineElement, Filler, Title, Tooltip, Legend);
@@ -35,7 +36,7 @@ function AgentDashboard({ sales }) {
     const type = String(s.Type || '').trim().toLowerCase();
     return (type === 'plot' || type === 'shop') &&
       s.Agent_Name &&
-      s.Agent_Name.toLowerCase() === agentName.toLowerCase();
+      String(s.Agent_Name || '').toLowerCase() === String(agentName || '').toLowerCase();
   });
 
   const totalSold = mySales.length;
@@ -93,7 +94,8 @@ function AgentDashboard({ sales }) {
 
     const otpCode = Math.random().toString().substring(2, 8);
     try {
-      await supabase.from('appeals').update({ otp_code: otpCode }).eq('id', appealId);
+      const otpResult = await setBusinessAppealOtp(appealId, otpCode, null);
+      if (otpResult.error) throw otpResult.error;
 
       if (window.api?.sendInstallmentOtpEmail) {
         window.api.sendInstallmentOtpEmail({

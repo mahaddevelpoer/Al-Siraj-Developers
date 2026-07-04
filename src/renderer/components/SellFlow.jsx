@@ -3,6 +3,7 @@ import { useLang } from '../LanguageContext';
 import { PlotIcon, ShopIcon, CalendarIcon, DollarIcon, CheckIcon, ClockIcon } from './Icons';
 import OfficialReceipt from './OfficialReceipt';
 import { supabase } from '../lib/supabase';
+import { createBusinessAppeal, setBusinessAppealOtp, verifyBusinessAppealOtp } from '../lib/appeals';
 import { useAuth } from '../contexts/AuthContext';
 import PaymentAccountSelect from './PaymentAccountSelect';
 
@@ -10,6 +11,7 @@ import PaymentAccountSelect from './PaymentAccountSelect';
 export default function SellFlow({ showToast, loadNotifications, panel, lockedTownName = '' }) {
   const { t } = useLang();
   const { user, userProfile } = useAuth();
+  const requestRole = userProfile?.role === 'accountant' ? 'accountant' : 'employee';
   const [step, setStep] = useState(0);
   const [towns, setTowns] = useState([]);
   const [townAgents, setTownAgents] = useState([]);
@@ -565,12 +567,12 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
 
           {!useInstallment && (
             <div className="form-group full" style={{ background: 'rgba(33,115,70,0.08)', padding: 12, borderRadius: 8, border: '1px solid rgba(33,115,70,0.2)' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, display:'flex', alignItems:'center', gap:5 }}><DollarIcon size={14}/> Lump Sum Mode — </span>
+              <span style={{ fontSize: 13, fontWeight: 700, display:'flex', alignItems:'center', gap:5 }}><DollarIcon size={14}/> Lump Sum Mode â€” </span>
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Remaining Balance: PKR {remaining.toLocaleString()} (due immediately)</span>
             </div>
           )}
 
-          {/* ── Payment Method ── */}
+          {/* â”€â”€ Payment Method â”€â”€ */}
           <div className="form-group full" style={{ marginTop: 16 }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', marginBottom: 10, display:'flex', alignItems:'center', gap:6 }}>
               Payment Method
@@ -683,7 +685,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
           <div className="review-row"><span className="review-label">Customer</span><span className="review-value">{form.Customer_Name}</span></div>
           <div className="review-row"><span className="review-label">CNIC</span><span className="review-value">{form.CNIC}</span></div>
           <div className="review-row"><span className="review-label">Phone</span><span className="review-value">{form.Phone_Number}</span></div>
-          <div className="review-row"><span className="review-label">Receipt #</span><span className="review-value">{form.Receipt_Number || '—'}</span></div>
+          <div className="review-row"><span className="review-label">Receipt #</span><span className="review-value">{form.Receipt_Number || 'â€”'}</span></div>
           <div className="review-row"><span className="review-label">Expected Price</span><span className="review-value">PKR {expectedAmount.toLocaleString()}</span></div>
           <div className="review-row"><span className="review-label">Final Deal Amount</span><span className="review-value">PKR {totalAmount.toLocaleString()}</span></div>
           <div className="review-row"><span className="review-label">{dealDifference >= 0 ? 'Negotiated Discount' : 'Above Expected Premium'}</span><span className={dealDifference >= 0 ? 'review-value text-red' : 'review-value text-green'}>PKR {Math.abs(dealDifference).toLocaleString()}</span></div>
@@ -765,12 +767,12 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         }
 
         // Create appeal for custom installment plan from accountant workspace.
-        if (useInstallment && panel === 'employee' && user?.id && userProfile?.role === 'accountant') {
+        if (useInstallment && user?.id && userProfile?.role === 'accountant') {
           const otpCode = Math.random().toString().substring(2, 8);
 
           const appealPayload = {
             requested_by_user_id: user.id,
-            requested_by_role: 'accountant',
+            requested_by_role: requestRole,
             appeal_type: 'custom_installment_plan',
             entity_type: form.type,
             entity_id: form.number,
@@ -802,10 +804,12 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
 
           let appealData;
           if (existingPending) {
-            await supabase.from('appeals').update({ otp_code: otpCode }).eq('id', existingPending.id);
+            const otpResult = await setBusinessAppealOtp(existingPending.id, otpCode, null);
+            if (otpResult.error) throw otpResult.error;
             appealData = { id: existingPending.id, ...appealPayload, otp_code: otpCode };
           } else {
-            const { data: inserted } = await supabase.from('appeals').insert([appealPayload]).select().single();
+            const { data: inserted, error: insertError } = await createBusinessAppeal(appealPayload);
+            if (insertError) throw insertError;
             appealData = inserted;
           }
 
@@ -883,7 +887,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     });
   };
 
-  // ─── Date Change: Request OTP (Quick Verify) ─────────────────────────
+  // â”€â”€â”€ Date Change: Request OTP (Quick Verify) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleRequestDateOtp = async () => {
     if (!requestedDate) { setDateAppealError('Please select a new date'); return; }
     setDateAppealLoading(true);
@@ -891,27 +895,32 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     try {
       const otpCode = Math.random().toString().substring(2, 8);
 
-      // Delete any existing pending appeal for same user+property+type to avoid duplicate
-      await supabase
+      const { data: existingPending } = await supabase
         .from('appeals')
-        .delete()
+        .select('id')
         .eq('requested_by_user_id', user?.id)
         .eq('entity_id', form.number)
         .eq('appeal_type', 'date_change_otp')
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        .maybeSingle();
+      if (existingPending) {
+        setDateAppealError('A date change OTP request is already pending for this property. Please verify it or wait for CEO review.');
+        setDateAppealLoading(false);
+        return;
+      }
 
-      const { data, error } = await supabase.from('appeals').insert([{
+      const { data, error } = await createBusinessAppeal({
         requested_by_user_id: user?.id,
-        requested_by_role: 'agent',
+        requested_by_role: requestRole,
         appeal_type: 'date_change_otp',
         entity_type: form.type,
         entity_id: form.number,
         town_name: form.townName,
         requested_data: { newDate: requestedDate, town: form.townName, townName: form.townName },
-        reason: `Date change: ${form.Sell_Date} → ${requestedDate}`,
+        reason: `Date change: ${form.Sell_Date} to ${requestedDate}`,
         status: 'pending',
         otp_code: otpCode,
-      }]).select().single();
+      });
       if (error) throw error;
 
       setDateAppealData(data);
@@ -934,7 +943,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     setDateAppealLoading(false);
   };
 
-  // ─── Date Change: Verify OTP ─────────────────────────────────────────
+  // â”€â”€â”€ Date Change: Verify OTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleVerifyDateOtp = async () => {
     if (!dateOtpInput.trim()) { setDateOtpError('Please enter OTP'); return; }
     setDateAppealLoading(true);
@@ -959,7 +968,8 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         return;
       }
 
-      await supabase.from('appeals').update({ status: 'approved', otp_code: null }).eq('id', dateOtpId);
+      const verified = await verifyBusinessAppealOtp(dateOtpId, dateOtpInput.trim());
+      if (verified.error) throw verified.error;
 
       setForm(f => ({ ...f, Sell_Date: requestedDate }));
       persistApprovedSaleDate(requestedDate, { id: dateOtpId });
@@ -977,7 +987,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     }
   };
 
-  // ─── Date Change: Submit Appeal to CEO Panel ─────────────────────────
+  // â”€â”€â”€ Date Change: Submit Appeal to CEO Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleSubmitDateAppeal = async () => {
     if (!requestedDate) { setDateAppealError('Please select a new date'); return; }
     if (!dateChangeReason.trim()) { setDateAppealError('Please provide a reason'); return; }
@@ -999,9 +1009,9 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         return;
       }
 
-      const { data: insertedAppeal, error } = await supabase.from('appeals').insert([{
+      const { data: insertedAppeal, error } = await createBusinessAppeal({
         requested_by_user_id: user?.id,
-        requested_by_role: 'agent',
+        requested_by_role: requestRole,
         appeal_type: 'date_change',
         entity_type: form.type,
         entity_id: form.number,
@@ -1009,7 +1019,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         requested_data: { newDate: requestedDate, town: form.townName, townName: form.townName },
         reason: dateChangeReason,
         status: 'pending',
-      }]).select().single();
+      });
       if (error) throw error;
 
       setDateOtpId(insertedAppeal?.id || null);
@@ -1052,8 +1062,8 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         setOtpError('Invalid OTP');
         return;
       }
-      // OTP verified → mark appeal as approved
-      await supabase.from('appeals').update({ status: 'approved', otp_code: null }).eq('id', installmentAppeal.id);
+      const verified = await verifyBusinessAppealOtp(installmentAppeal.id, otpInput.trim());
+      if (verified.error) throw verified.error;
       showToast('Custom Installment Plan approved by CEO!');
       setInstallmentAppeal(null);
       setOtpInput('');
@@ -1073,7 +1083,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         />
       )}
 
-      {/* ─── Installment Plan OTP Verification ─── */}
+      {/* â”€â”€â”€ Installment Plan OTP Verification â”€â”€â”€ */}
       {installmentAppeal && (
         <div style={{
           background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
@@ -1081,10 +1091,10 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
           marginBottom: 24, boxShadow: '0 4px 16px rgba(245,158,11,0.2)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <span style={{ fontSize: 24 }}>⏳</span>
+            <span style={{ fontSize: 24 }}>â³</span>
             <div>
               <div style={{ fontWeight: 800, fontSize: 16, color: '#92400e' }}>
-                Custom Installment Plan — Pending Approval
+                Custom Installment Plan â€” Pending Approval
               </div>
               <div style={{ fontSize: 12, color: '#a16207', marginTop: 2 }}>
                 OTP has been sent to CEO's email. Enter it below to approve the installment plan.
@@ -1112,7 +1122,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
               />
               {otpError && (
                 <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, fontWeight: 600 }}>
-                  ❌ {otpError}
+                  âŒ {otpError}
                 </div>
               )}
             </div>
@@ -1121,13 +1131,13 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
               className="btn btn-warning"
               style={{ height: 42, whiteSpace: 'nowrap', fontWeight: 700 }}
             >
-              ✅ Verify OTP
+              âœ… Verify OTP
             </button>
           </div>
         </div>
       )}
 
-      {/* ─── Date Change Request Modal ─── */}
+      {/* â”€â”€â”€ Date Change Request Modal â”€â”€â”€ */}
       {showDateChangeModal && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -1201,7 +1211,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
                     marginTop: 8, boxShadow: '0 4px 16px rgba(245,158,11,0.2)',
                   }}>
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#92400e', marginBottom: 12 }}>
-                      ⏳ OTP Sent to CEO — Enter OTP to Verify
+                      â³ OTP Sent to CEO â€” Enter OTP to Verify
                     </div>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
                       <div style={{ flex: 1 }}>
@@ -1221,7 +1231,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
                         />
                         {dateOtpError && (
                           <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, fontWeight: 600 }}>
-                            ❌ {dateOtpError}
+                            âŒ {dateOtpError}
                           </div>
                         )}
                       </div>
@@ -1267,7 +1277,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
                 padding: 10, background: '#fee2e2', color: '#991b1b',
                 borderRadius: 'var(--radius-sm)', marginTop: 12, fontSize: 12,
               }}>
-                ❌ {dateAppealError}
+                âŒ {dateAppealError}
               </div>
             )}
 
@@ -1337,7 +1347,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
               <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{t.size}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{propertyDetails.Plot_Size || propertyDetails.Shop_Size || '—'}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{propertyDetails.Plot_Size || propertyDetails.Shop_Size || 'â€”'}</div>
                 </div>
                 {selectedPropertyMeasurement && (
                   <div>
@@ -1374,7 +1384,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         <div className="step-content">{steps[step].fields}</div>
         
         <div className="flex-between mt-6">
-          <button className="btn btn-ghost" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>← Back</button>
+          <button className="btn btn-ghost" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>â† Back</button>
           {step < steps.length - 1
             ? <button className="btn btn-primary" onClick={() => {
                 if (step === 0 && (!form.townName || !form.number || !form.Owner_Name)) {
@@ -1390,7 +1400,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
                   showToast('Advance amount cannot be greater than total amount', 'error'); return;
                 }
                 setStep(step + 1);
-              }}>Next →</button>
+              }}>Next â†’</button>
             : <button className="btn btn-success btn-lg" onClick={handleSell} disabled={loading}
                 style={{ display:'flex', alignItems:'center', gap:6 }}>
                 {loading
@@ -1403,3 +1413,5 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     </div>
   );
 }
+
+

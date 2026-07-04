@@ -14,6 +14,7 @@ const {
   syncMirrorsForFile,
 } = require('./core');
 const { recordMoneyEvent } = require('./moneyLedger');
+const { parseMoney } = require('./moneyUtils');
 
 const TODAY = () => new Date().toISOString().split('T')[0];
 
@@ -67,7 +68,7 @@ async function rows(key) {
 }
 
 function toMoney(value) {
-  return parseFloat(value) || 0;
+  return parseMoney(value);
 }
 
 async function saveReceiptArchive(data) {

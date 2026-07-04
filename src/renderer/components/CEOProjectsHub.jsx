@@ -125,8 +125,19 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
   const cashBalanceMetric = portfolioStats?.cashBalance ?? portfolioStats?.netProfitLoss ?? netPortfolioPl;
 
   const dashboardContent = loading ? (
-    <div className="loading flex-center flex-1">
-      <div className="spinner" />
+    <div className="portfolio-loading-shell">
+      <div className="ui-skeleton-card portfolio-loading-hero" />
+      <div className="portfolio-loading-grid">
+        <div className="ui-skeleton-card" />
+        <div className="ui-skeleton-card" />
+        <div className="ui-skeleton-card" />
+      </div>
+      <div className="portfolio-loading-grid towns">
+        <div className="ui-skeleton-card" />
+        <div className="ui-skeleton-card" />
+        <div className="ui-skeleton-card" />
+        <div className="ui-skeleton-card" />
+      </div>
     </div>
   ) : (
     <>

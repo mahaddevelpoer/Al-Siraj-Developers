@@ -174,7 +174,7 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
           }}>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Extend Due Date</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 18 }}>
-              {extendModal.Type} {extendModal.Plot_Shop_Number} — Month {extendModal.Month_Number}/{extendModal.Total_Months}
+              {extendModal.Type} {extendModal.Plot_Shop_Number} - Month {extendModal.Month_Number}/{extendModal.Total_Months}
             </div>
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>New Due Date</label>
@@ -280,7 +280,7 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
                   transition: 'box-shadow 0.2s',
                   boxShadow: isExpanded ? '0 4px 20px rgba(0,0,0,0.08)' : 'none',
                 }}>
-                  {/* Property Header — Click to expand */}
+                  {/* Property header - click to expand */}
                   <div
                     onClick={() => setExpandedKey(isExpanded ? null : g.key)}
                     style={{
@@ -332,7 +332,7 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>PROGRESS</div>
                         <div style={{ fontSize: 14, fontWeight: 700 }}>{g.paidCount}/{g.totalMonths}</div>
                       </div>
-                      <div style={{ fontSize: 18, color: 'var(--text-muted)', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</div>
+                      <div style={{ fontSize: 18, color: 'var(--text-muted)', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>v</div>
                     </div>
                   </div>
 

@@ -48,6 +48,7 @@ mustContain(issues, 'src/main/ipc.js', [
 
 mustContain(issues, 'src/main/preload.js', [
   'runBusinessAudit',
+  'runHandoverAudit',
   'onBusinessDataChanged',
   'getPaymentAccounts',
   'addBankAccount',
@@ -127,6 +128,8 @@ mustContain(issues, 'scripts/audit-business-data.mjs', [
 mustContain(issues, 'src/renderer/components/Settings.jsx', [
   'System Health Audit',
   'runBusinessAudit',
+  'runHandoverAudit',
+  'Handover Audit',
   'Open Audit Report',
   'Local-First Sync Active',
 ], 'settings_health_ui');

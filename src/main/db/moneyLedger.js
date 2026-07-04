@@ -12,6 +12,7 @@ const {
   writeWorkbookAtomic,
   syncMirrorsForFile,
 } = require('./core');
+const { parseMoney } = require('./moneyUtils');
 
 const FILE_NAME = 'Money_Ledger.xlsx';
 const SUMMARY_FILE_NAME = 'Town_Financial_Summary.xlsx';
@@ -30,7 +31,7 @@ function today() {
 }
 
 function toMoney(value) {
-  return parseFloat(value) || 0;
+  return parseMoney(value);
 }
 
 function ledgerPath() {
@@ -284,10 +285,31 @@ async function computePendingCollection(townName) {
   const safeRead = async (file) => {
     try { return await readExcelFile(path.join(globals, file), 'Data'); } catch (_) { return []; }
   };
-  const sales = await safeRead('All_Sales.xlsx');
+  const [sales, installments] = await Promise.all([
+    safeRead('All_Sales.xlsx'),
+    safeRead('Installments_Tracker.xlsx'),
+  ]);
+  const saleMatchesInstallment = (sale, installment) => {
+    if (sale.Sale_ID && installment.Sale_ID) {
+      return String(sale.Sale_ID) === String(installment.Sale_ID);
+    }
+    return String(sale.Type || '') === String(installment.Type || '') &&
+      String(sale.Plot_Shop_Number || '') === String(installment.Plot_Shop_Number || '') &&
+      String(sale.Town_Name || '') === String(installment.Town_Name || '');
+  };
   return sales
     .filter((s) => !townName || String(s.Town_Name || '') === String(townName))
-    .reduce((sum, s) => sum + toMoney(s.Remaining_Amount), 0);
+    .reduce((sum, s) => {
+      const total = toMoney(s.Total_Amount_PKR);
+      const installmentCount = parseInt(s.Total_Installments, 10) || 0;
+      if (installmentCount > 0 && total > 0) {
+        const paidInstallments = installments
+          .filter((inst) => saleMatchesInstallment(s, inst) && String(inst.Status || '').toLowerCase() === 'paid')
+          .reduce((paid, inst) => paid + toMoney(inst.Received_Amount || inst.Monthly_Amount), 0);
+        return sum + Math.max(0, total - toMoney(s.Advance_Amount_PKR) - paidInstallments);
+      }
+      return sum + toMoney(s.Remaining_Amount);
+    }, 0);
 }
 
 async function computeInvestorBalance(townName) {

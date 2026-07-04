@@ -172,6 +172,30 @@ function createSheetWithFriendlyHeaders(workbook, sheetName, keys) {
   return sheet;
 }
 
+function appendMissingColumns(sheet, columns) {
+  if (!sheet || !Array.isArray(columns) || columns.length === 0) return false;
+  const { keys, keyRowNumber } = getHeaderKeys(sheet);
+  const existingKeys = new Set(keys.filter(Boolean).map(String));
+  const missing = columns
+    .map(String)
+    .filter((key) => key && !key.startsWith('_') && !existingKeys.has(key));
+  if (missing.length === 0) return false;
+
+  const keyRow = sheet.getRow(keyRowNumber);
+  const hasFriendlyHeader = keyRowNumber > 1;
+  const headerRow = hasFriendlyHeader ? sheet.getRow(keyRowNumber - 1) : null;
+  let nextCol = sheet.columnCount + 1;
+
+  for (const col of missing) {
+    keyRow.getCell(nextCol).value = col;
+    if (headerRow) headerRow.getCell(nextCol).value = toFriendlyHeader(col);
+    keyRow.getCell(nextCol).font = { bold: true };
+    nextCol++;
+  }
+  if (headerRow) styleHeaderRow(sheet, keyRowNumber - 1);
+  return true;
+}
+
 async function initializeDatabase(dbPath) {
   setDbPath(dbPath);
 
@@ -272,6 +296,8 @@ async function appendToExcel(filePath, sheetName, rowData) {
       sheet = workbook.getWorksheet(sheetName || 'Data');
     }
 
+    appendMissingColumns(sheet, Object.keys(rowData || {}));
+
     const { keys, keyRowNumber } = getHeaderKeys(sheet);
     if (keyRowNumber === 1 && sheet.rowCount === 1) {
       // Legacy sheet with only a single header row; still ok.
@@ -296,6 +322,7 @@ async function updateExcelRow(filePath, sheetName, rowNumber, updates) {
     const sheet = workbook.getWorksheet(sheetName || 'Data');
     if (!sheet) return;
 
+    appendMissingColumns(sheet, Object.keys(updates || {}));
     const { keys } = getHeaderKeys(sheet);
     const headers = {};
     keys.forEach((k, idx) => {
@@ -333,22 +360,8 @@ async function ensureSheetColumns(filePath, sheetName, columns) {
     const sheet = workbook.getWorksheet(sheetName || 'Data');
     if (!sheet) return;
 
-    const { keys } = getHeaderKeys(sheet);
-    const existingKeys = new Set(keys.filter(Boolean));
-
-    const missing = columns.filter(c => !existingKeys.has(c));
-    if (missing.length === 0) return;
-
-    const { keyRowNumber } = getHeaderKeys(sheet);
-    const keyRow = sheet.getRow(keyRowNumber);
-    const headerRow = sheet.getRow(keyRowNumber - 1);
-    let nextCol = sheet.columnCount + 1;
-
-    for (const col of missing) {
-      keyRow.getCell(nextCol).value = col;
-      headerRow.getCell(nextCol).value = toFriendlyHeader(col);
-      nextCol++;
-    }
+    const changed = appendMissingColumns(sheet, columns);
+    if (!changed) return;
 
     await writeWorkbookAtomic(filePath, workbook);
     syncMirrorsForFile(filePath);

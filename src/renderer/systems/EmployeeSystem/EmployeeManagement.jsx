@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 
 export default function EmployeeManagement({ townName }) {
@@ -31,7 +31,7 @@ export default function EmployeeManagement({ townName }) {
       {/* Header */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>🧑‍💼 Agents — {townName}</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Agents - {townName}</h3>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
             Agents who registered via the app login system
           </div>
@@ -50,7 +50,6 @@ export default function EmployeeManagement({ townName }) {
         border: '1px solid #86efac', marginBottom: 20, fontSize: 12, color: '#15803d',
         display: 'flex', alignItems: 'center', gap: 8,
       }}>
-        <span style={{ fontSize: 16 }}>ℹ️</span>
         <span>
           Agents automatically appear here when they <strong>register via the app</strong> and are approved by CEO.
           To add an agent, ask them to register from the login screen.
@@ -60,7 +59,6 @@ export default function EmployeeManagement({ townName }) {
       {/* Agents List */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
           <div>Loading agents...</div>
         </div>
       ) : agents.length === 0 ? (
@@ -68,7 +66,6 @@ export default function EmployeeManagement({ townName }) {
           textAlign: 'center', padding: 60, background: 'var(--bg-card)',
           borderRadius: 16, border: '2px dashed var(--border-color)',
         }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🧑‍💼</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No Agents Yet</div>
           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
             No agents registered for <strong>{townName}</strong> yet.<br />
@@ -113,17 +110,17 @@ export default function EmployeeManagement({ townName }) {
               <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.8 }}>
                 {agent.email && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>📧</span>
+                    <span>ðŸ“§</span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{agent.email}</span>
                   </div>
                 )}
                 {agent.phone_number && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>📞</span><span>{agent.phone_number}</span>
+                    <span>ðŸ“ž</span><span>{agent.phone_number}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>📅</span>
+                  <span>ðŸ“…</span>
                   <span>Joined {new Date(agent.created_at).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                 </div>
               </div>
@@ -135,7 +132,7 @@ export default function EmployeeManagement({ townName }) {
                   background: agent.is_active ? '#dcfce7' : '#fef2f2',
                   color: agent.is_active ? '#15803d' : '#dc2626',
                 }}>
-                  {agent.is_active ? '✅ Active' : '⏳ Pending Approval'}
+                  {agent.is_active ? 'âœ… Active' : 'â³ Pending Approval'}
                 </span>
               </div>
             </div>
@@ -145,3 +142,4 @@ export default function EmployeeManagement({ townName }) {
     </div>
   );
 }
+

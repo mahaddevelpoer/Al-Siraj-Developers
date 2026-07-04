@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, auth } from '../lib/supabase';
 import { IconCrown, IconBarChart, IconHandshake, IconEyeOff, IconEye, IconShield } from './Icons';
@@ -31,6 +31,15 @@ const ROLE_PORTAL = {
   ceo: { title: 'CEO Portal', subtitle: 'Secure access to the AL SIRAJ DEVELOPERS management system.' },
   accountant: { title: 'Accountant Portal', subtitle: 'Manage financial operations for AL SIRAJ DEVELOPERS.' },
 };
+const LOCAL_ACCOUNTANT_SESSION_KEY = 'al_siraj_local_accountant_session';
+
+function getSavedAccountantSession() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOCAL_ACCOUNTANT_SESSION_KEY) || 'null');
+    if (saved?.profile?.role === 'accountant') return saved;
+  } catch (_) {}
+  return null;
+}
 
 export default function AuthScreen({ onLogin }) {
   const logoSrc = useLogo();
@@ -50,6 +59,7 @@ export default function AuthScreen({ onLogin }) {
   const [adminPassword, setAdminPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [savedAccountant, setSavedAccountant] = useState(null);
 
   // Register fields
   const [regName, setRegName] = useState('');
@@ -71,6 +81,10 @@ export default function AuthScreen({ onLogin }) {
       }).catch(() => {});
     }
   }, []);
+
+  useEffect(() => {
+    setSavedAccountant(selectedRole === 'accountant' ? getSavedAccountantSession() : null);
+  }, [selectedRole]);
 
   const handleRoleClick = (role) => {
     setTempRole(role === tempRole ? null : role);
@@ -133,7 +147,7 @@ export default function AuthScreen({ onLogin }) {
 
       let { data: profile } = await supabase
         .from('users')
-        .select('role, is_active, agent_town, agent_towns, town_name, town_id')
+        .select('id, email, full_name, role, is_active, agent_town, agent_towns, town_name, town_id')
         .eq('id', result.user.id)
         .single();
 
@@ -184,6 +198,32 @@ export default function AuthScreen({ onLogin }) {
         await supabase.auth.signOut();
         throw new Error('No town assigned to this accountant. CEO must assign a town first.');
       }
+      if (selectedRole === 'accountant') {
+        if (!String(adminPassword || '').trim()) {
+          throw new Error('Set an administration password once. After this, accountant can unlock this PC offline.');
+        }
+        await window.api?.cacheLocalAccountant?.({
+          id: result.user.id,
+          email: loginEmail,
+          password: loginPassword,
+          full_name: profile.full_name || loginEmail.split('@')[0],
+          town_name: profile.town_name || profile.town_id || '',
+          town_id: profile.town_id || profile.town_name || '',
+          adminPassword,
+          is_active: true,
+        }).catch(() => {});
+        localStorage.setItem(LOCAL_ACCOUNTANT_SESSION_KEY, JSON.stringify({
+          user: { id: result.user.id, email: loginEmail },
+          profile: {
+            ...profile,
+            id: result.user.id,
+            email: loginEmail,
+            role: 'accountant',
+            admin_password_set: true,
+          },
+          saved_at: new Date().toISOString(),
+        }));
+      }
       if (window.api?.configureFileSyncContext) {
         await window.api.configureFileSyncContext({
           role: selectedRole,
@@ -193,6 +233,36 @@ export default function AuthScreen({ onLogin }) {
       }
       onLogin(selectedRole, {
         townName: profile.town_name || profile.town_id || '',
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOfflineUnlock = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const email = savedAccountant?.profile?.email || savedAccountant?.user?.email || loginEmail;
+      const result = await signIn(email, '', 'accountant', {
+        adminPassword,
+        offlineUnlock: true,
+        remember: true,
+      });
+      if (!result.success) throw new Error(result.error || 'Could not unlock accountant workspace');
+      const profile = result.profile;
+      if (window.api?.configureFileSyncContext) {
+        await window.api.configureFileSyncContext({
+          role: 'accountant',
+          userId: profile.id,
+          accountantTown: profile.town_name || profile.town_id || '',
+        }).catch(() => {});
+      }
+      onLogin('accountant', {
+        townName: profile.town_name || profile.town_id || '',
+        offline: true,
       });
     } catch (err) {
       setError(err.message);
@@ -252,47 +322,7 @@ export default function AuthScreen({ onLogin }) {
           });
 
         if (otpError) {
-          console.warn('Registration RPC warning, trying direct appeal insert:', otpError.message);
-          const { data: fallbackAppeal, error: fallbackError } = await supabase
-            .from('appeals')
-            .upsert([{
-              requested_by_user_id: userId,
-              requested_by_role: 'agent',
-              appeal_type: 'agent_registration',
-              entity_type: 'agent',
-              entity_id: userId,
-              town_name: regTown,
-              requested_data: {
-                townName: regTown,
-                agent_town: regTown,
-                agent_towns: regTown,
-                email: regEmail,
-                full_name: regName,
-                phone_number: regPhone,
-              },
-              reason: `Agent registration approval request for ${regTown}`,
-              status: 'pending',
-              otp_code: otpCode,
-              otp_expires_at: expiresAt.toISOString(),
-            }], { onConflict: 'requested_by_user_id,entity_id,appeal_type' })
-            .select('id')
-            .single();
-          if (fallbackError) throw new Error('Approval request setup failed: ' + fallbackError.message);
-        } else {
-          if (otpRecord?.id) {
-            await supabase.from('appeals').update({
-              town_name: regTown,
-              requested_data: {
-                townName: regTown,
-                agent_town: regTown,
-                agent_towns: regTown,
-                email: regEmail,
-                full_name: regName,
-                phone_number: regPhone,
-              },
-              reason: `Agent registration approval request for ${regTown}`,
-            }).eq('id', otpRecord.id);
-          }
+          throw new Error('Approval request setup failed. Run src/sql/ceo-review-schema-repair.sql in Supabase SQL Editor. ' + otpError.message);
         }
 
         setRegStep(2);
@@ -346,7 +376,7 @@ export default function AuthScreen({ onLogin }) {
     }
   };
 
-  // ─── ROLE SELECTION SCREEN ──────────────────────────────────────────────
+  // â”€â”€â”€ ROLE SELECTION SCREEN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (!selectedRole) {
     return (
       <div className="auth-screen">
@@ -381,7 +411,7 @@ export default function AuthScreen({ onLogin }) {
                     <div className="auth-role-badge" style={{ background: role.gradient }}>
                       {role.badge}
                     </div>
-                    {isSelected && <span className="auth-role-check">✓</span>}
+                    {isSelected && <span className="auth-role-check">âœ“</span>}
                   </div>
                 </button>
               );
@@ -405,7 +435,7 @@ export default function AuthScreen({ onLogin }) {
     );
   }
 
-  // ─── FORM SCREEN (Login / Register / OTP) ───────────────────────────────
+  // â”€â”€â”€ FORM SCREEN (Login / Register / OTP) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const roleData = ROLE_STYLES[selectedRole];
   const portalData = ROLE_PORTAL[selectedRole];
 
@@ -413,7 +443,7 @@ export default function AuthScreen({ onLogin }) {
     <div className="auth-screen">
       <div className="auth-screen-bg auth-screen-bg--light" />
       <div className={`auth-split ${animating ? 'auth-exit' : 'auth-enter'}`}>
-        {/* ─── LEFT PANEL ─── */}
+        {/* â”€â”€â”€ LEFT PANEL â”€â”€â”€ */}
         <div className="auth-left-panel" style={{ background: ROLE_STYLES[selectedRole].panelGradient }}>
           <div className="auth-left-decor">
             <div className="auth-deco-circle auth-deco-circle--1" />
@@ -421,7 +451,7 @@ export default function AuthScreen({ onLogin }) {
             <div className="auth-deco-circle auth-deco-circle--3" />
           </div>
           <div className="auth-left-content">
-            <button className="auth-back-btn" onClick={handleBack} type="button">←</button>
+            <button className="auth-back-btn" onClick={handleBack} type="button">Back</button>
             <div className="auth-left-icon-wrap">
               <span className="auth-left-icon">{React.createElement(ROLE_ICON_COMPONENTS[selectedRole], { size: 40 })}</span>
             </div>
@@ -433,7 +463,7 @@ export default function AuthScreen({ onLogin }) {
           </div>
         </div>
 
-        {/* ─── RIGHT PANEL ─── */}
+        {/* â”€â”€â”€ RIGHT PANEL â”€â”€â”€ */}
         <div className="auth-right-panel">
           <div className="auth-right-inner">
             {/* Agent Tabs */}
@@ -452,7 +482,7 @@ export default function AuthScreen({ onLogin }) {
               </div>
             )}
 
-            {/* ─── LOGIN FORM ─── */}
+            {/* â”€â”€â”€ LOGIN FORM â”€â”€â”€ */}
             {formMode === 'login' && (
               <div className="auth-form-wrap">
                 <h3 className="auth-form-heading">Welcome Back</h3>
@@ -470,7 +500,7 @@ export default function AuthScreen({ onLogin }) {
                     <label>Password</label>
                     <div className="auth-input-wrap">
                       <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-                      <input type={showPassword ? 'text' : 'password'} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="••••••••" required />
+                      <input type={showPassword ? 'text' : 'password'} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="Password" required />
                       <button type="button" className="auth-password-toggle" onClick={() => setShowPassword(!showPassword)}>
                         {showPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}
                       </button>
@@ -491,6 +521,17 @@ export default function AuthScreen({ onLogin }) {
                       <small className="auth-helper-text">
                         One-time online activation CEO se hoti hai. Uske baad accountant assigned town par offline kaam kar sakta hai.
                       </small>
+                      {savedAccountant?.profile && (
+                        <div className="offline-accountant-card">
+                          <div>
+                            <strong>{savedAccountant.profile.full_name || savedAccountant.profile.email}</strong>
+                            <span>{savedAccountant.profile.town_name || savedAccountant.profile.town_id || 'Assigned town'}</span>
+                          </div>
+                          <button type="button" onClick={handleOfflineUnlock} disabled={loading || !adminPassword}>
+                            Unlock Offline
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="auth-form-row">
@@ -517,7 +558,7 @@ export default function AuthScreen({ onLogin }) {
               </div>
             )}
 
-            {/* ─── REGISTER WIZARD ─── */}
+            {/* â”€â”€â”€ REGISTER WIZARD â”€â”€â”€ */}
             {formMode === 'register' && selectedRole === 'agent' && regStep === 1 && (
               <div className="auth-form-wrap">
                 <h3 className="auth-form-heading">Create Account</h3>
@@ -525,7 +566,7 @@ export default function AuthScreen({ onLogin }) {
                 <div className="auth-wizard-progress">
                   {[1,2,3].map((s) => (
                     <div key={s} className={`auth-wiz-dot ${wizStep >= s ? 'active' : ''} ${wizStep > s ? 'done' : ''}`}>
-                      {wizStep > s ? '✓' : s}
+                      {wizStep > s ? 'Done' : s}
                     </div>
                   ))}
                   <div className="auth-wiz-line">
@@ -596,12 +637,12 @@ export default function AuthScreen({ onLogin }) {
                   )}
                   <div className="auth-wiz-nav">
                     {wizStep > 1 && (
-                      <button type="button" className="auth-wiz-btn auth-wiz-btn--back" onClick={prevWizStep}>← Back</button>
+                      <button type="button" className="auth-wiz-btn auth-wiz-btn--back" onClick={prevWizStep}>Back</button>
                     )}
                     <div style={{ flex: 1 }} />
                     {wizStep < 3 ? (
                       <button type="button" className="auth-wiz-btn auth-wiz-btn--next" onClick={nextWizStep}>
-                        Next →
+                        Next
                       </button>
                     ) : (
                       <button type="submit" className="auth-wiz-btn auth-wiz-btn--submit" ref={submitRef} disabled={loading}>
@@ -613,7 +654,7 @@ export default function AuthScreen({ onLogin }) {
               </div>
             )}
 
-            {/* ─── OTP SCREEN ─── */}
+            {/* â”€â”€â”€ OTP SCREEN â”€â”€â”€ */}
             {selectedRole === 'agent' && regStep === 2 && (
               <div className="auth-form-wrap">
                 <div className="auth-otp-header">
@@ -638,4 +679,5 @@ export default function AuthScreen({ onLogin }) {
     </div>
   );
 }
+
 

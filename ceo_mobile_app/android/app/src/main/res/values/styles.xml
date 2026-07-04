@@ -1,19 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="splash_background">#F4F7F6</color>
+    <!-- Splash background: matches Flutter splash gradient start color -->
+    <color name="splash_background">#F8FAFC</color>
     <color name="notification_color">#0F766E</color>
-    <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <!-- Show a splash screen on the activity. Automatically removed when
-             the Flutter engine draws its first frame -->
-        <item name="android:windowBackground">@drawable/launch_background</item>
-    </style>
-    <!-- Theme applied to the Android Window as soon as the process has started.
-         This theme determines the color of the Android Window while your
-         Flutter UI initializes, as well as behind your Flutter UI while its
-         running.
 
-         This Theme is only used starting with V2 of Flutter's Android embedding. -->
+    <!-- Theme shown while Flutter engine is loading (native splash) -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <!-- Remove status bar on splash for edge-to-edge look -->
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
+    <!-- Theme applied once Flutter engine is ready -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@color/splash_background</item>
     </style>

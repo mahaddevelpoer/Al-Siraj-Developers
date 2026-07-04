@@ -25,6 +25,23 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
     setTransactions(Array.isArray(ledger) ? ledger : []);
   };
   useEffect(() => { load(); }, [townName, refreshKey]);
+  useEffect(() => {
+    const onDataChanged = (event) => {
+      const detail = event?.detail || {};
+      const events = Array.isArray(detail.events) ? detail.events : [];
+      const sameTown = !detail.townName || !townName || String(detail.townName) === String(townName);
+      if (!sameTown) return;
+      if (events.some((name) => ['investor:changed', 'ledger:changed', 'receipt:created', 'account:changed'].includes(name))) {
+        load();
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', onDataChanged);
+    window.addEventListener('al-siraj-data-refreshed', onDataChanged);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', onDataChanged);
+      window.removeEventListener('al-siraj-data-refreshed', onDataChanged);
+    };
+  }, [townName]);
 
   const u = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
   const tu = (key) => (e) => setTx(f => ({ ...f, [key]: e.target.value }));
@@ -89,7 +106,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
     : transactions;
 
   return (
-    <div>
+    <div className="investor-dashboard">
       {receiptData && (
         <OfficialReceipt
           data={receiptData}
@@ -104,7 +121,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
         <div className="stat-card"><div className="card-label">Transactions</div><div className="card-value">{transactions.length}</div></div>
       </div>
 
-      <div className="form-container mb-6">
+      <div className="form-container mb-6 investor-panel">
         <div className="table-header" style={{ padding: 0, marginBottom: 16, borderBottom: 0 }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><WalletIcon size={18} /> Investors</h3>
           <button type="button" className="btn btn-primary" onClick={() => setShowAddInvestor(v => !v)}>
@@ -113,7 +130,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
         </div>
 
         {investors.length > 0 ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 14 }}>
+          <div className="investor-card-grid">
             {investors.map((investor) => {
               const active = String(selectedInvestor?.Investor_ID) === String(investor.Investor_ID);
               const count = transactions.filter(t => String(t.Investor_ID) === String(investor.Investor_ID)).length;
@@ -138,6 +155,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
                     justifyContent: 'space-between',
                     boxShadow: active ? '0 12px 26px rgba(37, 99, 235, 0.16)' : '0 8px 18px rgba(15, 23, 42, 0.06)',
                   }}
+                  className={`investor-card ${active ? 'active' : ''}`}
                 >
                   <div>
                     <div style={{ width: 38, height: 38, borderRadius: 10, display: 'grid', placeItems: 'center', background: active ? 'var(--accent-blue)' : 'var(--bg-secondary)', color: active ? '#fff' : 'var(--accent-blue)', marginBottom: 10 }}>
@@ -176,7 +194,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
       </div>
 
       {selectedInvestor && (
-        <div className="form-container mb-6">
+        <div className="form-container mb-6 investor-panel">
           <div className="form-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><WalletIcon size={16} /> {selectedInvestor.Investor_Name}</div>
           <div className="stat-cards" style={{ marginBottom: 0 }}>
             <div className="stat-card green"><div className="card-label">Balance</div><div className="card-value">{fmt(selectedInvestor.Balance)}</div></div>
@@ -192,7 +210,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
         </div>
       )}
 
-      <div className="form-container mb-6">
+      <div className="form-container mb-6 investor-panel">
         <div className="form-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><DollarIcon size={16} /> Credit / Debit</div>
         <form onSubmit={postTx}>
           <div className="form-grid">
@@ -212,7 +230,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
         </form>
       </div>
 
-      <div className="table-container">
+      <div className="table-container investor-table-card">
         <div className="table-header"><h3>{selectedInvestor ? `${selectedInvestor.Investor_Name} Ledger` : 'Investor Ledger'}</h3></div>
         <table className="data-table">
           <thead><tr><th>Date</th><th>Investor</th><th>Type</th><th>Amount</th><th>Balance</th><th>Receipt</th><th>Action</th></tr></thead>

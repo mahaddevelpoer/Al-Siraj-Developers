@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import LeafletMap from '../systems/MapSystem/LeafletMap';
 import { PlusIcon, SkipIcon, CheckIcon, CrossIcon, ClockIcon } from './Icons';
 
@@ -94,7 +94,7 @@ export default function AddTownWizard({ onSuccess, onClose, showToast }) {
           ))}
         </div>
 
-        {/* Step 1 — Basic Info */}
+        {/* Step 1 â€” Basic Info */}
         {step === 1 && (
           <div className="step-content">
             <div className="form-group" style={{ marginBottom: 16 }}>
@@ -140,7 +140,7 @@ export default function AddTownWizard({ onSuccess, onClose, showToast }) {
           </div>
         )}
 
-        {/* Step 2 — Location */}
+        {/* Step 2 â€” Location */}
         {step === 2 && (
           <div className="step-content">
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
@@ -161,7 +161,7 @@ export default function AddTownWizard({ onSuccess, onClose, showToast }) {
           </div>
         )}
 
-        {/* Step 3 — Properties */}
+        {/* Step 3 â€” Properties */}
         {step === 3 && (
           <div className="step-content">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
@@ -177,7 +177,7 @@ export default function AddTownWizard({ onSuccess, onClose, showToast }) {
           </div>
         )}
 
-        {/* Step 4 — Review */}
+        {/* Step 4 â€” Review */}
         {step === 4 && (
           <div className="step-content">
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
@@ -211,7 +211,7 @@ export default function AddTownWizard({ onSuccess, onClose, showToast }) {
           <div>
             {step > 1 && (
               <button className="btn" onClick={() => setStep(step - 1)}>
-                ← Back
+                Back
               </button>
             )}
           </div>
@@ -228,7 +228,7 @@ export default function AddTownWizard({ onSuccess, onClose, showToast }) {
                 onClick={() => setStep(step + 1)}
                 disabled={!canNext()}
               >
-                Next →
+                Next
               </button>
             )}
             {step === 4 && (
@@ -245,3 +245,4 @@ export default function AddTownWizard({ onSuccess, onClose, showToast }) {
     </div>
   );
 }
+

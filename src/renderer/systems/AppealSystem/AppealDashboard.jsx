@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { setBusinessAppealOtp } from '../../lib/appeals';
 import AppealCard from './AppealCard';
 
 const OTP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -20,7 +21,7 @@ export default function AppealDashboard() {
     }
   }, [userRole, activeFilter]);
 
-  // ⚡ Realtime: auto-refresh + desktop notify on new appeals
+  // Realtime: auto-refresh + desktop notify on new appeals
   useEffect(() => {
     if (userRole !== 'ceo') return;
     let refreshTimer;
@@ -74,10 +75,7 @@ export default function AppealDashboard() {
     const otpCode = generateOtp();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    const { error } = await supabase
-      .from('appeals')
-      .update({ otp_code: otpCode, otp_expires_at: expiresAt.toISOString() })
-      .eq('id', appeal.id);
+    const { error } = await setBusinessAppealOtp(appeal.id, otpCode, expiresAt.toISOString());
 
     if (error) throw error;
 
@@ -268,7 +266,7 @@ export default function AppealDashboard() {
           border: toastMsg.type === 'success' ? '1px solid #6ee7b7' : '1px solid #fecaca',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
         }}>
-          {toastMsg.type === 'success' ? '✓ ' : '✗ '} {toastMsg.text}
+          {toastMsg.text}
         </div>
       )}
 
@@ -336,3 +334,4 @@ function requiresTown(appeal) {
     'delete_employee',
   ].includes(type);
 }
+

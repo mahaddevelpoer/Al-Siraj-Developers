@@ -120,6 +120,33 @@ function login(dbPath, email, password, adminPassword = '') {
   };
 }
 
+function unlock(dbPath, email, adminPassword = '') {
+  const cleanEmail = normalizeEmail(email);
+  const store = readStore(dbPath);
+  const account = store.accountants.find((row) => normalizeEmail(row.email) === cleanEmail);
+  if (!account) throw new Error('No saved offline accountant found on this system');
+  if (account.is_active === false) throw new Error('This accountant is inactive');
+  if (!account.town_name && !account.town_id) throw new Error('This accountant has no assigned town');
+  const storedAdminPassword = String(account.admin_password || '');
+  if (!storedAdminPassword) {
+    throw new Error('Administration password is not set yet. Login once with username and password first.');
+  }
+  if (storedAdminPassword !== String(adminPassword || '')) {
+    throw new Error('Invalid administration password for this accountant system');
+  }
+  return {
+    id: account.id || `local-accountant-${cleanEmail}`,
+    email: cleanEmail,
+    full_name: account.full_name || cleanEmail.split('@')[0],
+    role: 'accountant',
+    town_name: account.town_name || account.town_id,
+    town_id: account.town_id || account.town_name,
+    is_active: true,
+    local_offline: true,
+    admin_password_set: true,
+  };
+}
+
 function list(dbPath) {
   return readStore(dbPath).accountants.map((row) => ({ ...row, password: undefined }));
 }
@@ -130,5 +157,6 @@ module.exports = {
   getFilePath,
   upsertAccountant,
   login,
+  unlock,
   list,
 };

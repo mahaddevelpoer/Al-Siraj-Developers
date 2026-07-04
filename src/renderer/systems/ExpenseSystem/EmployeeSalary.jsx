@@ -3,9 +3,10 @@ import OfficialReceipt from '../../components/OfficialReceipt';
 import PaymentAccountSelect from '../../components/PaymentAccountSelect';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { createBusinessAppeal, verifyBusinessAppealOtp } from '../../lib/appeals';
 import { IconChartUp, IconHourglass, IconUpload, IconCheck, IconTrash, IconEmail, IconClipboard, IconPhone, IconIdCard, IconMoney, IconBanknote, IconProhibited, IconZap, IconCalendar, IconTimer, IconWorker, IconPlus, IconUser, IconPin, IconMailbox, IconFile, IconWarning, IconClose } from '../../components/Icons';
 
-// ─── Salary Increase Modal ──────────────────────────────────────────────────
+// Salary Increase Modal
 function SalaryIncreaseModal({ employee, townName, onClose, showToast }) {
   const { user, userRole } = useAuth();
   const [proposedSalary, setProposedSalary] = useState('');
@@ -24,7 +25,7 @@ function SalaryIncreaseModal({ employee, townName, onClose, showToast }) {
     }
     setLoading(true);
     try {
-      const { error: appealError } = await supabase.from('appeals').insert([{
+      const { error: appealError } = await createBusinessAppeal({
         requested_by_user_id: user?.id,
         requested_by_role: userRole || 'accountant',
         appeal_type: 'salary_increase',
@@ -40,7 +41,7 @@ function SalaryIncreaseModal({ employee, townName, onClose, showToast }) {
           currentSalary: employee.baseSalary,
           proposedSalary: parseFloat(proposedSalary),
         },
-      }]);
+      });
 
       if (appealError) throw appealError;
 
@@ -67,7 +68,7 @@ function SalaryIncreaseModal({ employee, townName, onClose, showToast }) {
             <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}><IconChartUp size={16} /> Salary Increase Appeal</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{employee.name}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-muted)' }}>x</button>
         </div>
 
         <div style={{ padding: 12, background: '#fef3c7', borderRadius: 8, marginBottom: 16, border: '1px solid #fde68a', fontSize: 12, color: '#92400e' }}>
@@ -113,7 +114,7 @@ function SalaryIncreaseModal({ employee, townName, onClose, showToast }) {
   );
 }
 
-// ─── Delete Employee Modal (Appeal OTP or Dashboard) ───────────────────────
+// Delete Employee Modal (Appeal OTP or Dashboard)
 function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess }) {
   const { user, userRole } = useAuth();
   const [option, setOption] = useState(null); // 'otp' or 'dashboard'
@@ -130,7 +131,7 @@ function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess
       setGeneratedOtp(code);
 
       // 1. Submit appeal directly via frontend client to satisfy RLS
-      const { data: appealData, error: appealError } = await supabase.from('appeals').insert([{
+      const { data: appealData, error: appealError } = await createBusinessAppeal({
         requested_by_user_id: user?.id,
         requested_by_role: userRole || 'accountant',
         appeal_type: 'delete_employee',
@@ -146,7 +147,7 @@ function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess
           townName,
         },
         otp_code: code,
-      }]).select().single();
+      });
 
       if (appealError) throw appealError;
 
@@ -205,20 +206,17 @@ function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess
         return;
       }
 
-      // 2. Mark appeal as approved in supabase
-      await supabase
-        .from('appeals')
-        .update({ status: 'approved', reviewed_at: new Date().toISOString() })
-        .eq('id', appealId);
+      const verified = await verifyBusinessAppealOtp(appealId, otpInput.trim());
+      if (verified.error) throw verified.error;
 
-      // 3. Perform Excel deletion
+      // 2. Perform Excel deletion
       const deleteRes = await window.api.deleteEmployeeV2({
         employeeId: employee.id,
         townName,
       });
 
       if (deleteRes && !deleteRes.error) {
-        showToast(`Employee ${employee.name} deleted successfully! ✅`);
+        showToast(`Employee ${employee.name} deleted successfully!`);
         onSuccess();
         onClose();
       } else {
@@ -234,7 +232,7 @@ function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess
     setLoading(true);
     try {
       // Direct insert via frontend client to satisfy RLS
-      const { error: appealError } = await supabase.from('appeals').insert([{
+      const { error: appealError } = await createBusinessAppeal({
         requested_by_user_id: user?.id,
         requested_by_role: userRole || 'accountant',
         appeal_type: 'delete_employee',
@@ -250,11 +248,11 @@ function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess
           townName,
         },
         otp_code: null,
-      }]);
+      });
 
       if (appealError) throw appealError;
 
-      showToast('Deletion appeal submitted to CEO Dashboard successfully! 📤');
+      showToast('Deletion appeal submitted to CEO Dashboard successfully!');
       onSuccess();
       onClose();
     } catch (err) {
@@ -275,7 +273,7 @@ function DeleteEmployeeModal({ employee, townName, onClose, showToast, onSuccess
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6 }}><IconTrash size={16} color="#dc2626" /> Delete Employee Appeal</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-muted)' }}>x</button>
         </div>
 
         <div style={{ padding: 14, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, marginBottom: 18 }}>
@@ -502,7 +500,7 @@ function EmployeeCard({ emp, isSelected, onSelect, onSalaryIncrease, onGiveSalar
   );
 }
 
-// ─── Salary Payment Panel ────────────────────────────────────────────────────
+// Salary Payment Panel
 function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved }) {
   const [month, setMonth] = useState(() => {
     const d = new Date();
@@ -686,9 +684,9 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
         }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 800, color: 'white', display: 'flex', alignItems: 'center', gap: 6 }}><IconMoney size={16} color="white" /> Record Salary Payment</div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{employee.name} — {employee.designation}</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{employee.name} - {employee.designation}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', width: 32, height: 32, borderRadius: '50%', cursor: 'pointer', fontSize: 16 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', width: 32, height: 32, borderRadius: '50%', cursor: 'pointer', fontSize: 16 }}>x</button>
         </div>
 
         <form onSubmit={handleSubmit} style={{ padding: 24 }}>
@@ -946,7 +944,7 @@ function AddEmployeeModal({ townName, showToast, onClose, onAdded }) {
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: 'white', display: 'flex', alignItems: 'center', gap: 6 }}><IconPlus size={16} color="white" /> Add New Employee</div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', width: 30, height: 30, borderRadius: '50%', cursor: 'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', width: 30, height: 30, borderRadius: '50%', cursor: 'pointer' }}>x</button>
         </div>
         <form onSubmit={handleSubmit} style={{ padding: 24 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
@@ -1190,7 +1188,7 @@ function AdvanceSalariesList({ townName, showToast }) {
   );
 }
 
-// ─── Main Component ──────────────────────────────────────────────────────────
+// Main Component
 export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) {
   const [employees, setEmployees] = useState([]);
   const [salaryRecords, setSalaryRecords] = useState([]);
@@ -1216,6 +1214,25 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
     loadEmployees();
     loadSalaryRecords();
   }, [townName, refreshKey]);
+
+  useEffect(() => {
+    const refresh = (event) => {
+      const detail = event?.detail || {};
+      const type = String(detail.type || '').toLowerCase();
+      const targetTown = detail.townName || detail.town_name || detail.Town_Name;
+      const salaryEvent = ['salary:changed', 'employee:changed', 'ledger:changed', 'receipt:created', 'appeal:changed', 'data:changed'].includes(type);
+      if (!salaryEvent) return;
+      if (targetTown && townName && String(targetTown).trim().toLowerCase() !== String(townName).trim().toLowerCase()) return;
+      loadEmployees();
+      loadSalaryRecords();
+    };
+    window.addEventListener('al-siraj-business-data-changed', refresh);
+    window.addEventListener('al-siraj-data-refreshed', refresh);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', refresh);
+      window.removeEventListener('al-siraj-data-refreshed', refresh);
+    };
+  }, [townName]);
 
   const loadEmployees = async () => {
     setLoadingEmps(true);
@@ -1307,6 +1324,13 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
     const amt = parseFloat(rec.Amount || rec.amount) || 0;
     const advDed = parseFloat(rec.Advance_Deduction || rec.advanceDeduction) || 0;
     const newAdv = parseFloat(rec.New_Advance_Given || rec.newAdvanceGiven) || 0;
+    const baseSalary = parseFloat(rec.Salary_Amount || rec.salaryAmount || rec.Base_Salary || rec.baseSalary || amt) || amt;
+    const salaryApplied = parseFloat(rec.Salary_Paid_Amount || rec.salaryAppliedAmount || rec.Salary_Applied_Amount || amt) || amt;
+    const cashDisbursed = parseFloat(rec.Cash_Disbursed_Amount || rec.cashDisbursedAmount || rec.Amount || amt) || amt;
+    const paidBefore = parseFloat(rec.Salary_Paid_Before || rec.paidBefore) || 0;
+    const paidAfter = parseFloat(rec.Salary_Paid_After || rec.paidAfter);
+    const normalizedPaidAfter = Number.isFinite(paidAfter) ? paidAfter : Math.min(baseSalary, paidBefore + salaryApplied);
+    const remainingAfter = parseFloat(rec.Salary_Remaining_After || rec.remainingAfter);
     setReceiptViewData({
       type: 'salary',
       receiptNumber: rec.Receipt_Number || rec.receiptNumber,
@@ -1314,12 +1338,19 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
       employeeName: rec.Name || rec.employeeName,
       designation: rec.Designation || rec.designation,
       month: rec.Month || rec.month,
-      amount: amt,
-      baseSalary: amt,
+      amount: cashDisbursed,
+      baseSalary,
+      salaryGrossAmount: cashDisbursed,
+      salaryAppliedAmount: salaryApplied,
       advanceDeduction: advDed,
       newAdvanceGiven: newAdv,
-      netAmount: amt - advDed,
-      totalDisbursed: amt - advDed + newAdv,
+      netAmount: Math.max(0, cashDisbursed - advDed),
+      totalDisbursed: cashDisbursed,
+      paidBefore,
+      paidAfter: normalizedPaidAfter,
+      remainingAfter: Number.isFinite(remainingAfter) ? Math.max(0, remainingAfter) : Math.max(0, baseSalary - normalizedPaidAfter),
+      paymentAccountName: rec.Payment_Account_Name || rec.paymentAccountName,
+      paymentAccountType: rec.Payment_Account_Type || rec.paymentAccountType,
       townName: rec.Town_Name || rec.townName || townName,
       note: rec.Note || rec.note || '',
     });
@@ -1327,7 +1358,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
   };
 
   return (
-    <div style={{ padding: 20 }}>
+    <div className="employee-salary-dashboard">
       {/* Modals */}
       {showAddEmployee && (
         <AddEmployeeModal
@@ -1372,7 +1403,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
       )}
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div className="employee-salary-header">
         <div>
           <h3 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}><IconWorker size={20} /> Employees & Salaries</h3>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
@@ -1389,7 +1420,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', marginBottom: 20, gap: 16 }}>
+      <div className="employee-salary-tabs">
         {[
           { id: 'employees', label: 'Active Employees', icon: <IconWorker size={14} />, count: employees.length },
           { id: 'ledgers', label: 'Employee Ledgers', icon: <IconFile size={14} />, count: salaryLedgers.filter(l => l.rows.length > 0).length },
@@ -1436,10 +1467,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
       {activeTab === 'employees' && (
         <>
           {/* Info bar */}
-          <div style={{
-            padding: '10px 16px', background: 'linear-gradient(135deg, #eff6ff, #f0fdf4)',
-            borderRadius: 10, border: '1px solid #bfdbfe', marginBottom: 20, fontSize: 12, color: '#1e40af',
-          }}>
+          <div className="employee-salary-info">
             <IconPin size={12} /> Click <strong>Pay</strong> to record a salary. Click <strong>Increase</strong> to request a raise. Click <strong><IconTrash size={12} /></strong> to delete an employee (requires CEO approval).
           </div>
 
@@ -1462,11 +1490,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
               <button onClick={() => setShowAddEmployee(true)} className="btn btn-primary"><IconPlus size={14} /> Add First Employee</button>
             </div>
           ) : (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-              gap: 20,
-            }}>
+            <div className="employee-card-grid">
               {employees.map(emp => {
                 const ledger = salaryLedgers.find((row) => row.employee.id === emp.id || row.employee.name === emp.name);
                 return (
@@ -1490,13 +1514,8 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
       )}
 
       {activeTab === 'ledgers' && (
-        <div>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: 12,
-            marginBottom: 18,
-          }}>
+        <div className="employee-ledger-panel">
+          <div className="employee-ledger-summary-grid">
             {[
               { label: 'Monthly Salary Base', value: salaryTotals.salaryBase, color: '#1d4ed8' },
               { label: 'Salary Paid', value: salaryTotals.paid, color: '#0f766e' },
@@ -1504,21 +1523,21 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
               { label: 'Advance Salary', value: salaryTotals.advances, color: '#b45309' },
               { label: 'Current Remaining', value: salaryTotals.remaining, color: salaryTotals.remaining > 0 ? '#dc2626' : '#0f766e' },
             ].map((item) => (
-              <div key={item.label} style={{ padding: 16, background: '#fff', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+              <div key={item.label} className="employee-ledger-summary-card">
                 <div style={{ fontSize: 10, fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{item.label}</div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: item.color, marginTop: 6 }}>PKR {item.value.toLocaleString()}</div>
               </div>
             ))}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14 }}>
+          <div className="employee-ledger-grid">
             {salaryLedgers.map((ledger) => (
-              <div key={ledger.employee.id || ledger.employee.name} style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: 16, overflow: 'hidden' }}>
-                <div style={{ padding: 16, borderBottom: '1px solid var(--border-color)', background: 'linear-gradient(135deg, #eff6ff, #f8fafc)' }}>
+              <div key={ledger.employee.id || ledger.employee.name} className="employee-ledger-card">
+                <div className="employee-ledger-card-head">
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                     <div>
                       <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)' }}>{ledger.employee.name}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{ledger.employee.designation || 'Employee'} • {ledger.rows.length} payment row{ledger.rows.length !== 1 ? 's' : ''}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{ledger.employee.designation || 'Employee'} - {ledger.rows.length} payment row{ledger.rows.length !== 1 ? 's' : ''}</div>
                     </div>
                     <button className="btn btn-success btn-sm" type="button" onClick={() => handlePayClick(ledger.employee)}>
                       <IconMoney size={12} /> Pay
@@ -1543,7 +1562,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
                     </div>
                   </div>
                 </div>
-                <div style={{ padding: 12, maxHeight: 220, overflowY: 'auto' }}>
+                <div className="employee-ledger-card-body">
                   {ledger.rows.length === 0 ? (
                     <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No ledger rows yet.</div>
                   ) : (
@@ -1553,7 +1572,7 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
                       .map((row) => (
                         <div key={row.Receipt_Number || `${row.Date}-${row.Amount}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
                           <div>
-                            <div style={{ fontSize: 12, fontWeight: 800 }}>{row.Month || '-'} • {row.Date || '-'}</div>
+                            <div style={{ fontSize: 12, fontWeight: 800 }}>{row.Month || '-'} - {row.Date || '-'}</div>
                             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{row.Receipt_Number || ''}</div>
                           </div>
                           <div style={{ textAlign: 'right' }}>
@@ -1587,3 +1606,4 @@ export default function EmployeeSalary({ townName, showToast, refreshKey = 0 }) 
     </div>
   );
 }
+

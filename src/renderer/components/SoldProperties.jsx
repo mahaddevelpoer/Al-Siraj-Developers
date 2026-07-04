@@ -28,7 +28,7 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
     const role = userProfile?.role || '';
     if (role !== 'agent') return arr || [];
     return (arr || []).filter(p =>
-      p.Agent_Name && p.Agent_Name.toLowerCase() === agentName.toLowerCase()
+      p.Agent_Name && String(p.Agent_Name || '').toLowerCase() === String(agentName || '').toLowerCase()
     );
   };
 
@@ -188,7 +188,7 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16
         }}>
           <div className="form-container" style={{ maxWidth: 480, width: '100%' }}>
-            <div className="form-title" style={{ fontSize: 15 }}>📸 File Delivery Photo</div>
+            <div className="form-title" style={{ fontSize: 15 }}>File Delivery Photo</div>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
               {tab === 'plots' ? 'Plot' : 'Shop'} #{deliveryTarget.p[numKey]} ({deliveryTarget.p.Town_Name})
             </div>
@@ -329,3 +329,4 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
     </div>
   );
 }
+

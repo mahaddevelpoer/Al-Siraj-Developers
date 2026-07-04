@@ -182,12 +182,14 @@ export default function MediaDashboard({ townName, showToast }) {
       <div className="media-grid">
         {loading && <div className="property-board-loading">Loading media archive...</div>}
         {!loading && filtered.map((row) => (
-          <button className="media-card" key={row.Media_ID || row.File_Path || row.Title} type="button" onClick={() => openFile(row)}>
+          <button className={`media-card ${row._kind === 'receipt' ? 'receipt' : 'file'}`} key={row.Media_ID || row.File_Path || row.Title} type="button" onClick={() => openFile(row)}>
             <span>{row.Type || 'report'}</span>
             <strong>{row.Title || row.Receipt_Number || 'Generated document'}</strong>
-            <small>{row.Report_Date || row.Created_At || ''}</small>
+            <small>{row.Report_Date || row.Created_At || 'No date saved'}</small>
             <p>{row.Account_Name || row.Property_Number || row.Receipt_Number || townName}</p>
-            {row._kind === 'receipt' && <em>Saved receipt details</em>}
+            {row._kind === 'receipt' && (
+              <em>PKR {Number(row.Amount || 0).toLocaleString()}</em>
+            )}
           </button>
         ))}
         {!loading && !filtered.length && <div className="property-board-empty">No saved PDFs or reports yet.</div>}
@@ -195,9 +197,9 @@ export default function MediaDashboard({ townName, showToast }) {
 
       {selectedReceipt && (
         <div className="ui-modal-overlay" onClick={(e) => e.target === e.currentTarget && setSelectedReceipt(null)}>
-          <div className="ui-modal-shell" style={{ maxWidth: 560 }}>
+          <div className="ui-modal-shell media-receipt-modal" style={{ maxWidth: 680 }}>
             <div className="property-board-kicker">Receipt archive</div>
-            <h3 style={{ margin: '6px 0 14px', color: 'var(--text-primary)' }}>{selectedReceipt.Receipt_Number}</h3>
+            <h3>{selectedReceipt.Receipt_Number}</h3>
             <div className="property-detail-list">
               <div><span>Type</span><b>{selectedReceipt.Receipt_Type || '-'}</b></div>
               <div><span>Town</span><b>{selectedReceipt.Town_Name || '-'}</b></div>
@@ -218,12 +220,15 @@ export default function MediaDashboard({ townName, showToast }) {
                 </div>
               </>
             )}
-            <pre className="media-receipt-json">
-              {(() => {
-                try { return JSON.stringify(JSON.parse(selectedReceipt.Payload_JSON || '{}'), null, 2); }
-                catch { return selectedReceipt.Payload_JSON || 'No extra payload saved.'; }
-              })()}
-            </pre>
+            <details className="media-receipt-raw">
+              <summary>Technical payload</summary>
+              <pre className="media-receipt-json">
+                {(() => {
+                  try { return JSON.stringify(JSON.parse(selectedReceipt.Payload_JSON || '{}'), null, 2); }
+                  catch { return selectedReceipt.Payload_JSON || 'No extra payload saved.'; }
+                })()}
+              </pre>
+            </details>
             <div className="media-receipt-actions">
               <button className="btn btn-primary" type="button" onClick={exportSelectedReceipt}>Export / Open PDF</button>
               <button className="btn btn-secondary" type="button" onClick={() => setSelectedReceipt(null)}>Close</button>

@@ -57,7 +57,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 }
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
   ErrorWidget.builder = (details) => SafeFlutterErrorScreen(
     message: friendlyDbError(details.exception),
@@ -65,16 +65,6 @@ Future<void> main() async {
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
   };
-  try {
-    await Supabase.initialize(
-      url: supabaseUrl,
-      publishableKey: _fullAnonKey,
-    ).timeout(const Duration(seconds: 4));
-  } catch (e) {
-    runApp(StartupFailureApp(error: e));
-    return;
-  }
-  _firebaseStartupFuture = _initFirebaseAndNotifications();
   runApp(const CeoMobileApp());
 }
 
@@ -92,7 +82,7 @@ Future<void> ensureFirebaseReady() {
   return _firebaseStartupFuture ?? Future<void>.value();
 }
 
-final supabase = Supabase.instance.client;
+SupabaseClient get supabase => Supabase.instance.client;
 final money = NumberFormat.currency(
   locale: 'en_PK',
   symbol: 'PKR ',
@@ -265,94 +255,100 @@ class CeoInboxItem {
   final Widget icon;
 }
 
+// Cache the ThemeData at module level — GoogleFonts.interTextTheme() is
+// expensive and never changes during an app session.
+final _appTheme = () {
+  final textTheme = GoogleFonts.interTextTheme();
+  return ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.light,
+    textTheme: textTheme.apply(bodyColor: kText, displayColor: kText),
+    colorScheme: const ColorScheme.light(
+      primary: kPrimary,
+      secondary: kSecondary,
+      surface: kSurface,
+      onSurface: kText,
+      outline: kBorder,
+    ),
+    scaffoldBackgroundColor: kBg,
+    appBarTheme: AppBarTheme(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      centerTitle: false,
+      foregroundColor: kText,
+      titleTextStyle: GoogleFonts.inter(
+        color: kText,
+        fontSize: 18,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+    cardTheme: CardThemeData(
+      elevation: 0,
+      color: kSurface,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: kSurface,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 18,
+        vertical: 16,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(20),
+        borderSide: const BorderSide(color: kBorder),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(20),
+        borderSide: const BorderSide(color: kBorder),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(20),
+        borderSide: const BorderSide(color: kPrimary, width: 1.4),
+      ),
+      labelStyle: const TextStyle(
+        color: kMuted,
+        fontWeight: FontWeight.w600,
+      ),
+      prefixIconColor: kMuted,
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: kPrimary,
+        foregroundColor: Colors.white,
+        minimumSize: const Size.fromHeight(52),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: kText,
+        side: const BorderSide(color: kBorder),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+    ),
+  );
+}();
+
 class CeoMobileApp extends StatelessWidget {
   const CeoMobileApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = GoogleFonts.interTextTheme();
     return MaterialApp(
       navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'AL SIRAJ DEVELOPERS',
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        textTheme: textTheme.apply(bodyColor: kText, displayColor: kText),
-        colorScheme: const ColorScheme.light(
-          primary: kPrimary,
-          secondary: kSecondary,
-          surface: kSurface,
-          onSurface: kText,
-          outline: kBorder,
-        ),
-        scaffoldBackgroundColor: kBg,
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: false,
-          foregroundColor: kText,
-          titleTextStyle: GoogleFonts.inter(
-            color: kText,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          color: kSurface,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: kSurface,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 16,
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(20),
-            borderSide: const BorderSide(color: kBorder),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(20),
-            borderSide: const BorderSide(color: kBorder),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(20),
-            borderSide: const BorderSide(color: kPrimary, width: 1.4),
-          ),
-          labelStyle: const TextStyle(
-            color: kMuted,
-            fontWeight: FontWeight.w600,
-          ),
-          prefixIconColor: kMuted,
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: kPrimary,
-            foregroundColor: Colors.white,
-            minimumSize: const Size.fromHeight(52),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            textStyle: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: kText,
-            side: const BorderSide(color: kBorder),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            textStyle: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-        ),
-      ),
+      theme: _appTheme,
       home: const StartupSplashGate(),
       scrollBehavior: const SmoothAppScrollBehavior(),
       builder: (context, child) {
@@ -429,33 +425,48 @@ class StartupSplashGate extends StatefulWidget {
 }
 
 class _StartupSplashGateState extends State<StartupSplashGate> {
-  bool _done = true;
-  Timer? _timer;
+  bool _initialized = false;
+  Object? _initError;
 
   @override
   void initState() {
     super.initState();
-    if (startupSplashDuration.inMilliseconds > 0) {
-      _done = false;
-      _timer = Timer(startupSplashDuration, () {
-        if (mounted) setState(() => _done = true);
-      });
+    _initApp();
+  }
+
+  Future<void> _initApp() async {
+    try {
+      await Supabase.initialize(
+        url: supabaseUrl,
+        publishableKey: _fullAnonKey,
+      ).timeout(const Duration(seconds: 6));
+      
+      _firebaseStartupFuture = _initFirebaseAndNotifications();
+      
+      if (mounted) {
+        setState(() {
+          _initialized = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _initError = e;
+        });
+      }
     }
   }
 
   @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    if (_initError != null) {
+      return StartupFailureApp(error: _initError!);
+    }
     return AnimatedSwitcher(
-      duration: Duration.zero,
+      duration: const Duration(milliseconds: 300),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
-      child: _done ? const AuthGate() : const StartupSplashScreen(),
+      child: _initialized ? const AuthGate() : const StartupSplashScreen(),
     );
   }
 }
@@ -918,13 +929,9 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
   double _fabTurns = 0;
   String _pushStatus = 'Checking push setup...';
   String _realtimeStatus = 'Connecting realtime...';
-  final pages = const [
-    OverviewPage(),
-    TownsOverviewPage(),
-    AppealsPage(),
-    DailyLedgerReceiptPage(),
-    MorePage(),
-  ];
+  // Pages are stored as a fixed list — IndexedStack keeps them all alive
+  // so switching tabs never triggers a page rebuild / data re-fetch.
+  late final List<Widget> _pages;
   RealtimeSubscriptionManager? _realtimeManager;
   StreamSubscription<RemoteMessage>? _foregroundPushSub;
   StreamSubscription<RemoteMessage>? _openedPushSub;
@@ -933,22 +940,33 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    // Build pages once — IndexedStack keeps them alive the entire session.
+    _pages = [
+      OverviewPage(
+        pushStatus: _pushStatus,
+        realtimeStatus: _realtimeStatus,
+      ),
+      const TownsOverviewPage(),
+      const AppealsPage(),
+      const DailyLedgerReceiptPage(),
+      const MorePage(),
+    ];
+
     WidgetsBinding.instance.addObserver(this);
     selectedTabNotifier.addListener(_applySelectedTab);
     _tab = selectedTabNotifier.value;
 
-    // Lightweight startup: heavy services ko UI render ke baad start karein.
+    // Lightweight startup: heavy services start after first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Push init (FCM token + initial message routing)
       unawaited(_startPushServices());
 
-      // Realtime subscriptions (multiple tables) ko thoda delay de dein.
-      Future<void>.delayed(const Duration(milliseconds: 650), () {
+      // Realtime subscriptions with delay to not block first paint.
+      Future<void>.delayed(const Duration(milliseconds: 800), () {
         if (mounted) _subscribeToLiveAlerts();
       });
 
-      // Presence heartbeat (Supabase writes) ko aur delay ke baad start karein.
-      Future<void>.delayed(const Duration(seconds: 2), () {
+      // Presence heartbeat after UI is fully settled.
+      Future<void>.delayed(const Duration(seconds: 3), () {
         if (mounted) _startPresenceHeartbeat();
       });
     });
@@ -1104,7 +1122,6 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final lean = prefersLeanMotion(context);
     return Scaffold(
       extendBody: true,
       body: Stack(
@@ -1112,30 +1129,10 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
           const PremiumBackground(),
           SafeArea(
             bottom: false,
-            child: AnimatedSwitcher(
-              duration: motionDuration(context, 220),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) {
-                if (lean) return child;
-                final offset = Tween<Offset>(
-                  begin: const Offset(0.03, 0),
-                  end: Offset.zero,
-                ).animate(animation);
-                return FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(position: offset, child: child),
-                );
-              },
-              child: KeyedSubtree(
-                key: ValueKey(_tab),
-                child: _tab == 0
-                    ? OverviewPage(
-                        pushStatus: _pushStatus,
-                        realtimeStatus: _realtimeStatus,
-                      )
-                    : pages[_tab],
-              ),
+            // IndexedStack keeps all pages alive — zero rebuild/refetch on tab switch.
+            child: IndexedStack(
+              index: _tab,
+              children: _pages,
             ),
           ),
         ],

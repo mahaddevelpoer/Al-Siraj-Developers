@@ -8,7 +8,7 @@ import 'approval_helpers.dart';
 
 final Map<String, List<Map<String, dynamic>>> _approvalRowsCache = {};
 final Map<String, Future<List<Map<String, dynamic>>>> _approvalRowsInFlight = {};
-const _approvalDiskCachePrefix = 'ceo_approval_review_rows_v1';
+const _approvalDiskCachePrefix = 'ceo_approval_review_rows_v2';
 
 String normalizeReviewStatus(dynamic status) {
   final clean = '${status ?? 'pending'}'.trim().toLowerCase();
@@ -85,24 +85,27 @@ DateTime _dateOf(Map<String, dynamic> row) {
       DateTime.fromMillisecondsSinceEpoch(0);
 }
 
+/// Safe select helper with short 5-second timeout.
 Future<List<Map<String, dynamic>>> _safeSelectRows(
   Future<dynamic> Function() loader, {
-  Duration timeout = const Duration(seconds: 8),
+  Duration timeout = const Duration(seconds: 5),
 }) async {
   try {
     final data = await loader().timeout(timeout);
-    return List<Map<String, dynamic>>.from(data);
+    if (data == null) return const [];
+    return List<Map<String, dynamic>>.from(data as Iterable);
   } catch (_) {
     return const <Map<String, dynamic>>[];
   }
 }
 
+/// Load appeal rows from Supabase (one direct query, no cascade fallback).
 Future<List<Map<String, dynamic>>> _loadAppealRows(
   SupabaseClient supabase,
   String filter,
   int limit,
 ) async {
-  final rows = await _safeSelectRows(
+  return _safeSelectRows(
     () => supabase
         .from('appeals')
         .select(
@@ -112,25 +115,14 @@ Future<List<Map<String, dynamic>>> _loadAppealRows(
         .order('created_at', ascending: false)
         .limit(limit * 3),
   );
-  if (rows.isNotEmpty) return rows;
-  final rawStatusRows = await _safeSelectRows(
-    () => supabase
-        .from('appeals')
-        .select('*')
-        .eq('status', normalizeReviewStatus(filter))
-        .limit(limit * 3),
-  );
-  if (rawStatusRows.isNotEmpty) return rawStatusRows;
-  return _safeSelectRows(
-    () => supabase.from('appeals').select('*').limit(limit * 3),
-  );
 }
 
+/// Load daily entry rows from Supabase.
 Future<List<Map<String, dynamic>>> _loadDailyEntryRows(
   SupabaseClient supabase,
   int limit,
 ) async {
-  final rows = await _safeSelectRows(
+  return _safeSelectRows(
     () => supabase
         .from('daily_entries')
         .select(
@@ -139,12 +131,9 @@ Future<List<Map<String, dynamic>>> _loadDailyEntryRows(
         .order('created_at', ascending: false)
         .limit(limit * 3),
   );
-  if (rows.isNotEmpty) return rows;
-  return _safeSelectRows(
-    () => supabase.from('daily_entries').select('*').limit(limit * 3),
-  );
 }
 
+/// Load via RPC (preferred — single round-trip).
 Future<List<Map<String, dynamic>>> _loadRpcReviewRows(
   SupabaseClient supabase,
   String filter,
@@ -158,7 +147,7 @@ Future<List<Map<String, dynamic>>> _loadRpcReviewRows(
         'p_limit': limit,
       },
     ),
-    timeout: const Duration(seconds: 8),
+    timeout: const Duration(seconds: 5),
   );
 }
 
@@ -205,8 +194,11 @@ Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
 }) async {
   final activeFilter = normalizeReviewStatus(filter);
   final key = _cacheKey(activeFilter, limit);
+
+  // Return in-flight future if already fetching same data.
   final existing = _approvalRowsInFlight[key];
   if (existing != null) return existing;
+
   final future = _loadApprovalReviewRowsUncached(
     supabase,
     filter: activeFilter,
@@ -222,29 +214,32 @@ Future<List<Map<String, dynamic>>> _loadApprovalReviewRowsUncached(
   required int limit,
 }) async {
   final activeFilter = normalizeReviewStatus(filter);
-  final cached = cachedApprovalReviewRows(filter: activeFilter, limit: limit);
-  final rpcRows = await _loadRpcReviewRows(supabase, activeFilter, limit);
-  final rpcCleanRows = _finalizeReviewRows(rpcRows, activeFilter, limit);
-  if (rpcCleanRows.isNotEmpty) {
-    _approvalRowsCache[_cacheKey(activeFilter, limit)] = rpcCleanRows;
-    unawaited(_saveApprovalRowsToDisk(activeFilter, limit, rpcCleanRows));
-    return rpcCleanRows;
+
+  // ── KEY FIX: Run RPC + direct appeals + direct daily_entries ALL IN PARALLEL ──
+  // Previously: sequential fallbacks → 8s + 8s + 8s = up to 24s of skeletons.
+  // Now: all 3 fire at once, we use whichever returns fastest & has data.
+  final results = await Future.wait<List<Map<String, dynamic>>>([
+    _loadRpcReviewRows(supabase, activeFilter, limit),
+    _loadAppealRows(supabase, activeFilter, limit),
+    _loadDailyEntryRows(supabase, limit),
+  ]);
+
+  final rpcRows = results[0];
+  final appealRows = results[1];
+  final entryRows = results[2];
+
+  // Prefer RPC result (most efficient, joined view).
+  if (rpcRows.isNotEmpty) {
+    final clean = _finalizeReviewRows(rpcRows, activeFilter, limit);
+    if (clean.isNotEmpty) {
+      _approvalRowsCache[_cacheKey(activeFilter, limit)] = clean;
+      unawaited(_saveApprovalRowsToDisk(activeFilter, limit, clean));
+      return clean;
+    }
   }
 
-  final results = await Future.wait<List<Map<String, dynamic>>>([
-    _loadAppealRows(supabase, activeFilter, limit).timeout(
-      const Duration(seconds: 8),
-      onTimeout: () => const <Map<String, dynamic>>[],
-    ),
-    _loadDailyEntryRows(supabase, limit).timeout(
-      const Duration(seconds: 8),
-      onTimeout: () => const <Map<String, dynamic>>[],
-    ),
-  ]);
-  final appealRows = results[0];
-  final entryRows = results[1];
-
-  final cleanRows = _finalizeReviewRows([
+  // Fallback: merge appeals + daily entries directly.
+  final mergedRows = _finalizeReviewRows([
     ...appealRows.map(
       (row) => {
         ...normalizeAppealReviewRow(row),
@@ -260,11 +255,15 @@ Future<List<Map<String, dynamic>>> _loadApprovalReviewRowsUncached(
       },
     ),
   ], activeFilter, limit);
-  if (cleanRows.isNotEmpty) {
-    _approvalRowsCache[_cacheKey(activeFilter, limit)] = cleanRows;
-    unawaited(_saveApprovalRowsToDisk(activeFilter, limit, cleanRows));
-    return cleanRows;
+
+  if (mergedRows.isNotEmpty) {
+    _approvalRowsCache[_cacheKey(activeFilter, limit)] = mergedRows;
+    unawaited(_saveApprovalRowsToDisk(activeFilter, limit, mergedRows));
+    return mergedRows;
   }
+
+  // Last resort: return disk cache if network failed entirely.
+  final cached = cachedApprovalReviewRows(filter: activeFilter, limit: limit);
   if (cached.isNotEmpty) return cached;
   return loadCachedApprovalReviewRowsFromDisk(
     filter: activeFilter,

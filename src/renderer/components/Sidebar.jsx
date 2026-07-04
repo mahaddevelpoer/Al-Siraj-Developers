@@ -5,10 +5,10 @@ import Settings from './Settings';
 import {
   DashboardIcon, TownIcon, ExpenseIcon, EmployeeIcon,
   SoldIcon, CalendarIcon, ChartIcon, SaveIcon, LogoutIcon, SellIcon, LangIcon,
-  PropertyIcon,
+  PropertyIcon, DollarIcon,
 } from './Icons';
 
-const PendingIcon = () => <span style={{ fontSize: 16, lineHeight: 1 }}>{'\u{1F4B0}'}</span>;
+const PendingIcon = DollarIcon;
 
 const CEO_GROUPS = (t, userRole) => {
   const groups = [
@@ -31,9 +31,9 @@ const CEO_GROUPS = (t, userRole) => {
   }
 
   groups.push({
-    title: 'Finance System',
-    items: [
-      { key: 'pendingCollections', icon: PendingIcon, label: '\u{1F4B0} Collections' },
+      title: 'Finance System',
+      items: [
+      { key: 'pendingCollections', icon: PendingIcon, label: 'Collections' },
       { key: 'ceoExpenses',    icon: ExpenseIcon,     label: t.ceoExpenses },
       { key: 'profitLoss',     icon: ChartIcon,       label: t.profitLoss },
     ]

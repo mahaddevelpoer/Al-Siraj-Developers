@@ -24,6 +24,23 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
     setPayments(Array.isArray(pay) ? pay : []);
   };
   useEffect(() => { load(); }, [townName, refreshKey]);
+  useEffect(() => {
+    const onDataChanged = (event) => {
+      const detail = event?.detail || {};
+      const events = Array.isArray(detail.events) ? detail.events : [];
+      const sameTown = !detail.townName || !townName || String(detail.townName) === String(townName);
+      if (!sameTown) return;
+      if (events.some((name) => ['construction:changed', 'ledger:changed', 'receipt:created', 'account:changed'].includes(name))) {
+        load();
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', onDataChanged);
+    window.addEventListener('al-siraj-data-refreshed', onDataChanged);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', onDataChanged);
+      window.removeEventListener('al-siraj-data-refreshed', onDataChanged);
+    };
+  }, [townName]);
 
   const u = (key) => (e) => setProject(f => ({ ...f, [key]: e.target.value }));
   const pu = (key) => (e) => setPayment(f => ({ ...f, [key]: e.target.value }));
@@ -121,7 +138,7 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
   });
 
   return (
-    <div>
+    <div className="construction-dashboard">
       {receiptData && (
         <OfficialReceipt
           data={receiptData}
@@ -136,7 +153,7 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
         <div className="stat-card green"><div className="card-label">Active Projects</div><div className="card-value">{activeProjects.length}</div></div>
       </div>
 
-      <div className="form-container mb-6">
+      <div className="form-container mb-6 construction-panel">
         <div className="form-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BriefcaseIcon size={16} /> Construction Deal</div>
         <form onSubmit={addProject}>
           <div className="form-grid">
@@ -154,7 +171,7 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
         </form>
       </div>
 
-      <div className="form-container mb-6">
+      <div className="form-container mb-6 construction-panel">
         <div className="form-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><DollarIcon size={16} /> Construction Payment</div>
         <form onSubmit={postPayment}>
           <div className="form-grid">
@@ -176,7 +193,7 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
         </form>
       </div>
 
-      <div className="table-container">
+      <div className="table-container construction-table-card">
         <div className="table-header"><h3>Construction Deals</h3></div>
         <table className="data-table">
           <thead><tr><th>Date</th><th>Category</th><th>Constructor</th><th>Deal</th><th>Paid</th><th>Remaining</th><th>Receipt</th><th>Action</th></tr></thead>
@@ -195,7 +212,7 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
         </table>
       </div>
 
-      <div className="table-container" style={{ marginTop: 18 }}>
+      <div className="table-container construction-table-card" style={{ marginTop: 18 }}>
         <div className="table-header"><h3>Construction Payments</h3></div>
         <table className="data-table">
           <thead><tr><th>Date</th><th>Category</th><th>Constructor</th><th>Amount</th><th>Remaining</th><th>Receipt</th><th>Action</th></tr></thead>
