@@ -10,16 +10,19 @@ class RealtimeSubscriptionManager {
     required this.supabase,
     required this.onRefresh,
     required this.onStatus,
-    this.debounce = const Duration(milliseconds: 420),
+    this.debounce = const Duration(milliseconds: 850),
+    this.minimumRefreshGap = const Duration(milliseconds: 1600),
   });
 
   final SupabaseClient supabase;
   final RealtimeRefreshCallback onRefresh;
   final RealtimeStatusCallback onStatus;
   final Duration debounce;
+  final Duration minimumRefreshGap;
 
   final List<dynamic> _channels = [];
   Timer? _refreshTimer;
+  DateTime? _lastRefreshAt;
   bool _disposed = false;
 
   void start() {
@@ -50,8 +53,15 @@ class RealtimeSubscriptionManager {
 
   void _scheduleRefresh() {
     if (_disposed || _refreshTimer?.isActive == true) return;
-    _refreshTimer = Timer(debounce, () {
-      if (!_disposed) onRefresh();
+    final last = _lastRefreshAt;
+    final sinceLast = last == null ? null : DateTime.now().difference(last);
+    final wait = sinceLast != null && sinceLast < minimumRefreshGap
+        ? minimumRefreshGap - sinceLast
+        : debounce;
+    _refreshTimer = Timer(wait, () {
+      if (_disposed) return;
+      _lastRefreshAt = DateTime.now();
+      onRefresh();
     });
   }
 
