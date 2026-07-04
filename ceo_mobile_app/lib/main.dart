@@ -25,6 +25,15 @@ import 'app_theme.dart';
 import 'inbox_repository.dart';
 import 'realtime_subscription_manager.dart';
 import 'receipt_repository.dart';
+import 'town_repository.dart'
+    show
+        ActivityRows,
+        OperatorPresence,
+        TownPulse,
+        loadActiveTownRows,
+        loadActivityRows,
+        loadOperatorPresenceRows,
+        loadTownPulseRows;
 import 'widgets/brand_widgets.dart';
 import 'widgets/premium_foundation.dart';
 import 'widgets/vector_badges.dart';
@@ -209,54 +218,6 @@ class SafeFlutterErrorScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-class TownPulse {
-  const TownPulse({
-    required this.name,
-    this.accountantName = '',
-    this.totalReceived = 0,
-    this.totalExpenses = 0,
-    this.cashBalance = 0,
-    this.pendingAppeals = 0,
-    this.pendingCollection = 0,
-    this.todayIncome = 0,
-    this.todayExpense = 0,
-    this.salesCount = 0,
-  });
-
-  final String name;
-  final String accountantName;
-  final num totalReceived;
-  final num totalExpenses;
-  final num cashBalance;
-  final num pendingAppeals;
-  final num pendingCollection;
-  final num todayIncome;
-  final num todayExpense;
-  final int salesCount;
-}
-
-class OperatorPresence {
-  const OperatorPresence({
-    required this.id,
-    required this.name,
-    required this.role,
-    required this.townName,
-    required this.isOnline,
-    this.lastSeenAt,
-    this.deviceLabel = '',
-    this.activeContext = '',
-  });
-
-  final String id;
-  final String name;
-  final String role;
-  final String townName;
-  final bool isOnline;
-  final DateTime? lastSeenAt;
-  final String deviceLabel;
-  final String activeContext;
 }
 
 class LedgerReceipt {
@@ -1599,174 +1560,14 @@ Future<List<CeoInboxItem>> loadCeoInboxItems() async {
 }
 
 Future<List<TownPulse>> loadTownPulses({bool force = false}) {
-  return _townPulsesCache.get(_loadTownPulsesUncached, force: force);
-}
-
-Future<List<TownPulse>> _loadTownPulsesUncached() async {
-  final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  final results = await Future.wait<List<Map<String, dynamic>>>([
-    resilientSelectRows(
-      () => supabase
-          .from('towns')
-          .select('town_name,status,deleted_at')
-          .order('town_name'),
-      () => supabase.from('towns').select('*').order('town_name'),
-    ),
-    resilientSelectRows(
-      () => supabase
-          .from('appeals')
-          .select(
-            'id,status,town_name,requested_data,requested_by_user_id(full_name,email,town_name,town_id)',
-          )
-          .eq('status', 'pending'),
-      () => supabase.from('appeals').select('*').eq('status', 'pending'),
-    ),
-    resilientSelectRows(
-      () => supabase
-          .from('daily_entries')
-          .select(
-            'id,entry_id,date,type,amount,town_name,review_status,created_at',
-          ),
-      () => supabase.from('daily_entries').select('*'),
-    ),
-    resilientSelectRows(
-      () => supabase
-          .from('all_sales')
-          .select(
-            'id,sale_id,type,plot_shop_number,town_name,customer_name,received_amount,advance_amount_pkr,remaining_amount,created_at',
-          ),
-      () => supabase.from('all_sales').select('*'),
-    ),
-    resilientSelectRows(
-      () => supabase
-          .from('users')
-          .select('full_name,town_name,town_id,role')
-          .eq('role', 'accountant'),
-      () => supabase.from('users').select('*').eq('role', 'accountant'),
-    ),
-  ]);
-
-  final towns = results[0].where(isActiveTownRow).toList();
-  final appeals = results[1];
-  final entries = results[2];
-  final sales = results[3];
-  final accountants = results[4];
-
-  final names = <String>{
-    ...towns.map((t) => '${rowVal(t, 'Town_Name')}'.trim()),
-  }..removeWhere((name) => name.isEmpty || name == 'null');
-
-  return names.map((townName) {
-    final townEntries = entries
-        .where((e) => '${rowVal(e, 'Town_Name')}'.trim() == townName)
-        .toList();
-    final todayEntries = townEntries
-        .where((e) => '${rowVal(e, 'Date')}'.startsWith(today))
-        .toList();
-    final townSales = sales
-        .where((s) => '${rowVal(s, 'Town_Name')}'.trim() == townName)
-        .toList();
-    final pendingAppeals = appeals
-        .where((a) => appealTownName(a).trim() == townName)
-        .length;
-    final accountant = accountants.firstWhere(
-      (a) =>
-          '${rowVal(a, 'Town_Name')}'.trim() == townName ||
-          '${a['town_id'] ?? ''}'.trim() == townName,
-      orElse: () => const <String, dynamic>{},
-    );
-    final totalIncome = townEntries
-        .where((e) => '${rowVal(e, 'Type')}'.toLowerCase() == 'income')
-        .fold<num>(0, (sum, e) => sum + asNum(rowVal(e, 'Amount')));
-    final totalExpense = townEntries
-        .where((e) => '${rowVal(e, 'Type')}'.toLowerCase() == 'expense')
-        .fold<num>(0, (sum, e) => sum + asNum(rowVal(e, 'Amount')));
-    final saleReceived = townSales.fold<num>(
-      0,
-      (sum, s) =>
-          sum +
-          (asNum(rowVal(s, 'Received_Amount')) == 0
-              ? asNum(rowVal(s, 'Advance_Amount_PKR'))
-              : asNum(rowVal(s, 'Received_Amount'))),
-    );
-    final pendingCollection = townSales.fold<num>(
-      0,
-      (sum, s) => sum + asNum(rowVal(s, 'Remaining_Amount')),
-    );
-    final todayIncome = todayEntries
-        .where((e) => '${rowVal(e, 'Type')}'.toLowerCase() == 'income')
-        .fold<num>(0, (sum, e) => sum + asNum(rowVal(e, 'Amount')));
-    final todayExpense = todayEntries
-        .where((e) => '${rowVal(e, 'Type')}'.toLowerCase() == 'expense')
-        .fold<num>(0, (sum, e) => sum + asNum(rowVal(e, 'Amount')));
-
-    final totalReceived = totalIncome + saleReceived;
-    final totalExpenses = totalExpense;
-    return TownPulse(
-      name: townName,
-      accountantName: '${accountant['full_name'] ?? ''}'.trim(),
-      totalReceived: totalReceived,
-      totalExpenses: totalExpenses,
-      cashBalance: totalReceived - totalExpenses,
-      pendingAppeals: pendingAppeals,
-      pendingCollection: pendingCollection,
-      todayIncome: todayIncome,
-      todayExpense: todayExpense,
-      salesCount: townSales.length,
-    );
-  }).toList()..sort((a, b) => a.name.compareTo(b.name));
+  return _townPulsesCache.get(() => loadTownPulseRows(supabase), force: force);
 }
 
 Future<List<OperatorPresence>> loadOperatorPresence({bool force = false}) {
-  return _presenceCache.get(_loadOperatorPresenceUncached, force: force);
-}
-
-Future<List<OperatorPresence>> _loadOperatorPresenceUncached() async {
-  List<Map<String, dynamic>> rows;
-  try {
-    rows = List<Map<String, dynamic>>.from(
-      await supabase
-          .from('users')
-          .select(
-            'id,email,full_name,role,town_name,town_id,online_status,last_seen_at,device_label,last_active_context',
-          ),
-    );
-  } catch (_) {
-    rows = List<Map<String, dynamic>>.from(
-      await supabase
-          .from('users')
-          .select('id,email,full_name,role,town_name,town_id'),
-    );
-  }
-
-  final now = DateTime.now().toUtc();
-  return rows
-      .where((row) {
-        final role = '${row['role'] ?? ''}'.toLowerCase();
-        return role == 'ceo' || role == 'accountant';
-      })
-      .map((row) {
-        final lastSeen = parseDateTime(row['last_seen_at']);
-        final status = '${row['online_status'] ?? ''}'.toLowerCase();
-        final recent = lastSeen != null && now.difference(lastSeen.toUtc()) <= const Duration(seconds: 90);
-        final name = '${row['full_name'] ?? row['email'] ?? 'Unknown user'}'.trim();
-        final townName = '${row['town_name'] ?? row['town_id'] ?? 'All towns'}'.trim();
-        return OperatorPresence(
-          id: '${row['id'] ?? row['email'] ?? name}',
-          name: name.isEmpty ? 'Unknown user' : name,
-          role: '${row['role'] ?? 'user'}'.trim(),
-          townName: townName.isEmpty || townName == 'null' ? 'All towns' : townName,
-          isOnline: status == 'online' && recent,
-          lastSeenAt: lastSeen,
-          deviceLabel: '${row['device_label'] ?? ''}'.trim(),
-          activeContext: '${row['last_active_context'] ?? ''}'.trim(),
-        );
-      })
-      .toList()
-    ..sort((a, b) {
-      if (a.isOnline != b.isOnline) return a.isOnline ? -1 : 1;
-      return a.townName.compareTo(b.townName);
-    });
+  return _presenceCache.get(
+    () => loadOperatorPresenceRows(supabase),
+    force: force,
+  );
 }
 
 class OverviewPage extends StatefulWidget {
@@ -2774,33 +2575,10 @@ class AppealInfoCard extends StatelessWidget {
 class ActivityPage extends StatelessWidget {
   const ActivityPage({super.key});
 
-  Future<Map<String, List<Map<String, dynamic>>>> _load() async {
-    final sales = await supabase
-        .from('all_sales')
-        .select('*')
-        .order('created_at', ascending: false)
-        .limit(40);
-    final entries = await supabase
-        .from('daily_entries')
-        .select('*')
-        .order('date', ascending: false)
-        .limit(40);
-    final expenses = await supabase
-        .from('expenses')
-        .select('*')
-        .order('date', ascending: false)
-        .limit(40);
-    return {
-      'sales': List<Map<String, dynamic>>.from(sales),
-      'entries': List<Map<String, dynamic>>.from(entries),
-      'expenses': List<Map<String, dynamic>>.from(expenses),
-    };
-  }
-
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
-      future: _load(),
+    return FutureBuilder<ActivityRows>(
+      future: loadActivityRows(supabase),
       builder: (context, snap) => PremiumScrollView(
         showAppBar: false,
         children: [
@@ -2811,7 +2589,7 @@ class ActivityPage extends StatelessWidget {
           ),
           if (snap.hasError) ErrorBlock(error: '${snap.error}'),
           if (!snap.hasData && !snap.hasError) const SkeletonList(),
-          for (final s in snap.data?['sales'] ?? [])
+          for (final s in snap.data?.sales ?? const <Map<String, dynamic>>[])
             InfoCard(
               title:
                   'Sale - ${money.format(asNum(rowVal(s, 'Total_Amount_PKR')))}',
@@ -2821,7 +2599,7 @@ class ActivityPage extends StatelessWidget {
                   '${formatDate(rowVal(s, 'Sell_Date'))} - ${rowVal(s, 'Status') ?? 'Sold'}',
               body: 'Agent: ${rowVal(s, 'Agent_Name') ?? '-'}',
             ),
-          for (final e in snap.data?['entries'] ?? [])
+          for (final e in snap.data?.entries ?? const <Map<String, dynamic>>[])
             InfoCard(
               title:
                   '${rowVal(e, 'Type') ?? 'Entry'} - ${money.format(asNum(rowVal(e, 'Amount')))}',
@@ -2830,7 +2608,7 @@ class ActivityPage extends StatelessWidget {
               meta: formatDate(rowVal(e, 'Date')),
               body: '${rowVal(e, 'Description') ?? ''}',
             ),
-          for (final e in snap.data?['expenses'] ?? [])
+          for (final e in snap.data?.expenses ?? const <Map<String, dynamic>>[])
             InfoCard(
               title:
                   'Expense - ${money.format(asNum(rowVal(e, 'Amount_PKR')))}',
@@ -2841,9 +2619,9 @@ class ActivityPage extends StatelessWidget {
                   '${rowVal(e, 'Expense_Name') ?? rowVal(e, 'Description') ?? ''}',
             ),
           if (snap.hasData &&
-              (snap.data!['sales']!.isEmpty &&
-                  snap.data!['entries']!.isEmpty &&
-                  snap.data!['expenses']!.isEmpty))
+              (snap.data!.sales.isEmpty &&
+                  snap.data!.entries.isEmpty &&
+                  snap.data!.expenses.isEmpty))
             const EmptyBlock(text: 'No activity found.'),
         ],
       ),
@@ -3756,15 +3534,10 @@ class NotificationsPage extends StatelessWidget {
 class TownsPage extends StatelessWidget {
   const TownsPage({super.key});
 
-  Future<List<Map<String, dynamic>>> _load() async {
-    final data = await supabase.from('towns').select('*').order('town_name');
-    return List<Map<String, dynamic>>.from(data).where(isActiveTownRow).toList();
-  }
-
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _load(),
+      future: loadActiveTownRows(supabase),
       builder: (context, snap) => PremiumScrollView(
         showAppBar: false,
         children: [
