@@ -22,6 +22,8 @@ import 'approval_helpers.dart';
 import 'approval_service.dart';
 import 'app_performance.dart';
 import 'app_theme.dart';
+import 'inbox_repository.dart';
+import 'realtime_subscription_manager.dart';
 import 'receipt_repository.dart';
 import 'widgets/brand_widgets.dart';
 import 'widgets/premium_foundation.dart';
@@ -962,10 +964,9 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
     DailyLedgerReceiptPage(),
     MorePage(),
   ];
-  final List<dynamic> _channels = [];
+  RealtimeSubscriptionManager? _realtimeManager;
   StreamSubscription<RemoteMessage>? _foregroundPushSub;
   StreamSubscription<RemoteMessage>? _openedPushSub;
-  Timer? _liveRefreshTimer;
   Timer? _presenceHeartbeatTimer;
 
   @override
@@ -1074,91 +1075,22 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
   }
 
   void _subscribeToLiveAlerts() {
-    void scheduleLiveRefresh() {
-      if (_liveRefreshTimer?.isActive == true) return;
-      _liveRefreshTimer = Timer(const Duration(milliseconds: 250), () {
+    _realtimeManager = RealtimeSubscriptionManager(
+      supabase: supabase,
+      onRefresh: () {
         _badgeCountCache.clear();
         _townPulsesCache.clear();
         _presenceCache.clear();
         liveRefreshNotifier.value++;
-      });
-    }
-
-    final channel = supabase
-        .channel('ceo-mobile-live-alerts')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'appeals',
-          callback: (payload) {
-            scheduleLiveRefresh();
-          },
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'all_sales',
-          callback: (payload) {
-            scheduleLiveRefresh();
-          },
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'properties',
-          callback: (payload) {
-            scheduleLiveRefresh();
-          },
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'installments',
-          callback: (payload) {
-            scheduleLiveRefresh();
-          },
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'expenses',
-          callback: (payload) {
-            scheduleLiveRefresh();
-          },
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'notifications',
-          callback: (payload) {
-            scheduleLiveRefresh();
-          },
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'daily_entries',
-          callback: (payload) {
-            scheduleLiveRefresh();
-          },
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'users',
-          callback: (payload) {
-            scheduleLiveRefresh();
-          },
-        )
-        .subscribe((status, error) {
-          if (!mounted) return;
-          setState(() {
-            _realtimeStatus = error == null
-                ? 'Realtime: $status'
-                : 'Realtime error: $error';
-          });
+      },
+      onStatus: (status, error) {
+        if (!mounted) return;
+        setState(() {
+          _realtimeStatus =
+              error == null ? 'Realtime: $status' : 'Realtime error: $error';
         });
-    _channels.add(channel);
+      },
+    )..start();
   }
 
   void _startPresenceHeartbeat() {
@@ -1188,14 +1120,11 @@ class _CeoShellState extends State<CeoShell> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     selectedTabNotifier.removeListener(_applySelectedTab);
-    _liveRefreshTimer?.cancel();
     _presenceHeartbeatTimer?.cancel();
     _writePresence('offline', contextLabel: 'ceo_mobile_app_closed');
     _foregroundPushSub?.cancel();
     _openedPushSub?.cancel();
-    for (final channel in _channels) {
-      supabase.removeChannel(channel);
-    }
+    _realtimeManager?.dispose();
     super.dispose();
   }
 
@@ -1581,83 +1510,15 @@ Future<int> loadNotificationBadgeCount({bool force = false}) {
 }
 
 Future<int> _loadNotificationBadgeCountUncached() async {
-  final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  final rows = await Future.wait<List<Map<String, dynamic>>>([
-    safeSelectRows(
-      () => supabase
-          .from('appeals')
-          .select('id,status')
-          .eq('status', 'pending')
-          .limit(120),
-    ),
-    safeSelectRows(
-      () => supabase
-          .from('daily_entries')
-          .select('id,review_status')
-          .eq('review_status', 'pending')
-          .limit(120),
-    ),
-    safeSelectRows(
-      () => supabase
-          .from('notifications')
-          .select('id,dismissed')
-          .eq('dismissed', 'No')
-          .limit(120),
-    ),
-    safeSelectRows(
-      () => supabase
-          .from('media_library')
-          .select('id,type,report_date')
-          .eq('type', 'daily_ledger_receipt')
-          .eq('report_date', today)
-          .limit(80),
-    ),
-  ]);
-  return rows.fold<int>(0, (sum, list) => sum + list.length);
+  return loadCeoInboxBadgeCount(supabase);
 }
 
 Future<List<CeoInboxItem>> loadCeoInboxItems() async {
   final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  final results = await Future.wait<List<Map<String, dynamic>>>([
-    safeSelectRows(
-      () => supabase
-          .from('appeals')
-          .select(
-            'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id(full_name,email,town_name)',
-          )
-          .eq('status', 'pending')
-          .order('created_at', ascending: false)
-          .limit(60),
-    ),
-    safeSelectRows(
-      () => supabase
-          .from('daily_entries')
-          .select('*')
-          .eq('review_status', 'pending')
-          .order('created_at', ascending: false)
-          .limit(60),
-    ),
-    safeSelectRows(
-      () => supabase
-          .from('notifications')
-          .select('*')
-          .eq('dismissed', 'No')
-          .order('created_date', ascending: false)
-          .limit(60),
-    ),
-    safeSelectRows(
-      () => supabase
-          .from('media_library')
-          .select('*')
-          .eq('type', 'daily_ledger_receipt')
-          .eq('report_date', today)
-          .order('created_at', ascending: false)
-          .limit(60),
-    ),
-  ]);
+  final inboxRows = await loadCeoInboxRows(supabase, limit: 60);
 
   final items = <CeoInboxItem>[];
-  for (final row in results[0]) {
+  for (final row in inboxRows.appeals) {
     final user = row['requested_by_user_id'];
     final userMap = user is Map ? Map<String, dynamic>.from(user) : null;
     final town = appealTownName(row).isNotEmpty
@@ -1678,7 +1539,7 @@ Future<List<CeoInboxItem>> loadCeoInboxItems() async {
     );
   }
 
-  for (final row in results[1]) {
+  for (final row in inboxRows.dailyEntries) {
     final created = parseAnyDate(row['created_at'] ?? rowVal(row, 'Date')) ??
         DateTime.now();
     final amount = asNum(rowVal(row, 'Amount'));
@@ -1697,7 +1558,7 @@ Future<List<CeoInboxItem>> loadCeoInboxItems() async {
     );
   }
 
-  for (final row in results[2]) {
+  for (final row in inboxRows.notifications) {
     final created = parseAnyDate(
           rowVal(row, 'Created_Date') ?? row['created_at'],
         ) ??
@@ -1716,7 +1577,7 @@ Future<List<CeoInboxItem>> loadCeoInboxItems() async {
     );
   }
 
-  for (final row in results[3]) {
+  for (final row in inboxRows.ledgerReceipts) {
     final created = parseAnyDate(row['created_at'] ?? row['report_date']) ??
         DateTime.now();
     items.add(
