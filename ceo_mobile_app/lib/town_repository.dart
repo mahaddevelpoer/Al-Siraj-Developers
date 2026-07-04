@@ -63,6 +63,11 @@ class ActivityRows {
   final List<Map<String, dynamic>> expenses;
 }
 
+Future<List<TownPulse>>? _townPulseRowsInFlight;
+Future<List<OperatorPresence>>? _operatorPresenceRowsInFlight;
+Future<List<Map<String, dynamic>>>? _activeTownRowsInFlight;
+Future<ActivityRows>? _activityRowsInFlight;
+
 Future<List<Map<String, dynamic>>> resilientSelectRows(
   Future<dynamic> Function() primary,
   Future<dynamic> Function() fallback,
@@ -75,6 +80,16 @@ Future<List<Map<String, dynamic>>> resilientSelectRows(
 }
 
 Future<List<TownPulse>> loadTownPulseRows(SupabaseClient client) async {
+  final existing = _townPulseRowsInFlight;
+  if (existing != null) return existing;
+  final future = _loadTownPulseRowsUncached(
+    client,
+  ).whenComplete(() => _townPulseRowsInFlight = null);
+  _townPulseRowsInFlight = future;
+  return future;
+}
+
+Future<List<TownPulse>> _loadTownPulseRowsUncached(SupabaseClient client) async {
   final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
   final results = await Future.wait<List<Map<String, dynamic>>>([
     resilientSelectRows(
@@ -193,6 +208,18 @@ Future<List<TownPulse>> loadTownPulseRows(SupabaseClient client) async {
 Future<List<OperatorPresence>> loadOperatorPresenceRows(
   SupabaseClient client,
 ) async {
+  final existing = _operatorPresenceRowsInFlight;
+  if (existing != null) return existing;
+  final future = _loadOperatorPresenceRowsUncached(
+    client,
+  ).whenComplete(() => _operatorPresenceRowsInFlight = null);
+  _operatorPresenceRowsInFlight = future;
+  return future;
+}
+
+Future<List<OperatorPresence>> _loadOperatorPresenceRowsUncached(
+  SupabaseClient client,
+) async {
   List<Map<String, dynamic>> rows;
   try {
     rows = List<Map<String, dynamic>>.from(
@@ -242,11 +269,33 @@ Future<List<OperatorPresence>> loadOperatorPresenceRows(
 Future<List<Map<String, dynamic>>> loadActiveTownRows(
   SupabaseClient client,
 ) async {
+  final existing = _activeTownRowsInFlight;
+  if (existing != null) return existing;
+  final future = _loadActiveTownRowsUncached(
+    client,
+  ).whenComplete(() => _activeTownRowsInFlight = null);
+  _activeTownRowsInFlight = future;
+  return future;
+}
+
+Future<List<Map<String, dynamic>>> _loadActiveTownRowsUncached(
+  SupabaseClient client,
+) async {
   final data = await client.from('towns').select('*').order('town_name');
   return List<Map<String, dynamic>>.from(data).where(isActiveTownRow).toList();
 }
 
 Future<ActivityRows> loadActivityRows(SupabaseClient client) async {
+  final existing = _activityRowsInFlight;
+  if (existing != null) return existing;
+  final future = _loadActivityRowsUncached(
+    client,
+  ).whenComplete(() => _activityRowsInFlight = null);
+  _activityRowsInFlight = future;
+  return future;
+}
+
+Future<ActivityRows> _loadActivityRowsUncached(SupabaseClient client) async {
   final results = await Future.wait<dynamic>([
     client.from('all_sales').select('*').order('created_at', ascending: false).limit(40),
     client.from('daily_entries').select('*').order('date', ascending: false).limit(40),
