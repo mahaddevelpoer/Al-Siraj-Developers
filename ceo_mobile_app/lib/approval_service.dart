@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'approval_helpers.dart';
 
 final Map<String, List<Map<String, dynamic>>> _approvalRowsCache = {};
+final Map<String, Future<List<Map<String, dynamic>>>> _approvalRowsInFlight = {};
 
 String normalizeReviewStatus(dynamic status) {
   final clean = '${status ?? 'pending'}'.trim().toLowerCase();
@@ -24,6 +25,7 @@ List<Map<String, dynamic>> cachedApprovalReviewRows({
 
 void clearApprovalReviewCache() {
   _approvalRowsCache.clear();
+  _approvalRowsInFlight.clear();
 }
 
 DateTime _dateOf(Map<String, dynamic> row) {
@@ -151,6 +153,24 @@ List<Map<String, dynamic>> _finalizeReviewRows(
 }
 
 Future<List<Map<String, dynamic>>> loadApprovalReviewRows(
+  SupabaseClient supabase, {
+  required String filter,
+  required int limit,
+}) async {
+  final activeFilter = normalizeReviewStatus(filter);
+  final key = _cacheKey(activeFilter, limit);
+  final existing = _approvalRowsInFlight[key];
+  if (existing != null) return existing;
+  final future = _loadApprovalReviewRowsUncached(
+    supabase,
+    filter: activeFilter,
+    limit: limit,
+  ).whenComplete(() => _approvalRowsInFlight.remove(key));
+  _approvalRowsInFlight[key] = future;
+  return future;
+}
+
+Future<List<Map<String, dynamic>>> _loadApprovalReviewRowsUncached(
   SupabaseClient supabase, {
   required String filter,
   required int limit,
