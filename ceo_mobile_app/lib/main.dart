@@ -2999,10 +2999,10 @@ class AppealsPage extends StatefulWidget {
 
 class _AppealsPageState extends State<AppealsPage> {
   bool _reviewing = false;
+  bool _loading = false;
   String _filter = 'pending';
   List<Map<String, dynamic>>? _items;
   Object? _error;
-  late Future<List<Map<String, dynamic>>> _future;
 
   @override
   void initState() {
@@ -3011,7 +3011,7 @@ class _AppealsPageState extends State<AppealsPage> {
       filter: _filter,
       limit: reviewListLimit,
     );
-    _future = _load();
+    unawaited(_refreshFromCloud(showLoading: _items?.isEmpty ?? true));
     liveRefreshNotifier.addListener(_handleLiveRefresh);
   }
 
@@ -3023,22 +3023,7 @@ class _AppealsPageState extends State<AppealsPage> {
 
   void _handleLiveRefresh() {
     if (!mounted || _reviewing) return;
-    final next = _load();
-    setState(() {
-      _future = next;
-      _error = null;
-    });
-    unawaited(
-      next
-          .then((rows) {
-            if (mounted) setState(() => _items = rows);
-            return rows;
-          })
-          .catchError((e) {
-            if (mounted) setState(() => _error = friendlyDbError(e));
-            return <Map<String, dynamic>>[];
-          }),
-    );
+    unawaited(_refreshFromCloud(showLoading: false));
   }
 
   Future<List<Map<String, dynamic>>> _load([String? filter]) async {
@@ -3049,16 +3034,21 @@ class _AppealsPageState extends State<AppealsPage> {
     );
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refreshFromCloud({
+    String? filter,
+    bool showLoading = true,
+  }) async {
+    final activeFilter = filter ?? _filter;
     try {
-      final next = _load();
-      setState(() {
-        _future = next;
-        _items = null;
-        _error = null;
-      });
-      final rows = await next;
+      if (mounted && showLoading) {
+        setState(() {
+          _loading = true;
+          _error = null;
+        });
+      }
+      final rows = await _load(activeFilter);
       if (mounted) {
+        if (activeFilter != _filter) return;
         setState(() {
           _items = rows;
           _error = null;
@@ -3066,8 +3056,12 @@ class _AppealsPageState extends State<AppealsPage> {
       }
     } catch (e) {
       if (mounted) setState(() => _error = friendlyDbError(e));
+    } finally {
+      if (mounted && activeFilter == _filter) setState(() => _loading = false);
     }
   }
+
+  Future<void> _refresh() => _refreshFromCloud(showLoading: true);
 
   Future<void> _review(String id, String status) async {
     setState(() => _reviewing = true);
@@ -3181,23 +3175,12 @@ class _AppealsPageState extends State<AppealsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _future,
-      builder: (context, snap) {
-        final currentError = snap.hasError ? friendlyDbError(snap.error!) : _error;
-        if (snap.connectionState == ConnectionState.done && snap.hasData) {
-          _items = snap.data;
-        }
-        final isFreshLoading =
-            _items == null && snap.connectionState != ConnectionState.done;
-        final rows = isFreshLoading
-            ? const <Map<String, dynamic>>[]
-            : _items ?? snap.data ?? const <Map<String, dynamic>>[];
-        return RefreshIndicator(
-          onRefresh: _refresh,
-          child: PremiumScrollView(
-            appBarTitle: 'Approvals',
-            children: [
+    final rows = _items ?? const <Map<String, dynamic>>[];
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: PremiumScrollView(
+        appBarTitle: 'Approvals',
+        children: [
               const HeaderBlock(
                 title: 'Approvals',
                 subtitle:
@@ -3208,21 +3191,30 @@ class _AppealsPageState extends State<AppealsPage> {
                 options: const ['pending', 'approved', 'rejected'],
                 onChanged: (next) {
                   if (next == _filter) return;
-                  final future = _load(next);
+                  final cached = cachedApprovalReviewRows(
+                    filter: next,
+                    limit: reviewListLimit,
+                  );
                   setState(() {
                     _filter = next;
-                    _items = cachedApprovalReviewRows(
-                      filter: next,
-                      limit: reviewListLimit,
-                    );
+                    _items = cached;
                     _error = null;
-                    _future = future;
+                    _loading = cached.isEmpty;
                   });
+                  unawaited(
+                    _refreshFromCloud(
+                      filter: next,
+                      showLoading: cached.isEmpty,
+                    ),
+                  );
                 },
               ),
-              if (currentError != null)
-                ErrorBlock(error: 'Schema/API issue: $currentError'),
-              if (isFreshLoading && currentError == null) const SkeletonList(),
+              if (_error != null)
+                ErrorBlock(error: 'Schema/API issue: $_error'),
+              if (_loading)
+                const LoadingStateBlock(
+                  text: 'Loading approval inbox from secure cloud...',
+                ),
               for (var i = 0; i < rows.length; i++)
                 AnimatedEntry(
                   index: i,
@@ -3248,12 +3240,10 @@ class _AppealsPageState extends State<AppealsPage> {
                     ],
                   ),
                 ),
-              if (!isFreshLoading && rows.isEmpty && currentError == null)
+              if (!_loading && rows.isEmpty && _error == null)
                 EmptyBlock(text: 'No $_filter appeals.'),
             ],
           ),
-        );
-      },
     );
   }
 }
@@ -3267,10 +3257,10 @@ class DailyEntriesPage extends StatefulWidget {
 
 class _DailyEntriesPageState extends State<DailyEntriesPage> {
   bool _reviewing = false;
+  bool _loading = false;
   String _filter = 'pending';
   List<Map<String, dynamic>>? _items;
   Object? _error;
-  late Future<List<Map<String, dynamic>>> _future;
 
   @override
   void initState() {
@@ -3279,7 +3269,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
       filter: _filter,
       limit: reviewListLimit,
     ).where(isDailyReviewItem).toList();
-    _future = _load();
+    unawaited(_refreshFromCloud(showLoading: _items?.isEmpty ?? true));
     liveRefreshNotifier.addListener(_handleLiveRefresh);
   }
 
@@ -3291,22 +3281,7 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
 
   void _handleLiveRefresh() {
     if (!mounted || _reviewing) return;
-    final next = _load();
-    setState(() {
-      _future = next;
-      _error = null;
-    });
-    unawaited(
-      next
-          .then((rows) {
-            if (mounted) setState(() => _items = rows);
-            return rows;
-          })
-          .catchError((e) {
-            if (mounted) setState(() => _error = friendlyDbError(e));
-            return <Map<String, dynamic>>[];
-          }),
-    );
+    unawaited(_refreshFromCloud(showLoading: false));
   }
 
   Future<List<Map<String, dynamic>>> _load([String? filter]) async {
@@ -3326,16 +3301,21 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
     return rows;
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refreshFromCloud({
+    String? filter,
+    bool showLoading = true,
+  }) async {
+    final activeFilter = filter ?? _filter;
     try {
-      final next = _load();
-      setState(() {
-        _future = next;
-        _items = null;
-        _error = null;
-      });
-      final rows = await next;
+      if (mounted && showLoading) {
+        setState(() {
+          _loading = true;
+          _error = null;
+        });
+      }
+      final rows = await _load(activeFilter);
       if (mounted) {
+        if (activeFilter != _filter) return;
         setState(() {
           _items = rows;
           _error = null;
@@ -3343,8 +3323,12 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
       }
     } catch (e) {
       if (mounted) setState(() => _error = friendlyDbError(e));
+    } finally {
+      if (mounted && activeFilter == _filter) setState(() => _loading = false);
     }
   }
+
+  Future<void> _refresh() => _refreshFromCloud(showLoading: true);
 
   Future<void> _mark(Map<String, dynamic> row, String status) async {
     setState(() => _reviewing = true);
@@ -3401,23 +3385,13 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _future,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.done && snap.hasData) {
-          _items = snap.data;
-        }
-        final isFreshLoading =
-            _items == null && snap.connectionState != ConnectionState.done;
-        final rows = isFreshLoading
-            ? const <Map<String, dynamic>>[]
-            : _items ?? snap.data ?? const <Map<String, dynamic>>[];
-        return RefreshIndicator(
-          onRefresh: _refresh,
-          child: PremiumScrollView(
-            appBarTitle: 'Daily entries',
-            showAppBar: !(ModalRoute.of(context)?.canPop ?? false),
-            children: [
+    final rows = _items ?? const <Map<String, dynamic>>[];
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: PremiumScrollView(
+        appBarTitle: 'Daily entries',
+        showAppBar: !(ModalRoute.of(context)?.canPop ?? false),
+        children: [
               const HeaderBlock(
                 title: 'Daily entries review',
                 subtitle:
@@ -3428,21 +3402,30 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
                 options: const ['pending', 'approved', 'rejected'],
                 onChanged: (next) {
                   if (next == _filter) return;
-                  final future = _load(next);
+                  final cached = cachedApprovalReviewRows(
+                    filter: next,
+                    limit: reviewListLimit,
+                  ).where(isDailyReviewItem).toList();
                   setState(() {
                     _filter = next;
-                    _items = cachedApprovalReviewRows(
-                      filter: next,
-                      limit: reviewListLimit,
-                    ).where(isDailyReviewItem).toList();
+                    _items = cached;
                     _error = null;
-                    _future = future;
+                    _loading = cached.isEmpty;
                   });
+                  unawaited(
+                    _refreshFromCloud(
+                      filter: next,
+                      showLoading: cached.isEmpty,
+                    ),
+                  );
                 },
               ),
               if (_error != null)
                 ErrorBlock(error: 'Schema/API issue: $_error'),
-              if (isFreshLoading && _error == null) const SkeletonList(),
+              if (_loading)
+                const LoadingStateBlock(
+                  text: 'Loading daily entry reviews from secure cloud...',
+                ),
               for (var i = 0; i < rows.length; i++)
                 AnimatedEntry(
                   index: i,
@@ -3478,12 +3461,10 @@ class _DailyEntriesPageState extends State<DailyEntriesPage> {
                     ],
                   ),
                 ),
-              if (!isFreshLoading && rows.isEmpty && _error == null)
+              if (!_loading && rows.isEmpty && _error == null)
                 EmptyBlock(text: 'No $_filter daily entries.'),
             ],
           ),
-        );
-      },
     );
   }
 }
@@ -4756,6 +4737,38 @@ class EmptyBlock extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class LoadingStateBlock extends StatelessWidget {
+  const LoadingStateBlock({super.key, required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          const SizedBox.square(
+            dimension: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.4),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: kMuted,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
