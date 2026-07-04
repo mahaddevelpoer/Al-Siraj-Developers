@@ -198,7 +198,12 @@ Future<ReceiptLoadBundle> _loadReceiptBundleUncached(
           .select('*')
           .order('created_at', ascending: false),
     ),
-    _safeRows(() => supabase.from('towns').select('*')),
+    _safeRows(
+      () => supabase.from('ceo_mobile_active_towns').select('*'),
+    ).then((rows) async {
+      if (rows.isNotEmpty) return rows;
+      return _safeRows(() => supabase.from('towns').select('*'));
+    }),
   ]);
   final townRows = direct[1].where(_activeTownRow).toList();
   final activeTownNames = townRows

@@ -79,6 +79,15 @@ Future<List<Map<String, dynamic>>> resilientSelectRows(
   }
 }
 
+Future<List<Map<String, dynamic>>> _loadActiveTownSourceRows(
+  SupabaseClient client,
+) {
+  return resilientSelectRows(
+    () => client.from('ceo_mobile_active_towns').select('*').order('town_name'),
+    () => client.from('towns').select('*').order('town_name'),
+  );
+}
+
 Future<List<TownPulse>> loadTownPulseRows(SupabaseClient client) async {
   final existing = _townPulseRowsInFlight;
   if (existing != null) return existing;
@@ -92,13 +101,7 @@ Future<List<TownPulse>> loadTownPulseRows(SupabaseClient client) async {
 Future<List<TownPulse>> _loadTownPulseRowsUncached(SupabaseClient client) async {
   final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
   final results = await Future.wait<List<Map<String, dynamic>>>([
-    resilientSelectRows(
-      () => client
-          .from('towns')
-          .select('town_name,status,deleted_at')
-          .order('town_name'),
-      () => client.from('towns').select('*').order('town_name'),
-    ),
+    _loadActiveTownSourceRows(client),
     resilientSelectRows(
       () => client
           .from('appeals')
@@ -281,8 +284,8 @@ Future<List<Map<String, dynamic>>> loadActiveTownRows(
 Future<List<Map<String, dynamic>>> _loadActiveTownRowsUncached(
   SupabaseClient client,
 ) async {
-  final data = await client.from('towns').select('*').order('town_name');
-  return List<Map<String, dynamic>>.from(data).where(isActiveTownRow).toList();
+  final data = await _loadActiveTownSourceRows(client);
+  return data.where(isActiveTownRow).toList();
 }
 
 Future<ActivityRows> loadActivityRows(SupabaseClient client) async {
