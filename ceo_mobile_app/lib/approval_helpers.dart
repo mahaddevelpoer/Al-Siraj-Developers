@@ -24,7 +24,7 @@ dynamic safeRowValue(Map<String, dynamic> row, String key) {
 }
 
 String reviewKindOf(Map<String, dynamic> row) {
-  return '${row['_review_kind'] ?? ReviewItemKind.appeal.name}';
+  return '${row['_review_kind'] ?? row['review_kind'] ?? ReviewItemKind.appeal.name}';
 }
 
 bool isDailyReviewItem(Map<String, dynamic> row) {
