@@ -165,46 +165,48 @@ class CeoRepository {
 
   Future<List<ReviewItem>> _loadReviews(String status) async {
     final queryStatus = normalizeStatus(status);
+    Object? firstError;
 
-    // Direct queries with explicit status filter (no FK embedding that can silently fail)
-    final results = await Future.wait<List<Map<String, dynamic>>>([
-      _safeRows(
-        () => supabase
-            .from('appeals')
-            .select('*')
-            .eq('status', queryStatus)
-            .order('created_at', ascending: false)
-            .limit(reviewLimit * 4),
-        timeout: const Duration(seconds: 5),
-      ),
-      _safeRows(
-        () => supabase
-            .from('daily_entries')
-            .select('*')
-            .eq('review_status', queryStatus)
-            .order('created_at', ascending: false)
-            .limit(reviewLimit * 4),
-        timeout: const Duration(seconds: 5),
-      ),
-    ]);
+    // Try direct appeals query (no silent catch — errors must surface)
+    try {
+      final appealsRaw = await supabase
+          .from('appeals')
+          .select('*')
+          .eq('status', queryStatus)
+          .order('created_at', ascending: false)
+          .limit(reviewLimit * 4)
+          .timeout(const Duration(seconds: 8));
+      if (appealsRaw.isNotEmpty) {
+        final typed = appealsRaw.cast<Map<String, dynamic>>();
+        final items = _normalizeReviewRows(
+          typed.map((row) => {...row, 'review_kind': 'appeal'}).toList(),
+          queryStatus,
+        );
+        if (items.isNotEmpty) return items;
+      }
+    } catch (e) {
+      firstError = e;
+    }
 
-    final items = _normalizeReviewRows([
-      ...results[0].map((row) => {...row, 'review_kind': 'appeal'}),
-      ...results[1].map((row) => {...row, 'review_kind': 'dailyEntry'}),
-    ], queryStatus);
-
-    if (items.isNotEmpty) return items;
-
-    // RPC fallback
-    final rpcRows = await _safeRows(
-      () => supabase.rpc(
+    // Try RPC fallback (also not silently caught)
+    try {
+      final rpcRaw = await supabase.rpc(
         'ceo_mobile_review_inbox',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
-      ),
-      timeout: const Duration(seconds: 6),
-    );
-    if (rpcRows.isEmpty) return const [];
-    return _normalizeReviewRows(rpcRows, queryStatus);
+      ).timeout(const Duration(seconds: 8));
+      if (rpcRaw is List && rpcRaw.isNotEmpty) {
+        return _normalizeReviewRows(
+          rpcRaw.cast<Map<String, dynamic>>(),
+          queryStatus,
+        );
+      }
+    } catch (e) {
+      firstError ??= e;
+    }
+
+    // Both failed — surface error so UI shows it instead of silent empty state
+    if (firstError != null) throw firstError;
+    return const [];
   }
 
   List<ReviewItem> _normalizeReviewRows(
