@@ -35,14 +35,31 @@ export default function PendingAppeals({ townName, showToast }) {
     try {
       let query = supabase
         .from('appeals')
-        .select('id,appeal_type,entity_type,entity_id,town_name,status,requested_data,reason,created_at,requested_by_role,requested_by_user_id(full_name,email,town_name)')
+        .select('id,appeal_type,entity_type,entity_id,town_name,status,requested_data,reason,created_at,requested_by_role,requested_by_user_id')
         .eq('status', 'pending')
         .order('created_at', { ascending: false })
         .limit(80);
       if (townName) query = query.eq('town_name', townName);
       const { data, error } = await query;
       if (error) throw error;
-      setCloudItems(Array.isArray(data) ? data : []);
+      const fetched = Array.isArray(data) ? data : [];
+
+      const requesterIds = [...new Set(fetched.map(a => a.requested_by_user_id).filter(Boolean))];
+      let userMap = {};
+      if (requesterIds.length) {
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, full_name, email, town_name')
+          .in('id', requesterIds);
+        if (users) {
+          userMap = Object.fromEntries(users.map(u => [u.id, u]));
+        }
+      }
+
+      setCloudItems(fetched.map(item => ({
+        ...item,
+        requested_by_user_id: userMap[item.requested_by_user_id] || item.requested_by_user_id,
+      })));
     } catch (e) {
       setCloudError(e.message || 'Cloud pending approvals could not load');
     } finally {

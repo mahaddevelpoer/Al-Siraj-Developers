@@ -10,6 +10,7 @@ export default function AppealDashboard() {
   const { userRole } = useAuth();
   const [appeals, setAppeals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [activeFilter, setActiveFilter] = useState('pending');
   const [reviewing, setReviewing] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
@@ -105,21 +106,40 @@ export default function AppealDashboard() {
     try {
       const { data, error } = await supabase
         .from('appeals')
-        .select('*, requested_by_user_id(*)')
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+
+      const requesterIds = [...new Set((data || []).map(a => a.requested_by_user_id).filter(Boolean))];
+      let userMap = {};
+      if (requesterIds.length) {
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, full_name, email, phone_number, role, town_name, agent_town')
+          .in('id', requesterIds);
+        if (users) {
+          userMap = Object.fromEntries(users.map(u => [u.id, u]));
+        }
+      }
+
       const rows = (data || [])
         .filter((appeal) => normalizeStatus(appeal.status) === filter)
-        .map((appeal) => ({ ...appeal, status: normalizeStatus(appeal.status) }));
+        .map((appeal) => ({
+          ...appeal,
+          status: normalizeStatus(appeal.status),
+          requested_by_user_id: userMap[appeal.requested_by_user_id] || appeal.requested_by_user_id,
+        }));
       const unique = Array.from(new Map(rows.map((appeal) => [appeal.id, appeal])).values());
       setAppeals(unique);
+      setLoadError(null);
 
       if (filter === 'pending' && unique.length) {
         checkAutoOtp(unique);
       }
     } catch (error) {
       console.error('Error loading appeals:', error);
+      setLoadError(error.message || 'Failed to load appeals');
     } finally {
       setLoading(false);
     }
@@ -274,6 +294,18 @@ export default function AppealDashboard() {
         <div className="ui-skeleton-stack">
           <div className="ui-skeleton-card" />
           <div className="ui-skeleton-card" />
+        </div>
+      ) : loadError ? (
+        <div style={{ padding: 24, textAlign: 'center' }}>
+          <div style={{ color: '#dc2626', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+            Failed to load appeals
+          </div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 16 }}>
+            {loadError}
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={() => { setLoading(true); setLoadError(null); loadAppeals(); }}>
+            Retry
+          </button>
         </div>
       ) : appeals.length === 0 ? (
         <div className="empty-state ui-empty-offset">

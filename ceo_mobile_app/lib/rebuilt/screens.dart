@@ -290,6 +290,44 @@ class OverviewScreen extends StatefulWidget {
 
 class _OverviewScreenState extends State<OverviewScreen> {
   late Future<DashboardSummary> _future = widget.repo.loadDashboard();
+  RealtimeChannel? _realtimeChannel;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupRealtime();
+  }
+
+  @override
+  void dispose() {
+    final ch = _realtimeChannel;
+    if (ch != null) {
+      Supabase.instance.client.removeChannel(ch);
+    }
+    super.dispose();
+  }
+
+  void _setupRealtime() {
+    _realtimeChannel = Supabase.instance.client
+        .channel('ceo-mobile-overview')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'appeals',
+          callback: (_) {
+            if (mounted) unawaited(_refresh());
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'appeals',
+          callback: (_) {
+            if (mounted) unawaited(_refresh());
+          },
+        )
+        .subscribe();
+  }
 
   Future<void> _refresh() async {
     setState(() => _future = widget.repo.loadDashboard(force: true));
@@ -549,11 +587,44 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
   bool _loading = true;
   bool _reviewing = false;
   int _loadToken = 0;
+  RealtimeChannel? _realtimeChannel;
 
   @override
   void initState() {
     super.initState();
     unawaited(_load(force: true));
+    _setupRealtime();
+  }
+
+  @override
+  void dispose() {
+    final ch = _realtimeChannel;
+    if (ch != null) {
+      Supabase.instance.client.removeChannel(ch);
+    }
+    super.dispose();
+  }
+
+  void _setupRealtime() {
+    _realtimeChannel = Supabase.instance.client
+        .channel('ceo-mobile-approvals')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'appeals',
+          callback: (_) {
+            if (mounted) unawaited(_load(force: true));
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'appeals',
+          callback: (_) {
+            if (mounted) unawaited(_load(force: true));
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _refresh({bool force = true}) async {

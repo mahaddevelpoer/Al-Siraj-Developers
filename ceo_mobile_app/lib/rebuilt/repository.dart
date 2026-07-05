@@ -164,51 +164,47 @@ class CeoRepository {
   }
 
   Future<List<ReviewItem>> _loadReviews(String status) async {
-    List<List<Map<String, dynamic>>> results;
-    try {
-      results = await Future.wait<List<Map<String, dynamic>>>([
-        _safeRows(
-          () => supabase
-              .from('appeals')
-              .select('*, requested_by_user_id(*)')
-              .order('created_at', ascending: false)
-              .limit(reviewLimit * 4),
-          timeout: const Duration(seconds: 5),
-        ),
-        _tableRows(
-          'appeals',
-          limit: reviewLimit * 4,
-          timeout: const Duration(seconds: 5),
-        ),
-        _tableRows(
-          'daily_entries',
-          limit: reviewLimit * 4,
-          timeout: const Duration(seconds: 5),
-        ),
-      ]).timeout(const Duration(seconds: 7));
-    } catch (_) {
-      results = const [
-        <Map<String, dynamic>>[],
-        <Map<String, dynamic>>[],
-        <Map<String, dynamic>>[],
-      ];
-    }
+    final queryStatus = normalizeStatus(status);
 
-    final appealRows = results[0].isNotEmpty ? results[0] : results[1];
-    final directItems = _normalizeReviewRows([
-      ...appealRows.map((row) => {...row, 'review_kind': 'appeal'}),
-      ...results[2].map((row) => {...row, 'review_kind': 'dailyEntry'}),
-    ], status);
-    if (directItems.isNotEmpty) return directItems;
+    // Direct queries with explicit status filter (no FK embedding that can silently fail)
+    final results = await Future.wait<List<Map<String, dynamic>>>([
+      _safeRows(
+        () => supabase
+            .from('appeals')
+            .select('*')
+            .eq('status', queryStatus)
+            .order('created_at', ascending: false)
+            .limit(reviewLimit * 4),
+        timeout: const Duration(seconds: 5),
+      ),
+      _safeRows(
+        () => supabase
+            .from('daily_entries')
+            .select('*')
+            .eq('review_status', queryStatus)
+            .order('created_at', ascending: false)
+            .limit(reviewLimit * 4),
+        timeout: const Duration(seconds: 5),
+      ),
+    ]);
 
+    final items = _normalizeReviewRows([
+      ...results[0].map((row) => {...row, 'review_kind': 'appeal'}),
+      ...results[1].map((row) => {...row, 'review_kind': 'dailyEntry'}),
+    ], queryStatus);
+
+    if (items.isNotEmpty) return items;
+
+    // RPC fallback
     final rpcRows = await _safeRows(
       () => supabase.rpc(
         'ceo_mobile_review_inbox',
-        params: {'p_status': status, 'p_limit': reviewLimit},
+        params: {'p_status': queryStatus, 'p_limit': reviewLimit},
       ),
-      timeout: const Duration(seconds: 5),
+      timeout: const Duration(seconds: 6),
     );
-    return _normalizeReviewRows(rpcRows, status);
+    if (rpcRows.isEmpty) return const [];
+    return _normalizeReviewRows(rpcRows, queryStatus);
   }
 
   List<ReviewItem> _normalizeReviewRows(
