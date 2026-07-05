@@ -167,12 +167,11 @@ class CeoRepository {
     final queryStatus = normalizeStatus(status);
     Object? firstError;
 
-    // Try direct appeals query (no silent catch — errors must surface)
+    // Try direct appeals query (no status filter — matches desktop approach)
     try {
       final appealsRaw = await supabase
           .from('appeals')
           .select('*')
-          .eq('status', queryStatus)
           .order('created_at', ascending: false)
           .limit(reviewLimit * 4)
           .timeout(const Duration(seconds: 8));
