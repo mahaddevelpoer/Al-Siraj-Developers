@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -165,29 +167,33 @@ class CeoRepository {
 
   Future<List<ReviewItem>> _loadReviews(String status) async {
     final queryStatus = normalizeStatus(status);
-    Object? firstError;
 
-    // Try direct appeals query (no status filter — matches desktop approach)
+    // Try 1: RAW HTTP to bypass supabase_flutter entirely
     try {
-      final appealsRaw = await supabase
+      final rows = await _httpAppeals(queryStatus);
+      if (rows.isNotEmpty) return rows;
+    } catch (_) {}
+
+    // Try 2: Direct supabase_flutter query
+    try {
+      final raw = await supabase
           .from('appeals')
           .select('*')
           .order('created_at', ascending: false)
           .limit(reviewLimit * 4)
           .timeout(const Duration(seconds: 8));
-      if (appealsRaw.isNotEmpty) {
-        final typed = appealsRaw.cast<Map<String, dynamic>>();
+      if (raw.isNotEmpty) {
         final items = _normalizeReviewRows(
-          typed.map((row) => {...row, 'review_kind': 'appeal'}).toList(),
+          raw
+              .map((row) => {...row, 'review_kind': 'appeal'})
+              .toList(),
           queryStatus,
         );
         if (items.isNotEmpty) return items;
       }
-    } catch (e) {
-      firstError = e;
-    }
+    } catch (_) {}
 
-    // Try RPC fallback (also not silently caught)
+    // Try 3: RPC fallback
     try {
       final rpcRaw = await supabase.rpc(
         'ceo_mobile_review_inbox',
@@ -199,13 +205,46 @@ class CeoRepository {
           queryStatus,
         );
       }
-    } catch (e) {
-      firstError ??= e;
-    }
+    } catch (_) {}
 
-    // Both failed — surface error so UI shows it instead of silent empty state
-    if (firstError != null) throw firstError;
-    return const [];
+    // All failed — throw to surface error
+    throw Exception(
+      '3 methods failed. Try 3 debug info: $_lastRawAppealsResponse',
+    );
+  }
+
+  String _lastRawAppealsResponse = '';
+  Future<List<ReviewItem>> _httpAppeals(String queryStatus) async {
+    final session = supabase.auth.currentSession;
+    final token = session?.accessToken ?? '';
+    final client = HttpClient();
+    try {
+      final url = Uri.parse(
+        '$supabaseUrl/rest/v1/appeals?select=*&order=created_at.desc&limit=${reviewLimit * 4}',
+      );
+      final request = await client.getUrl(url);
+      request.headers.set('apikey', supabaseAnonKey);
+      request.headers.set('Authorization', 'Bearer $token');
+      request.headers.set('Accept', 'application/json');
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      _lastRawAppealsResponse =
+          'HTTP ${response.statusCode}: ${body.length <= 500 ? body : '${body.substring(0, 500)}...'}';
+      if (response.statusCode != 200) {
+        throw Exception(_lastRawAppealsResponse);
+      }
+      final decoded = json.decode(body);
+      if (decoded is! List || decoded.isEmpty) return const [];
+      final items = _normalizeReviewRows(
+        decoded.cast<Map<String, dynamic>>()
+            .map((row) => {...row, 'review_kind': 'appeal'})
+            .toList(),
+        queryStatus,
+      );
+      return items;
+    } finally {
+      client.close();
+    }
   }
 
   List<ReviewItem> _normalizeReviewRows(
