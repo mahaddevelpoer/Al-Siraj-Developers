@@ -168,32 +168,11 @@ class CeoRepository {
   Future<List<ReviewItem>> _loadReviews(String status) async {
     final queryStatus = normalizeStatus(status);
 
-    // Try 1: RAW HTTP to bypass supabase_flutter entirely
-    try {
-      final rows = await _httpAppeals(queryStatus);
-      if (rows.isNotEmpty) return rows;
-    } catch (_) {}
+    // PRIMARY: raw HTTP — no silent catch so any failure shows immediately
+    final rows = await _httpAppeals(queryStatus);
+    if (rows.isNotEmpty) return rows;
 
-    // Try 2: Direct supabase_flutter query
-    try {
-      final raw = await supabase
-          .from('appeals')
-          .select('*')
-          .order('created_at', ascending: false)
-          .limit(reviewLimit * 4)
-          .timeout(const Duration(seconds: 8));
-      if (raw.isNotEmpty) {
-        final items = _normalizeReviewRows(
-          raw
-              .map((row) => {...row, 'review_kind': 'appeal'})
-              .toList(),
-          queryStatus,
-        );
-        if (items.isNotEmpty) return items;
-      }
-    } catch (_) {}
-
-    // Try 3: RPC fallback
+    // If raw HTTP returned empty 200, try RPC as backup
     try {
       final rpcRaw = await supabase.rpc(
         'ceo_mobile_review_inbox',
@@ -207,34 +186,40 @@ class CeoRepository {
       }
     } catch (_) {}
 
-    // All failed — throw to surface error
-    throw Exception(
-      '3 methods failed. Try 3 debug info: $_lastRawAppealsResponse',
-    );
+    // If both fail, surface HTTP response details
+    throw Exception('No appeals data. HTTP: $_lastRawAppealsResponse');
   }
 
   String _lastRawAppealsResponse = '';
   Future<List<ReviewItem>> _httpAppeals(String queryStatus) async {
     final session = supabase.auth.currentSession;
-    final token = session?.accessToken ?? '';
+    final user = session?.user;
+    final token = session?.accessToken ?? 'NO_TOKEN';
+    final uid = user?.id ?? 'NO_UID';
+    final tokPreview = token.length > 12 ? '${token.substring(0, 12)}...' : token;
     final client = HttpClient();
+    String rawBody = 'NO_RESPONSE_BODY';
     try {
       final url = Uri.parse(
-        '$supabaseUrl/rest/v1/appeals?select=*&order=created_at.desc&limit=${reviewLimit * 4}',
+        '$supabaseUrl/rest/v1/appeals?select=id,status,town_name,requested_data,created_at&order=created_at.desc&limit=${reviewLimit * 4}',
       );
-      final request = await client.getUrl(url);
+      final request = await client.getUrl(url).timeout(const Duration(seconds: 9));
       request.headers.set('apikey', supabaseAnonKey);
       request.headers.set('Authorization', 'Bearer $token');
       request.headers.set('Accept', 'application/json');
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      _lastRawAppealsResponse =
-          'HTTP ${response.statusCode}: ${body.length <= 500 ? body : '${body.substring(0, 500)}...'}';
+      final response = await request.close().timeout(const Duration(seconds: 9));
+      rawBody = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 5));
+      _lastRawAppealsResponse = 'HTTP ${response.statusCode} (uid=$uid tok=$tokPreview body=${rawBody.length <= 600 ? rawBody : '${rawBody.substring(0, 600)}...'})';
       if (response.statusCode != 200) {
         throw Exception(_lastRawAppealsResponse);
       }
-      final decoded = json.decode(body);
-      if (decoded is! List || decoded.isEmpty) return const [];
+      if (rawBody.trim().isEmpty || rawBody.trim() == '[]') {
+        throw Exception(_lastRawAppealsResponse);
+      }
+      final decoded = json.decode(rawBody);
+      if (decoded is! List) {
+        throw Exception('$_lastRawAppealsResponse (not a list)');
+      }
       final items = _normalizeReviewRows(
         decoded.cast<Map<String, dynamic>>()
             .map((row) => {...row, 'review_kind': 'appeal'})
@@ -242,6 +227,8 @@ class CeoRepository {
         queryStatus,
       );
       return items;
+    } on TimeoutException catch (e) {
+      throw Exception('HTTP timeout: $e | $_lastRawAppealsResponse');
     } finally {
       client.close();
     }
