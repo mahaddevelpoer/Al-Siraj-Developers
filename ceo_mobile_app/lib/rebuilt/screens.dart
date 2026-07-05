@@ -168,7 +168,16 @@ class _CeoShellState extends State<CeoShell> {
     });
     _tapSub = notificationTapStream.stream.listen((data) {
       final route = '${data['route'] ?? ''}';
+      final action = '${data['action'] ?? ''}';
+      final id = '${data['id'] ?? ''}';
       if (!mounted) return;
+      if ((action == 'approve' || action == 'reject') && id.isNotEmpty) {
+        unawaited(repo.reviewNotificationAction(
+          id: id,
+          action: action,
+          table: '${data['table'] ?? ''}',
+        ));
+      }
       if (route == 'approvals' || route == 'appeals') setState(() => _tab = 1);
       if (route == 'reports' || route == 'daily_report') setState(() => _tab = 2);
     });
@@ -476,7 +485,7 @@ class _TownDashboardScreenState extends State<TownDashboardScreen> {
                       Text(
                         receipt == null
                             ? 'No uploaded/approved receipt rows for this town and date yet.'
-                            : '${receipt.rows.length} rows ready for CEO review.',
+                            : '${receipt.rows.length} ledger rows and ${receipt.mediaRows.length} receipt files ready.',
                         style: const TextStyle(color: kMuted),
                       ),
                       if (receipt != null) ...[
@@ -827,7 +836,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     Text('Expense: ${money.format(row.expense)}'),
                     Text('Cash: ${money.format(row.cash)}', style: const TextStyle(fontWeight: FontWeight.w900)),
                     const SizedBox(height: 6),
-                    Text('${row.rows.length} ledger rows', style: const TextStyle(color: kMuted)),
+                    Text(
+                      '${row.rows.length} ledger rows | ${row.mediaRows.length} receipt files',
+                      style: const TextStyle(color: kMuted),
+                    ),
                     const SizedBox(height: 8),
                     const Text('Tap to preview receipt rows', style: TextStyle(color: kBlue, fontWeight: FontWeight.w800)),
                   ],
@@ -869,8 +881,33 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   const SizedBox(height: 8),
                   const Text('Receipt rows', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
                   const SizedBox(height: 8),
+                  if (receipt.mediaRows.isNotEmpty) ...[
+                    const Text('Generated receipt files', style: TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                    for (final media in receipt.mediaRows)
+                      AppCard(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              textOf(rowValue(media, 'Title') ?? media['title'], 'Daily ledger receipt'),
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              textOf(rowValue(media, 'Pdf_Path') ?? media['pdf_path'] ?? rowValue(media, 'File_Path') ?? media['file_path'], 'No file path saved'),
+                              style: const TextStyle(color: kMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    const Text('Ledger rows', style: TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                  ],
                   if (receipt.rows.isEmpty)
-                    const EmptyBlock(text: 'No rows inside this receipt.'),
+                    const EmptyBlock(text: 'No entry rows inside this receipt yet.'),
                   for (final row in receipt.rows)
                     AppCard(
                       padding: const EdgeInsets.all(12),

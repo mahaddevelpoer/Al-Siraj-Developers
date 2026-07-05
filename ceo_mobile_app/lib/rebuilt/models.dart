@@ -79,6 +79,7 @@ class LedgerReceiptSummary {
     required this.income,
     required this.expense,
     required this.rows,
+    this.mediaRows = const [],
   });
 
   final String townName;
@@ -86,6 +87,7 @@ class LedgerReceiptSummary {
   final num income;
   final num expense;
   final List<Map<String, dynamic>> rows;
+  final List<Map<String, dynamic>> mediaRows;
 
   num get cash => income - expense;
 }

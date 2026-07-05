@@ -27,14 +27,38 @@ class CeoRepository {
     }
   }
 
+  Future<List<Map<String, dynamic>>> _tableRows(
+    String table, {
+    String? orderColumn = 'created_at',
+    bool ascending = false,
+    int limit = 500,
+    Duration timeout = const Duration(seconds: 7),
+  }) async {
+    if (orderColumn != null) {
+      final ordered = await _safeRows(
+        () => supabase
+            .from(table)
+            .select('*')
+            .order(orderColumn, ascending: ascending)
+            .limit(limit),
+        timeout: timeout,
+      );
+      if (ordered.isNotEmpty) return ordered;
+    }
+    return _safeRows(
+      () => supabase.from(table).select('*').limit(limit),
+      timeout: timeout,
+    );
+  }
+
   Future<List<Map<String, dynamic>>> _activeTowns() async {
     final viewRows = await _safeRows(
-      () => supabase.from('ceo_mobile_active_towns').select('*').order('town_name'),
+      () => supabase.from('ceo_mobile_active_towns').select('*'),
       timeout: const Duration(seconds: 5),
     );
     if (viewRows.isNotEmpty) return viewRows;
     final rows = await _safeRows(
-      () => supabase.from('towns').select('*').order('town_name'),
+      () => supabase.from('towns').select('*'),
     );
     return rows.where((row) {
       final deleted = textOf(rowValue(row, 'Deleted_At') ?? row['deleted_at']);
@@ -54,22 +78,30 @@ class CeoRepository {
   Future<DashboardSummary> _loadDashboard() async {
     final results = await Future.wait<List<Map<String, dynamic>>>([
       _activeTowns(),
-      _safeRows(() => supabase.from('appeals').select('*').eq('status', 'pending')),
-      _safeRows(() => supabase.from('daily_entries').select('*').limit(500)),
-      _safeRows(() => supabase.from('all_sales').select('*').limit(500)),
+      _tableRows('appeals', limit: 500),
+      _tableRows('daily_entries', limit: 700),
+      _tableRows('all_sales', limit: 700),
+      _tableRows('town_financial_summary', orderColumn: null, limit: 200),
     ]);
     final towns = results[0];
     final appeals = results[1];
     final entries = results[2];
     final sales = results[3];
-    final townNames = towns
-        .map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name']))
-        .where((name) => name.isNotEmpty)
-        .toSet()
-        .toList()
+    final summaryRows = results[4];
+    final townNames = <String>{
+      ...towns.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'])),
+      ...summaryRows.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'])),
+      ...entries.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'])),
+      ...sales.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'])),
+      ...appeals.map((row) => textOf(_townOfAppeal(row))),
+    }.where((name) => name.isNotEmpty && name.toLowerCase() != 'null').toList()
       ..sort();
 
     final summaries = townNames.map((town) {
+      final summary = summaryRows.firstWhere(
+        (row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name']) == town,
+        orElse: () => const <String, dynamic>{},
+      );
       final townEntries = entries
           .where((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name']) == town)
           .toList();
@@ -94,12 +126,18 @@ class CeoRepository {
         0,
         (sum, row) => sum + asNum(rowValue(row, 'Remaining_Amount') ?? row['remaining_amount']),
       );
-      final pendingAppeals = appeals.where((row) => _townOfAppeal(row) == town).length;
+      final pendingAppeals = appeals
+          .where((row) => normalizeStatus(row['status']) == 'pending')
+          .where((row) => _townOfAppeal(row) == town)
+          .length;
+      final summaryReceived = asNum(rowValue(summary, 'Total_Received') ?? summary['total_received']);
+      final summaryExpenses = asNum(rowValue(summary, 'Total_Expenses') ?? summary['total_expenses']);
+      final summaryPending = asNum(rowValue(summary, 'Pending_Collection') ?? summary['pending_collection']);
       return TownSummary(
         name: town,
-        received: receivedFromEntries + saleReceived,
-        expenses: expenses,
-        pendingCollection: pending,
+        received: summaryReceived == 0 ? receivedFromEntries + saleReceived : summaryReceived,
+        expenses: summaryExpenses == 0 ? expenses : summaryExpenses,
+        pendingCollection: summaryPending == 0 ? pending : summaryPending,
         pendingApprovals: pendingAppeals,
         salesCount: townSales.length,
       );
@@ -137,20 +175,14 @@ class CeoRepository {
               .limit(reviewLimit * 4),
           timeout: const Duration(seconds: 5),
         ),
-        _safeRows(
-          () => supabase
-              .from('appeals')
-              .select('*')
-              .order('created_at', ascending: false)
-              .limit(reviewLimit * 4),
+        _tableRows(
+          'appeals',
+          limit: reviewLimit * 4,
           timeout: const Duration(seconds: 5),
         ),
-        _safeRows(
-          () => supabase
-              .from('daily_entries')
-              .select('*')
-              .order('created_at', ascending: false)
-              .limit(reviewLimit * 4),
+        _tableRows(
+          'daily_entries',
+          limit: reviewLimit * 4,
           timeout: const Duration(seconds: 5),
         ),
       ]).timeout(const Duration(seconds: 7));
@@ -255,6 +287,49 @@ class CeoRepository {
     }
   }
 
+  Future<void> reviewNotificationAction({
+    required String id,
+    required String action,
+    String table = '',
+  }) async {
+    final status = action == 'approve' ? 'approved' : action == 'reject' ? 'rejected' : '';
+    if (id.isEmpty || status.isEmpty) return;
+    final tableText = table.toLowerCase();
+    if (tableText == 'daily_entries') {
+      await _reviewDailyEntry(
+        ReviewItem(
+          id: id,
+          kind: ReviewKind.dailyEntry,
+          status: 'pending',
+          title: 'Daily entry',
+          townName: '',
+          accountantName: '',
+          amount: 0,
+          dateText: '',
+          summary: '',
+          raw: const {},
+        ),
+        status,
+      );
+      return;
+    }
+    await _reviewAppeal(
+      ReviewItem(
+        id: id,
+        kind: ReviewKind.appeal,
+        status: 'pending',
+        title: 'Appeal',
+        townName: '',
+        accountantName: '',
+        amount: 0,
+        dateText: '',
+        summary: '',
+        raw: const {},
+      ),
+      status,
+    );
+  }
+
   Future<void> _reviewAppeal(ReviewItem item, String status) async {
     try {
       await supabase.rpc(
@@ -307,6 +382,7 @@ class CeoRepository {
 
   Future<List<LedgerReceiptSummary>> _loadDailyReceipts(DateTime date, {String? townName}) async {
     final day = shortDate.format(date);
+    final mediaFuture = _tableRows('media_library', limit: 700);
     final rpcRows = await _safeRows(
       () => supabase.rpc(
         'ceo_mobile_daily_receipt_rows',
@@ -314,15 +390,17 @@ class CeoRepository {
       ),
       timeout: const Duration(seconds: 6),
     );
+    final mediaRows = (await mediaFuture).where((row) {
+      final type = textOf(rowValue(row, 'Type') ?? row['type']).toLowerCase();
+      final reportDate = formatAnyDate(rowValue(row, 'Report_Date') ?? row['report_date']);
+      final rowTown = textOf(rowValue(row, 'Town_Name') ?? row['town_name'], 'No town');
+      return type == 'daily_ledger_receipt' &&
+          reportDate == day &&
+          (townName == null || rowTown == townName);
+    }).toList();
     final rows = rpcRows.isNotEmpty
         ? rpcRows
-        : await _safeRows(
-            () => supabase
-                .from('daily_entries')
-                .select('*')
-                .order('created_at', ascending: false)
-                .limit(500),
-          );
+        : await _tableRows('daily_entries', limit: 900);
     final cleanRows = rows.where((row) {
       final rowTown = textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town');
       if (townName != null && rowTown != townName) return false;
@@ -332,6 +410,7 @@ class CeoRepository {
     }).toList();
     final towns = cleanRows
         .map((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town'))
+        .followedBy(mediaRows.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'], 'No town')))
         .toSet()
         .toList()
       ..sort();
@@ -351,6 +430,9 @@ class CeoRepository {
         income: income,
         expense: expense,
         rows: townRows,
+        mediaRows: mediaRows
+            .where((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'], 'No town') == town)
+            .toList(),
       );
     }).toList();
   }

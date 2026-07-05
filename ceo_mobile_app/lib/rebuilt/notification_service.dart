@@ -32,7 +32,10 @@ class CeoNotificationService {
         final payload = response.payload;
         if (payload == null || payload.trim().isEmpty) return;
         try {
-          notificationTapStream.add(Map<String, dynamic>.from(jsonDecode(payload)));
+          notificationTapStream.add({
+            ...Map<String, dynamic>.from(jsonDecode(payload)),
+            if (response.actionId != null) 'action': response.actionId,
+          });
         } catch (_) {
           notificationTapStream.add({'route': payload});
         }
@@ -110,6 +113,12 @@ class CeoNotificationService {
           importance: Importance.high,
           priority: Priority.high,
           icon: 'ic_stat_ceo_notification',
+          actions: channelId == 'ceo_approvals'
+              ? const [
+                  AndroidNotificationAction('approve', 'Approve', showsUserInterface: true),
+                  AndroidNotificationAction('reject', 'Reject', showsUserInterface: true),
+                ]
+              : null,
         ),
       ),
       payload: jsonEncode(routeData),
@@ -119,12 +128,14 @@ class CeoNotificationService {
   static Map<String, dynamic> _routeFromMessage(RemoteMessage message) {
     final route = '${message.data['route'] ?? message.data['deepLinkTarget'] ?? ''}';
     final table = '${message.data['table'] ?? ''}';
+    final id = '${message.data['id'] ?? message.data['appeal_id'] ?? message.data['entry_id'] ?? ''}';
+    final event = '${message.data['event'] ?? ''}';
     if (route == 'daily_report' || route == 'daily_ledger_receipts') {
-      return {'route': 'reports'};
+      return {'route': 'reports', 'id': id, 'event': event};
     }
     if (route == 'approvals' || route == 'appeals' || table == 'appeals') {
-      return {'route': 'approvals'};
+      return {'route': 'approvals', 'table': table, 'id': id, 'event': event};
     }
-    return {'route': route.isEmpty ? 'home' : route};
+    return {'route': route.isEmpty ? 'home' : route, 'table': table, 'id': id, 'event': event};
   }
 }
