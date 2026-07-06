@@ -2,9 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 const HOURS_24 = 24 * 60 * 60 * 1000;
+const HOURS_22 = 22 * 60 * 60 * 1000; // Warning at 22 hours
 
 function storageKey(townName) {
   return `al_siraj_pending_appeals_${townName || 'global'}`;
+}
+
+function archiveKey(townName) {
+  return `al_siraj_expired_appeals_${townName || 'global'}`;
 }
 
 function readItems(townName) {
@@ -21,6 +26,14 @@ function writeItems(townName, items) {
   window.dispatchEvent(new CustomEvent('al-siraj-business-data-changed', {
     detail: { townName, events: ['appeal:pending-local'] },
   }));
+}
+
+function archiveExpired(townName, expired) {
+  try {
+    const existing = JSON.parse(localStorage.getItem(archiveKey(townName)) || '[]');
+    const merged = [...expired.map(e => ({...e, status: 'expired'})), ...existing].slice(0, 500);
+    localStorage.setItem(archiveKey(townName), JSON.stringify(merged));
+  } catch {}
 }
 
 export default function PendingAppeals({ townName, showToast }) {
@@ -69,10 +82,31 @@ export default function PendingAppeals({ townName, showToast }) {
 
   const refresh = () => {
     const now = Date.now();
-    const next = readItems(townName).filter((item) => {
+    const current = readItems(townName);
+    const next = [];
+    const expired = [];
+    const warnings = [];
+    for (const item of current) {
       const created = Date.parse(item.createdAt || 0) || now;
-      return now - created <= HOURS_24 && item.status === 'pending';
-    });
+      const age = now - created;
+      if (item.status !== 'pending') {
+        next.push(item);
+      } else if (age > HOURS_24) {
+        expired.push(item);
+      } else {
+        next.push(item);
+        if (age > HOURS_22) {
+          warnings.push(item);
+        }
+      }
+    }
+    if (expired.length > 0) {
+      archiveExpired(townName, expired);
+      showToast?.(`${expired.length} pending appeal(s) expired and moved to archive. Connect to internet to sync.`, 'warning');
+    }
+    if (warnings.length > 0) {
+      showToast?.(`⚠️ ${warnings.length} appeal(s) expiring soon! Connect to internet within 2 hours.`, 'error');
+    }
     writeItems(townName, next);
     setItems(next);
   };

@@ -297,6 +297,20 @@ async function markInstallmentPaid(data) {
     return { success: true, alreadyPaid: true, receiptNumber: item.Receipt_Number || '' };
   }
 
+  // SECURITY FIX: Enforce sequential installment payment — can't pay #N unless #1..N-1 are paid
+  const targetMonth = parseInt(item.Month_Number || 1, 10);
+  const saleId = item.Sale_ID;
+  if (saleId && targetMonth > 1) {
+    const sameSale = all.filter(i => String(i.Sale_ID || '') === String(saleId))
+                       .sort((a, b) => (parseInt(a.Month_Number) || 0) - (parseInt(b.Month_Number) || 0));
+    for (const prev of sameSale) {
+      const prevMonth = parseInt(prev.Month_Number || 0, 10);
+      if (prevMonth < targetMonth && String(prev.Status || '').toLowerCase() !== 'paid') {
+        throw new Error(`Installment #${prevMonth} must be paid before installment #${targetMonth}. Payments must be sequential.`);
+      }
+    }
+  }
+
   const paidDate = data.Paid_Date || new Date().toISOString().split('T')[0];
   const receiptNumber = data.Receipt_Number || item.Receipt_Number || buildInstallmentReceiptNumber(item, paidDate);
 

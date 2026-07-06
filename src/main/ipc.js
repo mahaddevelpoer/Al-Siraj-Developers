@@ -1116,6 +1116,15 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertTownAccess(data.townName);
       if (!isNonEmpty(data.Customer_Name)) throw new Error('Customer_Name is required');
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
+      // SECURITY FIX: Server-side date validation — prevent price manipulation via backdated sales
+      const today = new Date().toISOString().slice(0, 10);
+      const saleDate = String(data.Sell_Date || '').slice(0, 10);
+      if (saleDate && saleDate !== today) {
+        throw new Error(`Sell date must be today (${today}). To use a different date, request a date change appeal from CEO first.`);
+      }
+      if (!saleDate) {
+        data.Sell_Date = today;
+      }
       return await syncOnline(
         () => sellProperty(data),
         async () => {
@@ -1220,6 +1229,15 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(data.townName)) throw new Error('Town name is required');
       assertTownAccess(data.townName);
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
+      // SECURITY FIX: Server-side date validation — prevent price manipulation via backdated resells
+      const today = new Date().toISOString().slice(0, 10);
+      const resellDate = String(data.Sell_Date || data.Resell_Date || '').slice(0, 10);
+      if (resellDate && resellDate !== today) {
+        throw new Error(`Resell date must be today (${today}). To use a different date, request a date change appeal from CEO first.`);
+      }
+      if (!resellDate) {
+        data.Sell_Date = today;
+      }
       return await syncOnline(
         () => resellProperty(data),
         async () => {

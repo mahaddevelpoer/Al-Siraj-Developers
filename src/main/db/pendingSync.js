@@ -14,6 +14,7 @@ const {
 } = require('./core');
 
 const FILE_NAME = 'Pending_Sync.xlsx';
+const MAX_RETRY_COUNT = 10;
 const COLUMNS = [
   'Sync_ID','Operation','Table_Name','Client_Write_ID','Payload_JSON','Status',
   'Retry_Count','Last_Error','Created_At','Updated_At'
@@ -120,11 +121,22 @@ async function markPendingAttemptFailed(error) {
   const message = error && error.message ? error.message : String(error || 'Sync failed');
   for (const row of rows) {
     if (String(row.Status || '').toLowerCase() === 'pending' && row._rowNumber) {
-      await updateExcelRow(fp, 'Data', row._rowNumber, {
-        Retry_Count: (parseInt(row.Retry_Count, 10) || 0) + 1,
-        Last_Error: message,
-        Updated_At: now,
-      });
+      const retryCount = (parseInt(row.Retry_Count, 10) || 0) + 1;
+      if (retryCount >= MAX_RETRY_COUNT) {
+        // Mark as permanently failed after max retries
+        await updateExcelRow(fp, 'Data', row._rowNumber, {
+          Retry_Count: retryCount,
+          Status: 'failed',
+          Last_Error: `FAILED after ${retryCount} retries: ${message}`,
+          Updated_At: now,
+        });
+      } else {
+        await updateExcelRow(fp, 'Data', row._rowNumber, {
+          Retry_Count: retryCount,
+          Last_Error: message,
+          Updated_At: now,
+        });
+      }
     }
   }
 }

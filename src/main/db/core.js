@@ -393,4 +393,68 @@ module.exports = {
   deleteExcelRow,
   generateId,
   ensureSheetColumns,
+  // File integrity
+  hashExcelFile,
+  verifyAllFileHashes,
+  updateAllFileHashes,
 };
+
+// ═══════════════════════════════════════════════════════════════
+// FILE INTEGRITY — SHA-256 hash for Excel files
+// ═══════════════════════════════════════════════════════════════
+
+const crypto = require('crypto');
+
+async function hashExcelFile(filePath) {
+  const content = await fs.promises.readFile(filePath);
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+async function verifyAllFileHashes() {
+  const hashPath = path.join(DB_PATH, 'Global', 'File_Integrity_Hashes.json');
+  if (!fs.existsSync(hashPath)) return { valid: true, message: 'No baseline hashes yet' };
+  const hashes = JSON.parse(fs.readFileSync(hashPath, 'utf-8'));
+  const results = {};
+  let allValid = true;
+  for (const [relPath, expectedHash] of Object.entries(hashes)) {
+    const fullPath = path.join(DB_PATH, relPath);
+    if (!fs.existsSync(fullPath)) {
+      results[relPath] = 'MISSING';
+      allValid = false;
+    } else {
+      const actualHash = await hashExcelFile(fullPath);
+      if (actualHash !== expectedHash) {
+        results[relPath] = 'TAMPERED';
+        allValid = false;
+      } else {
+        results[relPath] = 'OK';
+      }
+    }
+  }
+  return { valid: allValid, details: results };
+}
+
+async function updateAllFileHashes() {
+  const hashes = {};
+  const dirs = [
+    path.join(DB_PATH, 'Global'),
+    path.join(DB_PATH, 'Towns'),
+    path.join(DB_PATH, 'Properties'),
+  ];
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue;
+    const walk = (d) => {
+      for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+        const full = path.join(d, entry.name);
+        if (entry.isDirectory()) { walk(full); continue; }
+        if (!entry.name.endsWith('.xlsx')) continue;
+        const rel = path.relative(DB_PATH, full);
+        hashes[rel] = await hashExcelFile(full);
+      }
+    };
+    walk(dir);
+  }
+  const hashPath = path.join(DB_PATH, 'Global', 'File_Integrity_Hashes.json');
+  fs.writeFileSync(hashPath, JSON.stringify(hashes, null, 2));
+  return hashes;
+}
