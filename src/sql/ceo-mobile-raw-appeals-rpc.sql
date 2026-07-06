@@ -24,6 +24,7 @@ RETURNS TABLE (
   review_kind text
 )
 LANGUAGE plpgsql
+STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
@@ -68,5 +69,27 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.ceo_mobile_get_appeals(text, integer) TO authenticated;
 
--- Test:
+-- ═══════════════════════════════════════════════════════════════
+-- DIAGNOSTIC: call this from Supabase SQL Editor to check auth state
+-- ═══════════════════════════════════════════════════════════════
 -- SELECT * FROM public.ceo_mobile_get_appeals('pending', 10);
+-- SELECT public.ceo_mobile_diagnose_auth();
+
+CREATE OR REPLACE FUNCTION public.ceo_mobile_diagnose_auth()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT jsonb_build_object(
+    'uid', auth.uid(),
+    'uid_text', auth.uid()::text,
+    'has_uid', auth.uid() IS NOT NULL,
+    'role_in_db', (SELECT role FROM public.users WHERE id = auth.uid()),
+    'is_ceo', (SELECT EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'ceo' AND COALESCE(is_active, true) = true)),
+    'is_active', (SELECT is_active FROM public.users WHERE id = auth.uid())
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.ceo_mobile_diagnose_auth() TO authenticated;
