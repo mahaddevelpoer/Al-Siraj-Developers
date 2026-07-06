@@ -7564,6 +7564,163 @@ button:active {
   cursor: not-allowed;
 }
 
+/* ─── Accountant Unlock Screen ───────────────────────────────── */
+.unlock-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  position: relative;
+  z-index: 1;
+}
+
+.unlock-card {
+  background: var(--card-bg, #fff);
+  border-radius: 16px;
+  padding: 40px 36px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 25px 50px rgba(0,0,0,0.15);
+  text-align: center;
+}
+
+.unlock-logo-wrap {
+  margin-bottom: 16px;
+}
+
+.unlock-logo-wrap .auth-logo-img {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  object-fit: contain;
+}
+
+.unlock-shield {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.unlock-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+  margin: 0 0 6px;
+}
+
+.unlock-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary, #64748b);
+  margin: 0 0 24px;
+}
+
+.unlock-accountant-info {
+  background: var(--bg-secondary, #f1f5f9);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.unlock-info-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary, #1e293b);
+}
+
+.unlock-info-town {
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+  margin-top: 2px;
+}
+
+.unlock-form {
+  text-align: left;
+}
+
+.unlock-form .form-group {
+  margin-bottom: 20px;
+}
+
+.unlock-form .auth-submit-btn {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.unlock-logout-btn {
+  display: block;
+  margin: 16px auto 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.unlock-logout-btn:hover {
+  color: var(--text-primary, #1e293b);
+}
+
+/* ─── Admin Password Confirm Modal ───────────────────────────── */
+.admin-password-modal {
+  background: var(--card-bg, #fff);
+  border-radius: 14px;
+  padding: 28px 32px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 25px 60px rgba(0,0,0,0.25);
+}
+
+.admin-password-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--text-primary, #1e293b);
+}
+
+.admin-password-modal-header h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.admin-password-modal-header svg {
+  color: #2563eb;
+  flex-shrink: 0;
+}
+
+.admin-password-modal-message {
+  font-size: 14px;
+  color: var(--text-secondary, #64748b);
+  margin: 0 0 18px;
+  line-height: 1.5;
+}
+
+.admin-password-modal .form-group {
+  margin-bottom: 18px;
+}
+
+.admin-password-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.admin-password-modal-actions .auth-wiz-btn--submit {
+  min-width: 100px;
+}
+
 /* Enterprise ERP cockpit polish: dense, readable, fraud-audit friendly surfaces */
 :root {
   --erp-canvas: #eef3f8;

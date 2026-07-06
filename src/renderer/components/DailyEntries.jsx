@@ -4,6 +4,7 @@ import DailyReceipt from '../systems/DailySystem/DailyReceipt';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { createBusinessAppeal } from '../lib/appeals';
+import AdminPasswordConfirm from './AdminPasswordConfirm';
 
 export default function DailyEntries({ showToast, townName }) {
   const { userRole, user } = useAuth();
@@ -17,6 +18,9 @@ export default function DailyEntries({ showToast, townName }) {
   const [loading, setLoading] = useState(true);
   
   const [receiptMode, setReceiptMode] = useState(null);
+
+  const [showAdminConfirm, setShowAdminConfirm] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
   // Form State
   const [form, setForm] = useState({
@@ -182,7 +186,15 @@ export default function DailyEntries({ showToast, townName }) {
 
   const handleDeleteEntry = async (entryId) => {
     if (!window.confirm('Are you sure you want to delete this entry?')) return;
-    
+    if (userRole === 'accountant') {
+      setPendingDeleteId(entryId);
+      setShowAdminConfirm(true);
+      return;
+    }
+    await doDeleteEntry(entryId);
+  };
+
+  const doDeleteEntry = async (entryId) => {
     setLoading(true);
     try {
       const r = await window.api.deleteDailyEntry({ entryId });
@@ -511,6 +523,19 @@ export default function DailyEntries({ showToast, townName }) {
           onClose={() => setReceiptMode(null)}
         />
       )}
+
+      {/* Admin Password Confirmation */}
+      <AdminPasswordConfirm
+        isOpen={showAdminConfirm}
+        onClose={() => { setShowAdminConfirm(false); setPendingDeleteId(null); }}
+        onConfirm={async () => {
+          await doDeleteEntry(pendingDeleteId);
+          setShowAdminConfirm(false);
+          setPendingDeleteId(null);
+        }}
+        title="Confirm Deletion"
+        message="Enter your administration password to confirm this deletion."
+      />
 
       {/* OTP Approval Modal */}
       {showOtpModal && (

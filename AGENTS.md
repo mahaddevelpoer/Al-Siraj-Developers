@@ -37,6 +37,15 @@ Complete dual-write integration (Excel + Supabase for all writes with user-visib
 - Added IPC handlers `get-commissions` and `mark-commission-paid` in ipc.js + preload.js
 - `recordCollectionPayment` now auto-creates commission record when remaining_amount reaches 0
 
+### Done (Phase 4 — Accountant Auth Revamp)
+- **AccountantUnlockScreen**: New dedicated component (`AccountantUnlockScreen.jsx`) — showed directly after first-time login setup. Only asks for administration password (no email/password fields). Bypasses entire AuthScreen role selection flow.
+- **AuthScreen admin password removed**: Admin password field removed from login form. After first successful email+password login, accountant sees a "Set Administration Password" step (password + confirm). Only shown once per accountant.
+- **App.jsx unlock detection**: `needsAccountantUnlock` check reads localStorage for saved session with `admin_password_set: true`. When true, renders AccountantUnlockScreen instead of AuthScreen.
+- **AdminPasswordConfirm modal**: Reusable modal component (`AdminPasswordConfirm.jsx`) for destructive actions — validates admin password before allowing delete/cancel operations. Integrated into DailyEntries delete and SoldProperties cancel deal.
+- **Town deletion deactivates accountants**: `delete-town` IPC handler now calls `accountantAuth.deactivateByTown(dbPath, townName)` to mark local accountants as inactive, and updates Supabase `users` table (`is_active = false`) for accountants assigned to the deleted town.
+- **`deactivateByTown` added to `accountantAuth.js`**: New exported function that finds all accountants by town name and sets `is_active = false` in the local `Accountant_Offline_Logins.json`.
+- **CSS**: Added `.unlock-container`, `.unlock-card`, `.unlock-shield`, `.unlock-title`, `.unlock-accountant-info`, `.admin-password-modal` styles in `index.css`.
+
 ### In Progress
 - None
 
@@ -60,3 +69,6 @@ Complete dual-write integration (Excel + Supabase for all writes with user-visib
 - `src/renderer/contexts/AuthContext.jsx`: Auth context with signIn/signUp/signOut
 - `src/renderer/lib/supabase.js`: Renderer-side Supabase client singleton
 - `src/renderer/index.css`: Auth CSS classes (updated role button styles at ~line 2958–3025)
+- `src/renderer/components/AccountantUnlockScreen.jsx`: Dedicated unlock screen — only admin password input, bypasses role selection
+- `src/renderer/components/AdminPasswordConfirm.jsx`: Reusable modal for destructive actions with password validation
+- `src/main/db/accountantAuth.js`: Added `deactivateByTown` function for town-deletion accountant cleanup

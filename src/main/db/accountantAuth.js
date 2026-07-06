@@ -59,10 +59,9 @@ function upsertAccountant(dbPath, account) {
   const email = normalizeEmail(account.email);
   if (!email) throw new Error('Accountant email is required');
   if (!account.password) throw new Error('Accountant password is required');
-  if (!account.town_name) throw new Error('Accountant town_name is required');
   const store = readStore(dbPath);
-  const now = new Date().toISOString();
   const existingIndex = store.accountants.findIndex((row) => normalizeEmail(row.email) === email);
+  if (existingIndex < 0 && !account.town_name) throw new Error('Accountant town_name is required');
   const next = {
     id: account.id || `local-accountant-${email.replace(/[^a-z0-9]/g, '-')}`,
     email,
@@ -76,11 +75,14 @@ function upsertAccountant(dbPath, account) {
     updated_at: now,
   };
   if (existingIndex >= 0) {
-    store.accountants[existingIndex] = {
-      ...store.accountants[existingIndex],
-      ...next,
-      created_at: store.accountants[existingIndex].created_at || now,
-    };
+    const merged = { ...store.accountants[existingIndex] };
+    for (const key of Object.keys(next)) {
+      if (next[key] !== '' && next[key] !== undefined) {
+        merged[key] = next[key];
+      }
+    }
+    merged.created_at = store.accountants[existingIndex].created_at || now;
+    store.accountants[existingIndex] = merged;
   } else {
     store.accountants.push({ ...next, created_at: now });
   }
@@ -151,6 +153,26 @@ function list(dbPath) {
   return readStore(dbPath).accountants.map((row) => ({ ...row, password: undefined }));
 }
 
+function deactivateByTown(dbPath, townName) {
+  const cleanTown = String(townName || '').trim();
+  if (!cleanTown) return [];
+  const store = readStore(dbPath);
+  const deactivated = [];
+  store.accountants = store.accountants.map((row) => {
+    if (String(row.town_name || row.town_id || '').toLowerCase() === cleanTown.toLowerCase()) {
+      if (row.is_active !== false) {
+        row.is_active = false;
+        row.updated_at = new Date().toISOString();
+        row.deactivated_reason = 'Town deleted by CEO';
+        deactivated.push({ ...row, password: undefined });
+      }
+    }
+    return row;
+  });
+  writeStore(dbPath, store);
+  return deactivated;
+}
+
 module.exports = {
   FILE_NAME,
   ensureFile,
@@ -159,4 +181,5 @@ module.exports = {
   login,
   unlock,
   list,
+  deactivateByTown,
 };

@@ -16,6 +16,7 @@ import TownPrices from './components/TownPrices';
 import CEOProjectsHub from './components/CEOProjectsHub';
 import TownDashboard from './components/TownDashboard';
 import AuthScreen from './components/AuthScreen';
+import AccountantUnlockScreen from './components/AccountantUnlockScreen';
 import AppealDashboard from './systems/AppealSystem/AppealDashboard';
 import PendingCollections from './components/PendingCollections';
 import { LanguageProvider } from './LanguageContext';
@@ -353,6 +354,18 @@ function AppInner() {
   const assignedAccountantTown = userRole === 'accountant'
     ? String(userProfile?.town_name || userProfile?.town_id || '').trim()
     : '';
+
+  const needsAccountantUnlock = React.useMemo(() => {
+    if (userRole) return false;
+    try {
+      const saved = JSON.parse(localStorage.getItem('al_siraj_local_accountant_session') || 'null');
+      if (saved?.profile?.role === 'accountant' && saved?.profile?.admin_password_set) {
+        const sessionUnlocked = sessionStorage.getItem('al_siraj_accountant_unlocked_this_session') === '1';
+        return !sessionUnlocked;
+      }
+    } catch {}
+    return false;
+  }, [userRole]);
 
   const logoutCurrentUser = useCallback(() => {
     localStorage.removeItem('zameen_panel');
@@ -939,8 +952,33 @@ function AppInner() {
     return <StartupSplash />;
   }
 
-  // ─── Not logged in → Show Auth Screen ──────────────────────────────────
+  // ─── Not logged in → Show Auth Screen or Accountant Unlock Screen ────
   if (!loggedIn) {
+    if (needsAccountantUnlock) {
+      return (
+        <>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          <AccountantUnlockScreen
+            onUnlock={(profile) => {
+              const town = profile?.town_name || profile?.town_id || '';
+              if (town) {
+                setPanel('ceo');
+                setSelectedTown({ Town_Name: town });
+                setPage('townDashboard');
+              } else {
+                setPanel('choose');
+                setPage('dashboard');
+              }
+              setLoggedIn(true);
+            }}
+          />
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+          {bellNode}
+          <CloudRefreshStatus state={cloudRefresh} />
+        </>
+      );
+    }
+
     return (
       <>
         <ThemeToggle theme={theme} onToggle={toggleTheme} />

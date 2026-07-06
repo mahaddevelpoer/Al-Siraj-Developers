@@ -36,6 +36,7 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
   const [acError, setAcError] = useState('');
   const [acSuccess, setAcSuccess] = useState('');
   const [portfolioStats, setPortfolioStats] = useState(null);
+  const [pendingAppealsCount, setPendingAppealsCount] = useState(0);
 
   useEffect(() => {
     loadTowns();
@@ -44,6 +45,24 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
   useEffect(() => {
     if (refreshKey > 0) loadTowns();
   }, [refreshKey]);
+
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        if (window.api?.getPendingAppealsCount) {
+          const res = await window.api.getPendingAppealsCount();
+          if (res?.success) setPendingAppealsCount(res.count);
+        }
+      } catch {}
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 30000);
+    const onNew = () => { fetchCount(); };
+    if (window.api?.onNewAppeal) window.api.onNewAppeal(onNew);
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
 
   const loadTowns = async () => {
     setLoading(true);
@@ -185,6 +204,37 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
           </div>
         </div>
       </div>
+
+      {/* Pending Appeals Banner */}
+      {pendingAppealsCount > 0 && (
+        <div
+          className="pending-appeals-banner"
+          onClick={() => onNavigate?.('appeals')}
+          style={{
+            cursor: 'pointer',
+            background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+            borderRadius: 10,
+            padding: '12px 18px',
+            marginBottom: 18,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            color: '#fff',
+            boxShadow: '0 2px 8px rgba(245,158,11,0.3)',
+            transition: 'transform 0.15s, box-shadow 0.15s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(245,158,11,0.4)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 2px 8px rgba(245,158,11,0.3)'; }}
+        >
+          <span style={{ fontSize: 22, lineHeight: 1 }}>⚡</span>
+          <div>
+            <strong>{pendingAppealsCount}</strong> pending appeal{pendingAppealsCount !== 1 ? 's' : ''} — tap to review
+            <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>
+              Agent{String(pendingAppealsCount) !== '1' ? 's' : ''} waiting for your approval
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary Row */}
       <div className="ui-summary-row">
@@ -402,9 +452,24 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
                   display: 'flex', alignItems: 'center', gap: 6,
                   background: activePage === 'appeals' ? 'var(--accent-blue)' : undefined,
                   color: activePage === 'appeals' ? '#fff' : undefined,
+                  position: 'relative',
                 }}
               >
                 Appeals
+                {pendingAppealsCount > 0 && (
+                  <span style={{
+                    background: '#ef4444',
+                    color: '#fff',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    borderRadius: 10,
+                    padding: '1px 6px',
+                    lineHeight: '16px',
+                    marginLeft: 4,
+                  }}>
+                    {pendingAppealsCount > 99 ? '99+' : pendingAppealsCount}
+                  </span>
+                )}
               </button>
               {userRole === 'ceo' && (
                 <button

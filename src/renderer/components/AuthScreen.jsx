@@ -56,10 +56,19 @@ export default function AuthScreen({ onLogin }) {
   // Login fields
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [savedAccountant, setSavedAccountant] = useState(null);
+
+  // Admin password setup after first login
+  const [needsAdminSetup, setNeedsAdminSetup] = useState(false);
+  const [setupAdminPassword, setSetupAdminPassword] = useState('');
+  const [setupAdminConfirm, setSetupAdminConfirm] = useState('');
+  const [setupAdminEmail, setSetupAdminEmail] = useState('');
+  const [setupAdminPasswordField, setSetupAdminPasswordField] = useState('');
+  const [setupAdminProfile, setSetupAdminProfile] = useState(null);
+  const [setupLoading, setSetupLoading] = useState(false);
+  const [setupError, setSetupError] = useState('');
 
   // Register fields
   const [regName, setRegName] = useState('');
@@ -96,10 +105,14 @@ export default function AuthScreen({ onLogin }) {
     setError('');
     setLoginEmail('');
     setLoginPassword('');
-    setAdminPassword('');
     setFormMode('login');
     setRegStep(1);
     setWizStep(1);
+    setNeedsAdminSetup(false);
+    setSetupAdminPassword('');
+    setSetupAdminConfirm('');
+    setSetupError('');
+    setSetupAdminProfile(null);
     setTempRole(null);
     setTimeout(() => {
       setSelectedRole(tempRole);
@@ -122,7 +135,7 @@ export default function AuthScreen({ onLogin }) {
     setError('');
     try {
       const result = await signIn(loginEmail, loginPassword, selectedRole, {
-        adminPassword,
+        adminPassword: '',
         remember: rememberMe,
       });
       if (!result.success) {
@@ -199,30 +212,32 @@ export default function AuthScreen({ onLogin }) {
         throw new Error('No town assigned to this accountant. CEO must assign a town first.');
       }
       if (selectedRole === 'accountant') {
-        if (!String(adminPassword || '').trim()) {
-          throw new Error('Set an administration password once. After this, accountant can unlock this PC offline.');
+        // Check if admin password already set
+        const saved = getSavedAccountantSession();
+        if (saved?.profile?.admin_password_set) {
+          // Already set — go straight to dashboard
+          if (window.api?.configureFileSyncContext) {
+            await window.api.configureFileSyncContext({
+              role: 'accountant',
+              userId: result.user.id,
+              accountantTown: profile.town_name || profile.town_id || '',
+            }).catch(() => {});
+          }
+          onLogin('accountant', {
+            townName: profile.town_name || profile.town_id || '',
+          });
+          return;
         }
-        await window.api?.cacheLocalAccountant?.({
-          id: result.user.id,
-          email: loginEmail,
-          password: loginPassword,
-          full_name: profile.full_name || loginEmail.split('@')[0],
-          town_name: profile.town_name || profile.town_id || '',
-          town_id: profile.town_id || profile.town_name || '',
-          adminPassword,
-          is_active: true,
-        }).catch(() => {});
-        localStorage.setItem(LOCAL_ACCOUNTANT_SESSION_KEY, JSON.stringify({
-          user: { id: result.user.id, email: loginEmail },
-          profile: {
-            ...profile,
-            id: result.user.id,
-            email: loginEmail,
-            role: 'accountant',
-            admin_password_set: true,
-          },
-          saved_at: new Date().toISOString(),
-        }));
+        // First-time login — show admin password setup
+        setNeedsAdminSetup(true);
+        setSetupAdminEmail(loginEmail);
+        setSetupAdminPasswordField(loginPassword);
+        setSetupAdminProfile(profile);
+        setSetupAdminPassword('');
+        setSetupAdminConfirm('');
+        setSetupError('');
+        setError('');
+        return;
       }
       if (window.api?.configureFileSyncContext) {
         await window.api.configureFileSyncContext({
@@ -247,7 +262,7 @@ export default function AuthScreen({ onLogin }) {
     try {
       const email = savedAccountant?.profile?.email || savedAccountant?.user?.email || loginEmail;
       const result = await signIn(email, '', 'accountant', {
-        adminPassword,
+        adminPassword: setupAdminPassword || '',
         offlineUnlock: true,
         remember: true,
       });
@@ -268,6 +283,67 @@ export default function AuthScreen({ onLogin }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSetupAdminPassword = async (e) => {
+    e.preventDefault();
+    setSetupLoading(true);
+    setSetupError('');
+    try {
+      if (!setupAdminPassword || setupAdminPassword.length < 4) {
+        throw new Error('Administration password must be at least 4 characters');
+      }
+      if (setupAdminPassword !== setupAdminConfirm) {
+        throw new Error('Passwords do not match');
+      }
+      // Merge from local file (if exists) and Supabase profile, then upsert
+      const existingList = await window.api?.getLocalAccountantsFile?.() || { accounts: [] };
+      const existing = existingList.accounts.find((a) => String(a.email || '').toLowerCase() === String(setupAdminEmail || '').toLowerCase());
+      const profileTown = setupAdminProfile?.town_name || setupAdminProfile?.town_id || '';
+      const cacheResult = await window.api?.cacheLocalAccountant?.({
+        id: existing?.id || setupAdminProfile?.id || '',
+        email: setupAdminEmail,
+        password: setupAdminPasswordField,
+        full_name: existing?.full_name || setupAdminProfile?.full_name || setupAdminEmail.split('@')[0],
+        town_name: existing?.town_name || profileTown,
+        town_id: existing?.town_id || profileTown,
+        adminPassword: setupAdminPassword,
+        is_active: true,
+      });
+      if (cacheResult?.error) throw new Error(cacheResult.error);
+      // Read back to get the saved record (now should have id, town_name etc)
+      const { accounts } = await window.api?.getLocalAccountantsFile?.() || { accounts: [] };
+      const savedAccount = accounts.find((a) => String(a.email || '').toLowerCase() === String(setupAdminEmail || '').toLowerCase());
+      localStorage.setItem(LOCAL_ACCOUNTANT_SESSION_KEY, JSON.stringify({
+        user: { id: savedAccount?.id || '', email: setupAdminEmail },
+        profile: {
+          id: savedAccount?.id || '',
+          email: setupAdminEmail,
+          full_name: savedAccount?.full_name || setupAdminEmail.split('@')[0],
+          role: 'accountant',
+          town_name: savedAccount?.town_name || '',
+          town_id: savedAccount?.town_id || '',
+          admin_password_set: true,
+        },
+        saved_at: new Date().toISOString(),
+      }));
+      // Configure sync context
+      if (window.api?.configureFileSyncContext) {
+        await window.api.configureFileSyncContext({
+          role: 'accountant',
+          userId: savedAccount?.id || '',
+          accountantTown: savedAccount?.town_name || '',
+        }).catch(() => {});
+      }
+      setNeedsAdminSetup(false);
+      onLogin('accountant', {
+        townName: savedAccount?.town_name || '',
+      });
+    } catch (err) {
+      setSetupError(err.message);
+    } finally {
+      setSetupLoading(false);
     }
   };
 
@@ -506,32 +582,12 @@ export default function AuthScreen({ onLogin }) {
                       </button>
                     </div>
                   </div>
-                  {selectedRole === 'accountant' && (
-                    <div className="form-group">
-                      <label>Administration Password</label>
-                      <div className="auth-input-wrap">
-                        <IconShield className="auth-input-icon" size={18} />
-                        <input
-                          type="password"
-                          value={adminPassword}
-                          onChange={(e) => setAdminPassword(e.target.value)}
-                          placeholder="Optional first time, required if set"
-                        />
+                  {selectedRole === 'accountant' && savedAccountant?.profile?.admin_password_set && (
+                    <div className="offline-accountant-card">
+                      <div>
+                        <strong>{savedAccountant.profile.full_name || savedAccountant.profile.email}</strong>
+                        <span>{savedAccountant.profile.town_name || savedAccountant.profile.town_id || 'Assigned town'} — already set up</span>
                       </div>
-                      <small className="auth-helper-text">
-                        One-time online activation CEO se hoti hai. Uske baad accountant assigned town par offline kaam kar sakta hai.
-                      </small>
-                      {savedAccountant?.profile && (
-                        <div className="offline-accountant-card">
-                          <div>
-                            <strong>{savedAccountant.profile.full_name || savedAccountant.profile.email}</strong>
-                            <span>{savedAccountant.profile.town_name || savedAccountant.profile.town_id || 'Assigned town'}</span>
-                          </div>
-                          <button type="button" onClick={handleOfflineUnlock} disabled={loading || !adminPassword}>
-                            Unlock Offline
-                          </button>
-                        </div>
-                      )}
                     </div>
                   )}
                   <div className="auth-form-row">
@@ -554,6 +610,49 @@ export default function AuthScreen({ onLogin }) {
                       Open Offline Login File
                     </button>
                   )}
+                </form>
+              </div>
+            )}
+
+            {/* â”€â”€â”€ ADMIN PASSWORD SETUP (Accountant first login) â”€â”€â”€ */}
+            {needsAdminSetup && (
+              <div className="auth-form-wrap">
+                <h3 className="auth-form-heading">Set Administration Password</h3>
+                <p className="auth-form-subheading">This password will be used to unlock your workspace. No internet required after setup.</p>
+                <form onSubmit={handleSetupAdminPassword} className="auth-form">
+                  {setupError && <div className="auth-error">{setupError}</div>}
+                  <div className="form-group">
+                    <label>New Administration Password</label>
+                    <div className="auth-input-wrap">
+                      <IconShield className="auth-input-icon" size={18} />
+                      <input
+                        type="password"
+                        value={setupAdminPassword}
+                        onChange={(e) => setSetupAdminPassword(e.target.value)}
+                        placeholder="At least 4 characters"
+                        required
+                        minLength={4}
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Confirm Password</label>
+                    <div className="auth-input-wrap">
+                      <IconShield className="auth-input-icon" size={18} />
+                      <input
+                        type="password"
+                        value={setupAdminConfirm}
+                        onChange={(e) => setSetupAdminConfirm(e.target.value)}
+                        placeholder="Enter again"
+                        required
+                        minLength={4}
+                      />
+                    </div>
+                  </div>
+                  <button type="submit" className="auth-submit-btn" disabled={setupLoading}>
+                    {setupLoading ? <span className="auth-spinner" /> : 'Set Password & Continue'}
+                  </button>
                 </form>
               </div>
             )}

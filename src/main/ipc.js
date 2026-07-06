@@ -898,6 +898,9 @@ async function purgeCloudTownBusinessData(townName) {
   for (const table of tables) {
     try { await onlineDb.deleteWhere(table, { Town_Name: town }); } catch (_) {}
   }
+  // Deactivate all accountants assigned to this town
+  try { await onlineDb.updateWhere('users', { role: 'accountant', town_name: town }, { is_active: false }); } catch (_) {}
+  try { await onlineDb.updateWhere('users', { role: 'accountant', town_id: town }, { is_active: false }); } catch (_) {}
 }
 
 function loadDevConfig() {
@@ -961,6 +964,8 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertPermanentDeleteAllowed();
       if (!isNonEmpty(townName)) throw new Error('Town name is required');
       if (isAccountantScoped()) throw new Error('Only CEO can delete towns');
+      // Deactivate local accountants before sync
+      accountantAuth.deactivateByTown(dbPath, townName);
       return await syncOnline(
         async () => {
           const result = await deleteTown(townName);
@@ -1396,8 +1401,8 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         email: params.email,
         password: params.password,
         full_name: params.full_name || params.fullName,
-        town_name: params.town_name || params.townName || params.town_id,
-        town_id: params.town_id || params.town_name || params.townName,
+        town_name: params.town_name || params.townName || params.town_id || undefined,
+        town_id: params.town_id || params.town_name || params.townName || undefined,
         admin_password: params.adminPassword || params.admin_password,
         is_active: params.is_active !== false,
       });
@@ -3412,6 +3417,73 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       };
       const result = await storage.downloadMissingFiles(sendProgress);
       return result;
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // APPEALS ROUTE — reliable IPC bridge for CEO appeal viewing
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('get-appeals', async (_, filter = {}) => {
+    try {
+      const supabase = require('./db/supabase');
+      const queryFilter = filter.status ? { status: filter.status } : {};
+      let query = supabase
+        .from('appeals')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(filter.limit || 100);
+      if (filter.status) query = query.eq('status', filter.status);
+      const { data, error } = await query;
+      if (error) throw error;
+      const appealsList = Array.isArray(data) ? data : [];
+      const requesterIds = [...new Set(appealsList.map(a => a.requested_by_user_id).filter(Boolean))];
+      let userMap = {};
+      if (requesterIds.length) {
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, full_name, email, phone_number, role, town_name, agent_town')
+          .in('id', requesterIds);
+        if (users) {
+          userMap = Object.fromEntries(users.map(u => [u.id, u]));
+        }
+      }
+      const rows = appealsList.map((appeal) => ({
+        ...appeal,
+        requested_by_user_id: userMap[appeal.requested_by_user_id] || appeal.requested_by_user_id,
+      }));
+      return { success: true, data: rows, total: rows.length };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('get-appeal-by-id', async (_, appealId) => {
+    try {
+      if (!appealId) throw new Error('Appeal ID is required');
+      const supabase = require('./db/supabase');
+      const { data, error } = await supabase
+        .from('appeals')
+        .select('*')
+        .eq('id', appealId)
+        .single();
+      if (error) throw error;
+      return { success: true, data };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('get-pending-appeals-count', async () => {
+    try {
+      const supabase = require('./db/supabase');
+      const { count, error } = await supabase
+        .from('appeals')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      if (error) throw error;
+      return { success: true, count: count || 0 };
     } catch (e) {
       return { error: e.message };
     }

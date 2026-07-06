@@ -205,4 +205,8 @@ contextBridge.exposeInMainWorld('api', {
   removeSyncFileProgress: () => {
     try { ipcRenderer.removeAllListeners('sync-file-progress'); } catch {}
   },
+  // Appeals IPC route
+  getAppeals: (filter) => ipcRenderer.invoke('get-appeals', filter),
+  getAppealById: (id) => ipcRenderer.invoke('get-appeal-by-id', id),
+  getPendingAppealsCount: () => ipcRenderer.invoke('get-pending-appeals-count'),
 });

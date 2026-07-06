@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { PlotIcon, ShopIcon, SoldIcon, ClockIcon } from './Icons';
 import { useAuth } from '../contexts/AuthContext';
+import AdminPasswordConfirm from './AdminPasswordConfirm';
 
 export default function SoldProperties({ showToast, loadNotifications, townName, panel, refreshKey = 0 }) {
-  const { userProfile } = useAuth();
+  const { userProfile, userRole } = useAuth();
   const agentName = userProfile?.full_name || '';
   const [data, setData] = useState({ plots: [], shops: [] });
   const [tab, setTab] = useState('plots');
@@ -11,6 +12,8 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
   const [workingKey, setWorkingKey] = useState(null);
   const [cancelCtx, setCancelCtx] = useState(null);
   const [cancelReceipt, setCancelReceipt] = useState('');
+  const [showAdminConfirm, setShowAdminConfirm] = useState(false);
+  const [pendingCancelInfo, setPendingCancelInfo] = useState(null);
 
   // File delivery photo upload state
   const [deliveryPhoto, setDeliveryPhoto] = useState(null);
@@ -35,9 +38,14 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
   const handleCancelDeal = async (p) => {
     const type = tab === 'plots' ? 'Plot' : 'Shop';
     const number = p[tab === 'plots' ? 'Plot_Number' : 'Shop_Number'];
-    const townName = p.Town_Name;
-    setCancelCtx({ type, number, townName });
+    const tName = p.Town_Name;
     setCancelReceipt('');
+    if (userRole === 'accountant') {
+      setPendingCancelInfo({ type, number, townName: tName });
+      setShowAdminConfirm(true);
+    } else {
+      setCancelCtx({ type, number, townName: tName });
+    }
   };
 
   const confirmCancelDeal = async () => {
@@ -154,8 +162,23 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
 
   return (
     <div>
+      {/* Admin Password Confirmation for Accountant */}
+      <AdminPasswordConfirm
+        isOpen={showAdminConfirm}
+        onClose={() => { setShowAdminConfirm(false); setPendingCancelInfo(null); }}
+        onConfirm={async () => {
+          setShowAdminConfirm(false);
+          if (pendingCancelInfo) {
+            setCancelCtx({ ...pendingCancelInfo });
+            setPendingCancelInfo(null);
+          }
+        }}
+        title="Confirm Deal Cancellation"
+        message="Enter your administration password to confirm this deal cancellation."
+      />
+
       {/* Cancel Deal Modal */}
-      {cancelCtx && (
+      {cancelCtx && !showAdminConfirm && (
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.35)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16

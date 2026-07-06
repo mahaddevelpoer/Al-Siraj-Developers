@@ -649,7 +649,7 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
     try {
       final rows = await widget.repo
           .loadReviews(_status, force: force)
-          .timeout(const Duration(seconds: 13), onTimeout: () => <ReviewItem>[]);
+          .timeout(const Duration(seconds: 30), onTimeout: () => <ReviewItem>[]);
       if (!mounted || token != _loadToken) return;
       setState(() {
         _rows = rows;

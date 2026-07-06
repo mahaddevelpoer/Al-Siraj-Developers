@@ -182,8 +182,7 @@ class CeoRepository {
       }
     } on PostgrestException catch (e) {
       if (e.code == 'PGRST202') {
-        // Function doesn't exist yet — user needs to run SQL
-        throw Exception('Run src/sql/ceo-mobile-raw-appeals-rpc.sql in Supabase SQL Editor first');
+        // Function doesn't exist yet — fall through to next fallback
       }
     } catch (_) {}
 
@@ -266,7 +265,12 @@ class CeoRepository {
         ),
       );
     }
-    items.sort((a, b) => b.dateText.compareTo(a.dateText));
+    items.sort((a, b) {
+      final aDate = DateTime.tryParse('${a.raw['created_at'] ?? a.raw['date'] ?? ''}');
+      final bDate = DateTime.tryParse('${b.raw['created_at'] ?? b.raw['date'] ?? ''}');
+      if (aDate != null && bDate != null) return bDate.compareTo(aDate);
+      return b.dateText.compareTo(a.dateText);
+    });
     return items.take(reviewLimit).toList();
   }
 
