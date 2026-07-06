@@ -157,7 +157,7 @@ class CeoRepository {
     final key = normalizeStatus(status);
     if (!force && _reviewInFlight[key] != null) return _reviewInFlight[key]!;
     final future = _loadReviews(key)
-        .timeout(const Duration(seconds: 12), onTimeout: () => <ReviewItem>[])
+        .timeout(const Duration(seconds: 25), onTimeout: () => <ReviewItem>[])
         .whenComplete(() => _reviewInFlight.remove(key));
     _reviewInFlight[key] = future;
     return future;
@@ -166,40 +166,56 @@ class CeoRepository {
   Future<List<ReviewItem>> _loadReviews(String status) async {
     final queryStatus = normalizeStatus(status);
 
-    // Use ceo_mobile_get_appeals RPC (SECURITY DEFINER, bypasses RLS).
-    // Created via src/sql/ceo-mobile-raw-appeals-rpc.sql in Supabase SQL Editor.
+    // 1. ceo_mobile_get_appeals — SECURITY DEFINER, bypasses RLS
+    //    Created by running src/sql/ceo-mobile-raw-appeals-rpc.sql
     try {
       final raw = await supabase.rpc(
         'ceo_mobile_get_appeals',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 8));
       if (raw is List && raw.isNotEmpty) {
-        return _normalizeReviewRows(
-          raw.cast<Map<String, dynamic>>(),
-          queryStatus,
-        );
+        return _normalizeReviewRows(raw.cast<Map<String, dynamic>>(), queryStatus);
       }
-    } catch (e) {
-      // fall through to legacy RPC
-    }
+      if (raw is List && raw.isEmpty) {
+        // RPC exists but returned 0 rows — data is genuinely empty
+        return const [];
+      }
+    } on PostgrestException catch (e) {
+      if (e.code == 'PGRST202') {
+        // Function doesn't exist yet — user needs to run SQL
+        throw Exception('Run src/sql/ceo-mobile-raw-appeals-rpc.sql in Supabase SQL Editor first');
+      }
+    } catch (_) {}
 
-    // Fallback: legacy RPC
+    // 2. Fallback: legacy RPC (ceo_mobile_review_inbox)
     try {
       final raw = await supabase.rpc(
         'ceo_mobile_review_inbox',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
-      ).timeout(const Duration(seconds: 8));
+      ).timeout(const Duration(seconds: 6));
       if (raw is List && raw.isNotEmpty) {
+        return _normalizeReviewRows(raw.cast<Map<String, dynamic>>(), queryStatus);
+      }
+      if (raw is List && raw.isEmpty) return const [];
+    } catch (_) {}
+
+    // 3. Last resort: direct query
+    try {
+      final raw = await supabase
+          .from('appeals')
+          .select('id,status,town_name,requested_data,requested_by_user_id,reason,appeal_type,created_at')
+          .order('created_at', ascending: false)
+          .limit(reviewLimit)
+          .timeout(const Duration(seconds: 6));
+      if (raw.isNotEmpty) {
         return _normalizeReviewRows(
-          raw.cast<Map<String, dynamic>>(),
+          raw.cast<Map<String, dynamic>>().map((r) => {...r, 'review_kind': 'appeal'}).toList(),
           queryStatus,
         );
       }
     } catch (_) {}
 
-    throw Exception(
-      'RPC ceo_mobile_get_appeals failed — run the SQL in Supabase Editor',
-    );
+    throw Exception('All query methods failed. Check app logs.');
   }
 
   List<ReviewItem> _normalizeReviewRows(
