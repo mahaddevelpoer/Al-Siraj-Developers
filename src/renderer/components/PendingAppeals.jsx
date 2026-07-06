@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 
 const HOURS_24 = 24 * 60 * 60 * 1000;
 const HOURS_22 = 22 * 60 * 60 * 1000; // Warning at 22 hours
+const HOURS_2 = 2 * 60 * 60 * 1000; // Reminder interval: every 2 hours
 
 function storageKey(townName) {
   return `al_siraj_pending_appeals_${townName || 'global'}`;
@@ -33,6 +34,24 @@ function archiveExpired(townName, expired) {
     const existing = JSON.parse(localStorage.getItem(archiveKey(townName)) || '[]');
     const merged = [...expired.map(e => ({...e, status: 'expired'})), ...existing].slice(0, 500);
     localStorage.setItem(archiveKey(townName), JSON.stringify(merged));
+  } catch {}
+}
+
+// Desktop notification bell — fires even when window is in background
+function fireReminderBell(townName, count) {
+  // Try browser Notification API
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification('⏰ Pending Appeal Reminder', {
+      body: `${count} appeal(s) need internet to sync to CEO. ${count > 1 ? 'They will expire' : 'It will expire'} in under 24 hours.`,
+      icon: '/icon.png',
+      tag: `pending-reminder-${townName}`,
+    });
+  }
+  // Also play a subtle bell sound
+  try {
+    const audio = new Audio('/assets/confirm-BKluTmtq.wav');
+    audio.volume = 0.3;
+    audio.play().catch(() => {});
   } catch {}
 }
 
@@ -86,6 +105,7 @@ export default function PendingAppeals({ townName, showToast }) {
     const next = [];
     const expired = [];
     const warnings = [];
+    const needsReminder = [];
     for (const item of current) {
       const created = Date.parse(item.createdAt || 0) || now;
       const age = now - created;
@@ -94,21 +114,41 @@ export default function PendingAppeals({ townName, showToast }) {
       } else if (age > HOURS_24) {
         expired.push(item);
       } else {
+        // Check 2-hour reminder: fire when now >= nextReminderAt
+        const reminderTime = Date.parse(item.nextReminderAt || 0) || (created + HOURS_2);
+        if (now >= reminderTime) {
+          needsReminder.push(item);
+          // Schedule next reminder for 2 hours from now
+          item.nextReminderAt = new Date(now + HOURS_2).toISOString();
+        }
         next.push(item);
         if (age > HOURS_22) {
           warnings.push(item);
         }
       }
     }
+    // Fire 2-hour reminder bell for items that hit the mark
+    if (needsReminder.length > 0) {
+      fireReminderBell(townName, needsReminder.length);
+      showToast?.(`⏰ ${needsReminder.length} pending appeal(s) — connect to internet to sync to CEO!`, 'warning');
+      // Persist updated nextReminderAt
+      writeItems(townName, next);
+      setItems(next);
+    }
     if (expired.length > 0) {
       archiveExpired(townName, expired);
       showToast?.(`${expired.length} pending appeal(s) expired and moved to archive. Connect to internet to sync.`, 'warning');
+      writeItems(townName, next);
+      setItems(next);
     }
     if (warnings.length > 0) {
       showToast?.(`⚠️ ${warnings.length} appeal(s) expiring soon! Connect to internet within 2 hours.`, 'error');
     }
-    writeItems(townName, next);
-    setItems(next);
+    // Only write if something changed that wasn't already written above
+    if (needsReminder.length === 0 && expired.length === 0) {
+      writeItems(townName, next);
+      setItems(next);
+    }
   };
 
   useEffect(() => {
@@ -122,6 +162,13 @@ export default function PendingAppeals({ townName, showToast }) {
       clearInterval(timer);
     };
   }, [townName]);
+
+  // Request notification permission on first mount (for reminder bell)
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     const channel = supabase
