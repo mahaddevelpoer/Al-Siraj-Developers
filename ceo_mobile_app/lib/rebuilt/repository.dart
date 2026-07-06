@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -168,70 +166,40 @@ class CeoRepository {
   Future<List<ReviewItem>> _loadReviews(String status) async {
     final queryStatus = normalizeStatus(status);
 
-    // PRIMARY: raw HTTP — no silent catch so any failure shows immediately
-    final rows = await _httpAppeals(queryStatus);
-    if (rows.isNotEmpty) return rows;
-
-    // If raw HTTP returned empty 200, try RPC as backup
+    // Use ceo_mobile_get_appeals RPC (SECURITY DEFINER, bypasses RLS).
+    // Created via src/sql/ceo-mobile-raw-appeals-rpc.sql in Supabase SQL Editor.
     try {
-      final rpcRaw = await supabase.rpc(
+      final raw = await supabase.rpc(
+        'ceo_mobile_get_appeals',
+        params: {'p_status': queryStatus, 'p_limit': reviewLimit},
+      ).timeout(const Duration(seconds: 10));
+      if (raw is List && raw.isNotEmpty) {
+        return _normalizeReviewRows(
+          raw.cast<Map<String, dynamic>>(),
+          queryStatus,
+        );
+      }
+    } catch (e) {
+      // fall through to legacy RPC
+    }
+
+    // Fallback: legacy RPC
+    try {
+      final raw = await supabase.rpc(
         'ceo_mobile_review_inbox',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
       ).timeout(const Duration(seconds: 8));
-      if (rpcRaw is List && rpcRaw.isNotEmpty) {
+      if (raw is List && raw.isNotEmpty) {
         return _normalizeReviewRows(
-          rpcRaw.cast<Map<String, dynamic>>(),
+          raw.cast<Map<String, dynamic>>(),
           queryStatus,
         );
       }
     } catch (_) {}
 
-    // If both fail, surface HTTP response details
-    throw Exception('No appeals data. HTTP: $_lastRawAppealsResponse');
-  }
-
-  String _lastRawAppealsResponse = '';
-  Future<List<ReviewItem>> _httpAppeals(String queryStatus) async {
-    final session = supabase.auth.currentSession;
-    final user = session?.user;
-    final token = session?.accessToken ?? 'NO_TOKEN';
-    final uid = user?.id ?? 'NO_UID';
-    final tokPreview = token.length > 12 ? '${token.substring(0, 12)}...' : token;
-    final client = HttpClient();
-    String rawBody = 'NO_RESPONSE_BODY';
-    try {
-      final url = Uri.parse(
-        '$supabaseUrl/rest/v1/appeals?select=id,status,town_name,requested_data,created_at&order=created_at.desc&limit=${reviewLimit * 4}',
-      );
-      final request = await client.getUrl(url).timeout(const Duration(seconds: 9));
-      request.headers.set('apikey', supabaseAnonKey);
-      request.headers.set('Authorization', 'Bearer $token');
-      request.headers.set('Accept', 'application/json');
-      final response = await request.close().timeout(const Duration(seconds: 9));
-      rawBody = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 5));
-      _lastRawAppealsResponse = 'HTTP ${response.statusCode} (uid=$uid tok=$tokPreview body=${rawBody.length <= 600 ? rawBody : '${rawBody.substring(0, 600)}...'})';
-      if (response.statusCode != 200) {
-        throw Exception(_lastRawAppealsResponse);
-      }
-      if (rawBody.trim().isEmpty || rawBody.trim() == '[]') {
-        throw Exception(_lastRawAppealsResponse);
-      }
-      final decoded = json.decode(rawBody);
-      if (decoded is! List) {
-        throw Exception('$_lastRawAppealsResponse (not a list)');
-      }
-      final items = _normalizeReviewRows(
-        decoded.cast<Map<String, dynamic>>()
-            .map((row) => {...row, 'review_kind': 'appeal'})
-            .toList(),
-        queryStatus,
-      );
-      return items;
-    } on TimeoutException catch (e) {
-      throw Exception('HTTP timeout: $e | $_lastRawAppealsResponse');
-    } finally {
-      client.close();
-    }
+    throw Exception(
+      'RPC ceo_mobile_get_appeals failed — run the SQL in Supabase Editor',
+    );
   }
 
   List<ReviewItem> _normalizeReviewRows(
