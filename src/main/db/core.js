@@ -47,6 +47,13 @@ async function writeWorkbookAtomic(targetPath, workbook) {
     `${base}.__tmp_write__${process.pid}__${Date.now()}`
   );
 
+  // Signal file watcher to ignore our own writes
+  try {
+    const { signalWriteStart, signalWriteDone } = require('./fileWatcher');
+    signalWriteStart();
+    setTimeout(() => signalWriteDone(targetPath), 3000);
+  } catch {}
+
   await workbook.xlsx.writeFile(tempPath);
   try {
     if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });

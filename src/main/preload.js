@@ -105,6 +105,11 @@ contextBridge.exposeInMainWorld('api', {
     try { ipcRenderer.removeAllListeners('sync-warning'); } catch {}
     ipcRenderer.on('sync-warning', (_, msg) => callback(msg));
   },
+  // File tamper alert callback (idempotent)
+  onFileTamperAlert: (callback) => {
+    try { ipcRenderer.removeAllListeners('file-tamper-alert'); } catch {}
+    ipcRenderer.on('file-tamper-alert', (_, data) => callback(data));
+  },
   // CEO — Create Accountant
   createAccountant: (params) => ipcRenderer.invoke('create-accountant', params),
   getTownAgents: (townName) => ipcRenderer.invoke('get-town-agents', townName),

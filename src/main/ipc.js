@@ -984,7 +984,30 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
   ipcMain.handle('get-town-prices', async (_, townName) => {
     try {
       const town = scopedTown(townName, true);
-      return await getTownPrices(town);
+      const localPrices = await getTownPrices(town);
+      // SECURITY: Compare with Supabase to detect local-only price manipulation
+      let cloudWarning = null;
+      try {
+        const supabase = require('./db/supabase');
+        const { data: cloudRow } = await supabase
+          .from('towns')
+          .select('Plot_Rate_Per_Marla,Shop_Rate_Per_SqFt,Plot_Rate_Per_Marla_Expected,Shop_Rate_Per_SqFt_Expected')
+          .eq('Town_Name', town)
+          .single()
+          .timeout(3000);
+        if (cloudRow) {
+          const localPlotRate = parseFloat(localPrices?.Plot_Rate_Per_Marla || localPrices?.plotRate || 0);
+          const cloudPlotRate = parseFloat(cloudRow.Plot_Rate_Per_Marla || cloudRow.Plot_Rate_Per_Marla_Expected || 0);
+          if (localPlotRate > 0 && cloudPlotRate > 0 && Math.abs(localPlotRate - cloudPlotRate) > 0.01) {
+            cloudWarning = {
+              localPlotRate,
+              cloudPlotRate,
+              mismatch: true,
+            };
+          }
+        }
+      } catch {} // Supabase comparison is non-blocking
+      return { ...localPrices, cloudWarning };
     } catch(e) { return { error: e.message }; }
   });
   ipcMain.handle('set-town-prices', async (_, townName, prices) => {
@@ -3104,6 +3127,44 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             Created_At: s.Sell_Date || '',
           }));
       }
+      // SECURITY FIX: Supabase fallback — merge cloud commissions if local is empty or incomplete
+      try {
+        const supabase = require('./db/supabase');
+        const { data: cloudRows } = await supabase
+          .from('commissions')
+          .select('*')
+          .timeout(3000);
+        if (Array.isArray(cloudRows) && cloudRows.length > 0) {
+          // Merge: use cloud rows as source of truth for paid/partial status
+          const localMap = new Map(rows.map(r => [String(r.Commission_ID || r.id), r]));
+          for (const cr of cloudRows) {
+            const key = String(cr.Commission_ID || cr.id || cr.sale_id);
+            if (localMap.has(key)) {
+              // Merge cloud status onto local row (cloud may have more accurate paid/partial status)
+              const local = localMap.get(key);
+              if (String(cr.status || 'pending').toLowerCase() !== 'pending' && String(local.Status || local.status || 'pending').toLowerCase() === 'pending') {
+                local.Status = cr.status;
+                local.Paid_Amount = parseFloat(cr.Paid_Amount || cr.paid_amount) || 0;
+                local.Paid_Date = cr.Paid_Date || cr.paid_date || '';
+              }
+            } else {
+              // Cloud has a commission row that doesn't exist locally — add it
+              rows.push({
+                Commission_ID: cr.Commission_ID || cr.id || cr.sale_id,
+                Sale_ID: cr.Sale_ID || cr.sale_id || '',
+                Town_Name: cr.Town_Name || cr.town_name || '',
+                Plot_Shop_Number: cr.Plot_Shop_Number || cr.plot_shop_number || '',
+                Agent_Name: cr.Agent_Name || cr.agent_name || '',
+                Agent_Email: cr.Agent_Email || cr.agent_email || '',
+                Commission_Amount: parseFloat(cr.Commission_Amount || cr.commission_amount) || 0,
+                Status: cr.status || 'pending',
+                Paid_Date: cr.Paid_Date || cr.paid_date || '',
+                Created_At: cr.Created_At || cr.created_at || '',
+              });
+            }
+          }
+        }
+      } catch {} // Supabase fallback is non-blocking
       const data = rows
         .map((c) => ({
           ...c,

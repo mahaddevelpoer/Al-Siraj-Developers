@@ -584,6 +584,14 @@ function AppInner() {
   }, [showToast]);
 
   useEffect(() => {
+    if (window.api?.onFileTamperAlert) {
+      window.api.onFileTamperAlert((data) => {
+        showToast(data?.message || 'SECURITY: Excel file was modified outside the app!', 'error');
+      });
+    }
+  }, [showToast]);
+
+  useEffect(() => {
     if (!window.api?.onCloudRefreshProgress) return undefined;
     let hideTimer = null;
     window.api.onCloudRefreshProgress((data = {}) => {

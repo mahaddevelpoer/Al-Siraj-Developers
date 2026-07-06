@@ -32,10 +32,12 @@ const { initializeDatabase, configureMirrors, setAfterWriteHook } = require('./d
 const { startBackupScheduler } = require('./db/backup');
 const { upsertDueInstallmentNotifications } = require('./db/globals');
 const { addDailyEntry } = require('./db/dailyEntries');
+const { startDailyReportScheduler } = require('./db/dailyReportScheduler');
 const supabase = require('./db/supabase');
 const storageSync = require('./db/storage');
 const { showDesktopNotification } = require('./notificationService');
 const buildMeta = require('./buildMeta');
+const { startFileWatcher, stopFileWatcher, signalWriteStart, signalWriteDone } = require('./db/fileWatcher');
 const { setupAutoUpdater } = require('./autoUpdate');
 
 // Allow OpenStreetMap tiles and Nominatim search through CSP
@@ -453,11 +455,14 @@ app.whenReady().then(async () => {
 
   try {
     const storage = require('./db/storage');
-    setAfterWriteHook(({ relPath }) => {
+    setAfterWriteHook(({ filePath, relPath }) => {
       if (!relPath) return;
       // Storage is backup/export only. Queue changed files, but do not upload every write.
       // Manual backup / daily background backup / sync-to-cloud can flush this queue.
       storage.queueFile(relPath);
+      // File watcher: signal our own write so we don't alert on our own changes
+      signalWriteStart();
+      setTimeout(() => signalWriteDone(filePath), 500);
     });
   } catch (e) {
     console.warn('[startup] Could not attach storage write hook:', e.message);
@@ -799,6 +804,15 @@ app.whenReady().then(async () => {
     try {
       console.log('[startup] opening initial window');
       openInitialWindow();
+      // Start file watcher after window is ready
+      setTimeout(() => {
+        const targetWindow = activeWindow || launcherWindow;
+        if (targetWindow && !targetWindow.isDestroyed()) {
+          startFileWatcher(dbPath, targetWindow);
+        }
+        // Start daily report scheduler (runs at 8PM)
+        startDailyReportScheduler(dbPath, targetWindow);
+      }, 2000);
       if (app.isPackaged) setupAutoUpdater(() => activeWindow || launcherWindow);
     } catch (err) {
       console.error('[startup] openInitialWindow failed:', err);
