@@ -44,12 +44,17 @@ BEGIN
     )
     ORDER BY a.created_at DESC
   ) INTO result
-  FROM public.appeals a
-  LEFT JOIN public.users u ON u.id = a.requested_by_user_id
-  WHERE CASE
-    WHEN lower(coalesce(a.status, 'pending')) IN ('approved', 'rejected') THEN lower(a.status)
-    ELSE 'pending'
-  END = wanted_status;
+  FROM (
+    SELECT *
+    FROM public.appeals
+    WHERE CASE
+      WHEN lower(coalesce(status, 'pending')) IN ('approved', 'rejected') THEN lower(status)
+      ELSE 'pending'
+    END = wanted_status
+    ORDER BY created_at DESC
+    LIMIT greatest(1, least(coalesce(p_limit, 60), 200))
+  ) a
+  LEFT JOIN public.users u ON u.id = a.requested_by_user_id;
 
   RETURN COALESCE(result, '[]'::jsonb);
 END;
