@@ -6,23 +6,7 @@ CREATE OR REPLACE FUNCTION public.ceo_mobile_get_appeals(
   p_status text DEFAULT 'pending',
   p_limit integer DEFAULT 60
 )
-RETURNS TABLE (
-  id uuid,
-  status text,
-  appeal_type text,
-  entity_type text,
-  entity_id text,
-  town_name text,
-  reason text,
-  requested_data jsonb,
-  created_at timestamptz,
-  requested_by_user_id jsonb,
-  otp_code text,
-  otp_expires_at timestamptz,
-  reviewed_at timestamptz,
-  reviewed_by_user_id uuid,
-  review_kind text
-)
+RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -33,37 +17,41 @@ DECLARE
     WHEN lower(coalesce(p_status, 'pending')) IN ('approved', 'rejected') THEN lower(p_status)
     ELSE 'pending'
   END;
+  result jsonb;
 BEGIN
-  RETURN QUERY
-  SELECT
-    a.id,
-    a.status,
-    a.appeal_type,
-    a.entity_type,
-    a.entity_id,
-    COALESCE(nullif(a.town_name, ''), 'No town')::text AS town_name,
-    a.reason,
-    COALESCE(a.requested_data, '{}'::jsonb) AS requested_data,
-    a.created_at,
+  SELECT jsonb_agg(
     jsonb_build_object(
-      'id', u.id,
-      'full_name', COALESCE(u.full_name, u.email, 'Accountant'),
-      'email', u.email,
-      'town_name', u.town_name
-    ) AS requested_by_user_id,
-    a.otp_code,
-    a.otp_expires_at,
-    a.reviewed_at,
-    a.reviewed_by_user_id,
-    'appeal'::text AS review_kind
+      'id', a.id,
+      'status', a.status,
+      'appeal_type', a.appeal_type,
+      'entity_type', a.entity_type,
+      'entity_id', a.entity_id,
+      'town_name', COALESCE(nullif(a.town_name, ''), 'No town'),
+      'reason', a.reason,
+      'requested_data', COALESCE(a.requested_data, '{}'::jsonb),
+      'created_at', a.created_at,
+      'requested_by_user_id', jsonb_build_object(
+        'id', u.id,
+        'full_name', COALESCE(u.full_name, u.email, 'Accountant'),
+        'email', u.email,
+        'town_name', u.town_name
+      ),
+      'otp_code', a.otp_code,
+      'otp_expires_at', a.otp_expires_at,
+      'reviewed_at', a.reviewed_at,
+      'reviewed_by_user_id', a.reviewed_by_user_id,
+      'review_kind', 'appeal'
+    )
+    ORDER BY a.created_at DESC
+  ) INTO result
   FROM public.appeals a
   LEFT JOIN public.users u ON u.id = a.requested_by_user_id
   WHERE CASE
     WHEN lower(coalesce(a.status, 'pending')) IN ('approved', 'rejected') THEN lower(a.status)
     ELSE 'pending'
-  END = wanted_status
-  ORDER BY a.created_at DESC
-  LIMIT greatest(1, least(coalesce(p_limit, 60), 200));
+  END = wanted_status;
+
+  RETURN COALESCE(result, '[]'::jsonb);
 END;
 $$;
 
