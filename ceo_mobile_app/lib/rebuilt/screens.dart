@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/appeals_service.dart';
 import 'constants.dart';
 import 'models.dart';
 import 'notification_service.dart';
@@ -588,10 +589,14 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
   bool _reviewing = false;
   int _loadToken = 0;
   RealtimeChannel? _realtimeChannel;
+  
+  // NEW: Direct appeals service - bypasses broken repo layers
+  late final AppealsService _appealsService;
 
   @override
   void initState() {
     super.initState();
+    _appealsService = AppealsService(Supabase.instance.client);
     unawaited(_load(force: true));
     _setupRealtime();
   }
@@ -639,31 +644,41 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
     unawaited(_load(force: true));
   }
 
+  // NEW LOAD METHOD - Uses AppealsService directly, NO repo wrapper
   Future<void> _load({bool force = true}) async {
     final token = ++_loadToken;
-    print('[UI-load] START: token=$token, status=$_status, force=$force');
+    print('[APPROVALS-UI] === LOAD START === token=$token status=$_status');
+    
     setState(() {
       _loading = true;
       _error = null;
       _rows = const [];
     });
+
     try {
-      final rows = await widget.repo
-          .loadReviews(_status, force: force)
-          .timeout(const Duration(seconds: 30), onTimeout: () => <ReviewItem>[]);
-      print('[UI-load] Got rows: count=${rows.length}, token=$token, currentToken=$_loadToken');
-      print('[UI-load] First row (if any): ${rows.isNotEmpty ? rows.first : "none"}');
+      // DIRECT CALL to AppealsService - bypasses all broken layers
+      final rows = await _appealsService.loadAppeals(_status);
+      
+      print('[APPROVALS-UI] Service returned ${rows.length} rows');
+      if (rows.isNotEmpty) {
+        print('[APPROVALS-UI] First row: id=${rows.first.id}, title=${rows.first.title}');
+      }
+      
       if (!mounted || token != _loadToken) {
-        print('[UI-load] SKIPPED: mounted=$mounted, tokenMismatch=${token != _loadToken}');
+        print('[APPROVALS-UI] SKIPPED - token mismatch');
         return;
       }
-      print('[UI-load] UPDATING STATE: setting ${rows.length} rows');
+      
+      print('[APPROVALS-UI] SETTING STATE with ${rows.length} rows');
       setState(() {
         _rows = rows;
         _loading = false;
       });
-    } catch (e) {
-      print('[UI-load] ERROR: $e');
+      print('[APPROVALS-UI] STATE UPDATED');
+      
+    } catch (e, stack) {
+      print('[APPROVALS-UI] ERROR: $e');
+      print('[APPROVALS-UI] STACK: $stack');
       if (!mounted || token != _loadToken) return;
       setState(() {
         _error = e;
@@ -676,7 +691,7 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
   Future<void> _review(ReviewItem item, String status) async {
     setState(() => _reviewing = true);
     try {
-      await widget.repo.review(item, status);
+      await _appealsService.reviewAppeal(item.id, status);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${item.title} $status')),
@@ -698,13 +713,35 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
     final isError = _error != null;
     final errorText = isError ? '${_error}' : '';
 
-    // DEBUG: Log UI state on every build
-    print('[UI] Building ApprovalsScreen: rows=${rows.length}, loading=$_loading, error=$_error');
+    // DEBUG: Force log every build
+    print('[UI-BUILD] ApprovalsScreen REBUILDING: rows=${rows.length}, loading=$_loading');
 
     return ScreenScaffold(
       title: 'Approvals',
       onRefresh: _refresh,
       children: [
+        // DEBUG BANNER: Shows exact state
+        if (_loading == false)
+          Container(
+            color: Colors.red.shade100,
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Text(
+                  '🔴 DEBUG: ROWS COUNT = ${rows.length}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.red),
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    print('[FORCE-REFRESH] PRESSED');
+                    _refresh(force: true);
+                  },
+                  child: const Text('⚡ FORCE REFRESH'),
+                ),
+              ],
+            ),
+          ),
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -718,34 +755,6 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
                 _loading ? 'Checking $_status approvals...' : '${rows.length} $_status approvals found.',
                 style: const TextStyle(color: kMuted),
               ),
-              // DEBUG: Show raw query result for troubleshooting
-              if (_loading == false && rows.isEmpty)
-                Container(
-                  margin: const EdgeInsets.only(top: 12),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: kRed.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: kRed)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('️ DEBUG INFO', style: TextStyle(fontWeight: FontWeight.bold, color: kRed)),
-                      const SizedBox(height: 4),
-                      Text('Status filter: $_status'),
-                      Text('Query status: ${normalizeStatus(_status)}'),
-                      Text('Rows returned: ${rows.length}'),
-                      Text('Loading: $_loading'),
-                      Text('Error: $errorText'),
-                      const SizedBox(height: 8),
-                      Text('Pull down to refresh', style: TextStyle(fontSize: 11, color: kMuted)),
-                    ],
-                  ),
-                ),
-              if (isError)
-                Container(
-                  margin: const EdgeInsets.only(top: 12),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: kRed.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-                  child: Text('ERROR: $errorText', style: TextStyle(color: kRed, fontSize: 12)),
-                ),
               const SizedBox(height: 14),
               Wrap(
                 spacing: 8,

@@ -172,44 +172,52 @@ class CeoRepository {
     final queryStatus = normalizeStatus(status);
     print('[repo] === LOAD REVIEWS: status=$status queryStatus=$queryStatus ===');
 
-    // PRIMARY: EXACT same query as inbox_repository.dart (proven working for bell count)
+    // PRIMARY: Direct query — EXACT same as inbox_repository.dart (PROVEN WORKING)
     try {
-      print('[repo] Running EXACT inbox_repository query...');
+      print('[repo] Running direct appeals query...');
       final raw = await supabase
           .from('appeals')
           .select(
             'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id(full_name,email,town_name)',
           )
-          .eq('status', 'pending')  // HARD CODED to match inbox_repository exactly
+          .eq('status', queryStatus)
           .order('created_at', ascending: false)
           .limit(reviewLimit)
           .timeout(const Duration(seconds: 10));
 
-      print('[repo] Query returned: type=${raw.runtimeType}');
-      if (raw is List) {
-        print('[repo] List length=${raw.length}');
-        if (raw.isNotEmpty) {
-          print('[repo] First row: ${raw.first}');
-        }
-      } else {
-        print('[repo] Unexpected type: $raw');
-      }
-
+      print('[repo] Query returned: type=${raw.runtimeType}, length=${raw is List ? (raw as List).length : "N/A"}');
+      
       if (raw is List && raw.isNotEmpty) {
-        // Now filter by the requested status
-        final filtered = raw.where((r) => normalizeStatus(r['status']) == queryStatus).toList();
-        print('[repo] Filtered to queryStatus=$queryStatus: ${filtered.length} rows');
-        final rows = filtered
-            .cast<Map<String, dynamic>>()
+        print('[repo] First row: ${raw.first}');
+        final rows = raw.cast<Map<String, dynamic>>()
             .map((r) => {...r, 'review_kind': 'appeal'})
             .toList();
-        print('[repo] Added review_kind, calling _normalizeReviewRows...');
+        print('[repo] Prepared ${rows.length} rows for normalization');
+        
         final normalized = _normalizeReviewRows(rows, queryStatus);
-        print('[repo] Normalized count=${normalized.length}');
+        print('[repo] Final normalized count: ${normalized.length}');
+        
+        // If normalization returned 0 but we had data, show raw items anyway
+        if (normalized.isEmpty && rows.isNotEmpty) {
+          print('[repo] WARNING: Normalization returned 0 but raw had ${rows.length}. Creating fallback items...');
+          return rows.map((r) => ReviewItem(
+            id: r['id']?.toString() ?? '',
+            kind: ReviewKind.appeal,
+            status: normalizeStatus(r['status']),
+            title: 'Appeal: ${r['appeal_type'] ?? "unknown"}',
+            townName: r['town_name']?.toString() ?? 'No town',
+            accountantName: 'Accountant',
+            amount: 0,
+            dateText: r['created_at']?.toString() ?? '',
+            summary: r['reason']?.toString() ?? 'No details',
+            raw: r,
+          )).toList();
+        }
+        
         return normalized;
       }
       if (raw is List && raw.isEmpty) {
-        print('[repo] Query returned 0 rows (inbox_repository pattern)');
+        print('[repo] Query returned 0 rows');
         return const [];
       }
     } catch (e, stack) {
@@ -224,9 +232,8 @@ class CeoRepository {
         'ceo_mobile_review_inbox',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
       ).timeout(const Duration(seconds: 6));
-      print('[repo] inbox RPC: type=${raw.runtimeType}');
       if (raw is List && raw.isNotEmpty) {
-        print('[repo] inbox RPC rows=${raw.length}');
+        print('[repo] inbox RPC got ${raw.length} rows');
         return _normalizeReviewRows(raw.cast<Map<String, dynamic>>(), queryStatus);
       }
     } catch (e) {
