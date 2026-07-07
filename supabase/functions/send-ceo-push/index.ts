@@ -19,6 +19,10 @@ type PushPayload = {
   event?: string;
   record?: Record<string, unknown>;
   old_record?: Record<string, unknown>;
+  // Direct push fields (bypass trigger parsing)
+  title?: string;
+  body?: string;
+  data?: Record<string, string>;
 };
 
 Deno.serve(async (req) => {
@@ -107,11 +111,24 @@ async function sendFcmPush(serviceAccountJson: string, payload: PushPayload) {
 }
 
 function buildSafeMessage(payload: PushPayload) {
+  // Direct push — title/body/data provided explicitly (bypasses trigger parsing)
+  if (payload.title && payload.body && payload.data) {
+    return {
+      title: payload.title,
+      body: payload.body,
+      data: {
+        ...payload.data,
+        dedupe_key: payload.data.dedupe_key || `direct:${Date.now()}`,
+        event_time: new Date().toISOString(),
+      },
+    };
+  }
+
   const table = payload.table || "unknown";
   const event = payload.event || "change";
   const record = payload.record || {};
   const id = String(record.id || record.Entry_ID || record.entry_id || record.Notification_ID || record.notification_id || "");
-  const route = routeForTable(table);
+  const route = payload.data?.route || routeForTable(table);
   const eventTime = new Date().toISOString();
   const dedupeKey = `${table}:${event}:${id || fingerprintRecord(record)}`;
   const data = {
@@ -204,6 +221,9 @@ function prettyText(value: unknown) {
 }
 
 function shouldSkipPush(payload: PushPayload) {
+  // Direct push (title+body+data provided explicitly) is never skipped
+  if (payload.title && payload.body && payload.data) return "";
+
   const table = payload.table || "";
   const event = payload.event || "";
   const record = payload.record || {};

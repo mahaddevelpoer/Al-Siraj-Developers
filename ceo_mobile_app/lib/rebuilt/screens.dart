@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/appeals_service.dart';
 import 'constants.dart';
 import 'models.dart';
@@ -1035,9 +1036,40 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 }
 
-class MoreScreen extends StatelessWidget {
+class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key, required this.repo});
   final CeoRepository repo;
+
+  @override
+  State<MoreScreen> createState() => _MoreScreenState();
+}
+
+class _MoreScreenState extends State<MoreScreen> {
+  bool _deviceLockEnabled = false;
+  bool _loadingLock = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSetting();
+  }
+
+  Future<void> _loadSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _deviceLockEnabled = prefs.getBool('biometric_enabled') ?? false;
+      _loadingLock = false;
+    });
+  }
+
+  Future<void> _toggleDeviceLock(bool enabled) async {
+    if (enabled) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('biometric_enabled', false);
+    await prefs.setBool('admin_password_set', false);
+    if (mounted) setState(() => _deviceLockEnabled = false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1061,12 +1093,23 @@ class MoreScreen extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => WhoOnlineScreen(repo: repo)),
+                MaterialPageRoute(builder: (_) => WhoOnlineScreen(repo: widget.repo)),
               );
             },
             contentPadding: EdgeInsets.zero,
           ),
         ),
+        if (_deviceLockEnabled)
+          AppCard(
+            child: SwitchListTile(
+              secondary: const Icon(Icons.lock_outline, color: kAmber),
+              title: const Text('Device Lock'),
+              subtitle: const Text('Fingerprint / PIN on app open'),
+              value: _deviceLockEnabled,
+              onChanged: _loadingLock ? null : _toggleDeviceLock,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
         AppCard(
           child: ListTile(
             leading: const Icon(Icons.logout_rounded, color: kRed),

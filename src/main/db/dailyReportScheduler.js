@@ -63,7 +63,7 @@ async function runDailyReport(dbPath, mainWindow) {
     const { getAllSales } = require('./properties');
     const { getAllExpenses } = require('./globals');
     const { getAllEntries } = require('./dailyEntries');
-    const supabase = require('./db/supabase');
+    const supabase = require('./supabase');
 
     const towns = await getTowns();
     const sales = await getAllSales();
@@ -106,7 +106,11 @@ async function runDailyReport(dbPath, mainWindow) {
           body: {
             title: '📊 Daily Town Report',
             body: summaries.map(s => `${s.townName}: PKR ${s.net.toLocaleString()} net`).join('\n'),
-            data: { type: 'daily_report', date: new Date().toISOString().slice(0, 10) },
+            data: {
+              route: 'daily_report',
+              type: 'daily_report',
+              date: new Date().toISOString().slice(0, 10),
+            },
           },
         });
       }
