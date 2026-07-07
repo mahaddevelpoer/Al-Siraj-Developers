@@ -85,36 +85,24 @@ class _AdminPasswordSetupState extends State<AdminPasswordSetup> {
   }
 
   Future<void> _toggleBiometric(bool enabled) async {
-    if (enabled && _hasBiometrics) {
+    if (enabled) {
       try {
         final authenticated = await _localAuth.authenticate(
-          localizedReason: 'Enable fingerprint for CEO app security',
-          options: const AuthenticationOptions(biometricOnly: true),
+          localizedReason: 'Enable device lock for CEO app security',
+          options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
         );
-        if (authenticated) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('biometric_enabled', true);
-          setState(() => _biometricEnabled = true);
-          return;
-        }
-      } catch (_) {}
+        if (!authenticated) return;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('biometric_enabled', true);
+        if (mounted) setState(() => _biometricEnabled = true);
+        return;
+      } catch (_) {
+        return;
+      }
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('biometric_enabled', false);
-    setState(() => _biometricEnabled = false);
-  }
-
-  Future<void> _testBiometric() async {
-    if (!_hasBiometrics) return;
-    try {
-      final authenticated = await _localAuth.authenticate(
-        localizedReason: 'Test fingerprint authentication',
-        options: const AuthenticationOptions(biometricOnly: true),
-      );
-      if (authenticated) {
-        widget.onSetupComplete();
-      }
-    } catch (_) {}
+    if (mounted) setState(() => _biometricEnabled = false);
   }
 
   @override
@@ -179,35 +167,30 @@ class _AdminPasswordSetupState extends State<AdminPasswordSetup> {
                           : const Text('Set Password'),
                     ),
                   ),
-                  if (_hasBiometrics) ...[
-                    const SizedBox(height: 24),
-                    const Divider(),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Device Lock (Fingerprint / Face ID)',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Use your device lock to open the app — just like WhatsApp.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: kMuted, fontSize: 13),
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      title: const Text('Enable Device Lock'),
-                      subtitle: Text(_biometricEnabled
-                          ? 'Fingerprint required on app open'
-                          : 'Tap to enable'),
-                      value: _biometricEnabled,
-                      onChanged: _toggleBiometric,
-                    ),
-                    if (_biometricEnabled)
-                      TextButton(
-                        onPressed: _testBiometric,
-                        child: const Text('Test Fingerprint'),
-                      ),
-                  ],
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Device Lock',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _hasBiometrics
+                        ? 'Use fingerprint or device PIN to open the app — just like WhatsApp.'
+                        : 'Use your device PIN/pattern/password to open the app — just like WhatsApp.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: kMuted, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    title: const Text('Enable Device Lock'),
+                    subtitle: Text(_biometricEnabled
+                        ? 'Lock screen will appear on app open'
+                        : 'Tap to enable'),
+                    value: _biometricEnabled,
+                    onChanged: _toggleBiometric,
+                  ),
                 ],
               ),
             ),
