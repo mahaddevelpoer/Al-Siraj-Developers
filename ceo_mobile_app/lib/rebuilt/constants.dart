@@ -15,5 +15,6 @@ const kTeal = Color(0xFF0EA5A3);
 const kGreen = Color(0xFF16A34A);
 const kRed = Color(0xFFDC2626);
 const kAmber = Color(0xFFF59E0B);
+const kAccent = Color(0xFF1D4ED8);
 
 const reviewLimit = 60;
