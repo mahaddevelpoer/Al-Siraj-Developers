@@ -216,7 +216,11 @@ class _UnlockScreenState extends State<_UnlockScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.hasBiometrics) _tryBiometric();
+    if (widget.hasBiometrics) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _tryBiometric();
+      });
+    }
   }
 
   @override
@@ -226,11 +230,18 @@ class _UnlockScreenState extends State<_UnlockScreen> {
   }
 
   Future<void> _tryBiometric() async {
-    setState(() => _error = null);
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await widget.onBiometric();
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString().replaceAll('Exception: ', ''));
+      final msg = e.toString().replaceAll('Exception: ', '');
+      if (mounted) setState(() => _error = msg);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

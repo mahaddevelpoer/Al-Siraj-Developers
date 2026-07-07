@@ -85,9 +85,31 @@ class _AdminPasswordSetupState extends State<AdminPasswordSetup> {
   }
 
   Future<void> _toggleBiometric(bool enabled) async {
+    if (enabled) {
+      try {
+        final authenticated = await _localAuth.authenticate(
+          localizedReason: 'Test your fingerprint or device lock',
+          options: const AuthenticationOptions(
+            biometricOnly: false,
+            stickyAuth: true,
+          ),
+        );
+        if (!authenticated) return; // user cancelled, don't enable
+      } catch (e) {
+        final msg = e.toString().replaceAll('PlatformException', 'Error');
+        if (mounted) setState(() => _error = 'Cannot enable device lock: $msg');
+        return;
+      }
+    }
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('biometric_enabled', enabled);
-    if (mounted) setState(() => _biometricEnabled = enabled);
+    if (mounted) {
+      setState(() {
+        _biometricEnabled = enabled;
+        _error = enabled ? null : _error; // clear error on success
+      });
+    }
   }
 
   @override
