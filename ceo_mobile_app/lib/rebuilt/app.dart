@@ -122,24 +122,22 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   }
 
   Future<void> _handleBiometricUnlock() async {
-    try {
-      final localAuth = LocalAuthentication();
-      final authenticated = await localAuth.authenticate(
-        localizedReason: 'Unlock AL SIRAJ CEO',
-        options: const AuthenticationOptions(
-          biometricOnly: false,
-          stickyAuth: true,
-        ),
-      );
-      if (!mounted) return;
-      if (authenticated) {
-        setState(() {
-          _needsUnlock = false;
-          _showDashboard = true;
-        });
-      }
-    } catch (_) {
-      // User cancelled or error — stay on unlock screen
+    final localAuth = LocalAuthentication();
+    final authenticated = await localAuth.authenticate(
+      localizedReason: 'Unlock AL SIRAJ CEO',
+      options: const AuthenticationOptions(
+        biometricOnly: false,
+        stickyAuth: true,
+      ),
+    );
+    if (!mounted) return;
+    if (authenticated) {
+      setState(() {
+        _needsUnlock = false;
+        _showDashboard = true;
+      });
+    } else {
+      throw Exception('Authentication failed or cancelled by user.');
     }
   }
 
@@ -229,7 +227,11 @@ class _UnlockScreenState extends State<_UnlockScreen> {
 
   Future<void> _tryBiometric() async {
     setState(() => _error = null);
-    await widget.onBiometric();
+    try {
+      await widget.onBiometric();
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString().replaceAll('Exception: ', ''));
+    }
   }
 
   Future<void> _submitPassword() async {

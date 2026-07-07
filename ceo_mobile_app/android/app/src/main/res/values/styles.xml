@@ -5,14 +5,14 @@
     <color name="notification_color">#0F766E</color>
 
     <!-- Theme shown while Flutter engine is loading (native splash) -->
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+    <style name="LaunchTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
         <!-- Remove status bar on splash for edge-to-edge look -->
         <item name="android:windowFullscreen">true</item>
     </style>
 
     <!-- Theme applied once Flutter engine is ready -->
-    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+    <style name="NormalTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@color/splash_background</item>
     </style>
 </resources>

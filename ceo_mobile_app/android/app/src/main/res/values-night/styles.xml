@@ -3,12 +3,12 @@
     <!-- Night mode splash: keep light background since app is light-themed -->
     <color name="splash_background">#F8FAFC</color>
 
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+    <style name="LaunchTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:windowFullscreen">true</item>
     </style>
 
-    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+    <style name="NormalTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@color/splash_background</item>
     </style>
 </resources>
