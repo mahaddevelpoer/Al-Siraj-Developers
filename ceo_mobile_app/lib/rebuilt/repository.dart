@@ -172,15 +172,15 @@ class CeoRepository {
     final queryStatus = normalizeStatus(status);
     print('[repo] === LOAD REVIEWS: status=$status queryStatus=$queryStatus ===');
 
-    // PRIMARY: Direct query — EXACT same pattern as inbox_repository.dart (proven working)
+    // PRIMARY: EXACT same query as inbox_repository.dart (proven working for bell count)
     try {
-      print('[repo] Running direct appeals query...');
+      print('[repo] Running EXACT inbox_repository query...');
       final raw = await supabase
           .from('appeals')
           .select(
             'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id(full_name,email,town_name)',
           )
-          .eq('status', queryStatus)
+          .eq('status', 'pending')  // HARD CODED to match inbox_repository exactly
           .order('created_at', ascending: false)
           .limit(reviewLimit)
           .timeout(const Duration(seconds: 10));
@@ -196,7 +196,11 @@ class CeoRepository {
       }
 
       if (raw is List && raw.isNotEmpty) {
-        final rows = raw.cast<Map<String, dynamic>>()
+        // Now filter by the requested status
+        final filtered = raw.where((r) => normalizeStatus(r['status']) == queryStatus).toList();
+        print('[repo] Filtered to queryStatus=$queryStatus: ${filtered.length} rows');
+        final rows = filtered
+            .cast<Map<String, dynamic>>()
             .map((r) => {...r, 'review_kind': 'appeal'})
             .toList();
         print('[repo] Added review_kind, calling _normalizeReviewRows...');
@@ -205,7 +209,7 @@ class CeoRepository {
         return normalized;
       }
       if (raw is List && raw.isEmpty) {
-        print('[repo] Query returned 0 rows for status=$queryStatus');
+        print('[repo] Query returned 0 rows (inbox_repository pattern)');
         return const [];
       }
     } catch (e, stack) {

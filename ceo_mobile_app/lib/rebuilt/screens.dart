@@ -687,6 +687,8 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
   @override
   Widget build(BuildContext context) {
     final rows = _rows;
+    final isError = _error != null;
+    final errorText = isError ? '${_error}' : '';
     return ScreenScaffold(
       title: 'Approvals',
       onRefresh: _refresh,
@@ -704,6 +706,32 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
                 _loading ? 'Checking $_status approvals...' : '${rows.length} $_status approvals found.',
                 style: const TextStyle(color: kMuted),
               ),
+              // DEBUG: Show raw query result for troubleshooting
+              if (!isError && _loading == false && rows.isEmpty)
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: kBg, borderRadius: BorderRadius.circular(10)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('DEBUG INFO', style: TextStyle(fontWeight: FontWeight.bold, color: kRed)),
+                      const SizedBox(height: 4),
+                      Text('Status filter: $_status'),
+                      Text('Query status: ${normalizeStatus(_status)}'),
+                      Text('Rows returned: ${rows.length}'),
+                      const SizedBox(height: 8),
+                      Text('Pull down to refresh', style: TextStyle(fontSize: 11, color: kMuted)),
+                    ],
+                  ),
+                ),
+              if (isError)
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: kRed.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                  child: Text('ERROR: $errorText', style: TextStyle(color: kRed, fontSize: 12)),
+                ),
               const SizedBox(height: 14),
               Wrap(
                 spacing: 8,
@@ -718,8 +746,8 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
           ),
         ),
         if (_loading) const LoadingBlock(text: 'Loading approvals...'),
-        if (!_loading && _error != null) ErrorBlock(error: _error!, onRetry: _refresh),
-        if (!_loading && _error == null && rows.isEmpty) EmptyBlock(text: 'No $_status approvals.'),
+        if (!_loading && isError) ErrorBlock(error: _error!, onRetry: _refresh),
+        if (!_loading && !isError && rows.isEmpty) EmptyBlock(text: 'No $_status approvals.'),
         for (final item in rows) _ApprovalCard(item: item, status: _status, reviewing: _reviewing, onReview: _review),
       ],
     );
