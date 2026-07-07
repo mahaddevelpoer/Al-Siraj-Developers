@@ -170,10 +170,11 @@ class CeoRepository {
   // ========================================================================
   Future<List<ReviewItem>> _loadReviews(String status) async {
     final queryStatus = normalizeStatus(status);
+    print('[repo] === LOAD REVIEWS: status=$status queryStatus=$queryStatus ===');
 
-    // PRIMARY: Direct query — same as loadCeoInboxRows in inbox_repository.dart
-    // This is PROVEN to work (bell notification count uses this exact pattern)
+    // PRIMARY: Direct query — EXACT same pattern as inbox_repository.dart (proven working)
     try {
+      print('[repo] Running direct appeals query...');
       final raw = await supabase
           .from('appeals')
           .select(
@@ -184,31 +185,53 @@ class CeoRepository {
           .limit(reviewLimit)
           .timeout(const Duration(seconds: 10));
 
+      print('[repo] Query returned: type=${raw.runtimeType}');
+      if (raw is List) {
+        print('[repo] List length=${raw.length}');
+        if (raw.isNotEmpty) {
+          print('[repo] First row: ${raw.first}');
+        }
+      } else {
+        print('[repo] Unexpected type: $raw');
+      }
+
       if (raw is List && raw.isNotEmpty) {
         final rows = raw.cast<Map<String, dynamic>>()
             .map((r) => {...r, 'review_kind': 'appeal'})
             .toList();
-        return _normalizeReviewRows(rows, queryStatus);
+        print('[repo] Added review_kind, calling _normalizeReviewRows...');
+        final normalized = _normalizeReviewRows(rows, queryStatus);
+        print('[repo] Normalized count=${normalized.length}');
+        return normalized;
       }
-      if (raw is List && raw.isEmpty) return const [];
-    } catch (e) {
-      print('[repo] direct appeals query error: $e');
+      if (raw is List && raw.isEmpty) {
+        print('[repo] Query returned 0 rows for status=$queryStatus');
+        return const [];
+      }
+    } catch (e, stack) {
+      print('[repo] Direct query FAILED: $e');
+      print('[repo] Stack: $stack');
     }
 
-    // FALLBACK: ceo_mobile_review_inbox RPC (unified inbox)
+    // FALLBACK: ceo_mobile_review_inbox RPC
     try {
+      print('[repo] Trying ceo_mobile_review_inbox RPC...');
       final raw = await supabase.rpc(
         'ceo_mobile_review_inbox',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
       ).timeout(const Duration(seconds: 6));
+      print('[repo] inbox RPC: type=${raw.runtimeType}');
       if (raw is List && raw.isNotEmpty) {
+        print('[repo] inbox RPC rows=${raw.length}');
         return _normalizeReviewRows(raw.cast<Map<String, dynamic>>(), queryStatus);
       }
-      if (raw is List && raw.isEmpty) return const [];
-    } catch (_) {}
+    } catch (e) {
+      print('[repo] inbox RPC failed: $e');
+    }
 
-    // FALLBACK: ceo_mobile_get_appeals RPC (jsonb, may need String parsing)
+    // FALLBACK: ceo_mobile_get_appeals RPC
     try {
+      print('[repo] Trying ceo_mobile_get_appeals RPC...');
       final raw = await supabase.rpc(
         'ceo_mobile_get_appeals',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
@@ -224,11 +247,13 @@ class CeoRepository {
         parsed = null;
       }
       if (parsed != null && parsed.isNotEmpty) {
+        print('[repo] RPC fallback got ${parsed.length} rows');
         return _normalizeReviewRows(parsed, queryStatus);
       }
     } catch (_) {}
 
-    throw Exception('All appeal query methods failed.');
+    print('[repo] === ALL METHODS RETURNED EMPTY ===');
+    throw Exception('No appeals found for status=$queryStatus');
   }
 
   List<ReviewItem> _normalizeReviewRows(
