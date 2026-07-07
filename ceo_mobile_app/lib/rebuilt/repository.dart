@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -167,24 +168,39 @@ class CeoRepository {
     final queryStatus = normalizeStatus(status);
 
     // 1. ceo_mobile_get_appeals — SECURITY DEFINER, bypasses RLS
-    //    Created by running src/sql/ceo-mobile-raw-appeals-rpc.sql
     try {
       final raw = await supabase.rpc(
         'ceo_mobile_get_appeals',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
       ).timeout(const Duration(seconds: 8));
-      if (raw is List && raw.isNotEmpty) {
-        return _normalizeReviewRows(raw.cast<Map<String, dynamic>>(), queryStatus);
+      // FIX: Supabase RPC returning jsonb may arrive as String, not List.
+      final List<Map<String, dynamic>>? parsed;
+      if (raw is List) {
+        parsed = raw.cast<Map<String, dynamic>>();
+      } else if (raw is String && raw.isNotEmpty && raw != 'null') {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          parsed = decoded.cast<Map<String, dynamic>>();
+        } else {
+          parsed = null;
+        }
+      } else {
+        parsed = null;
       }
-      if (raw is List && raw.isEmpty) {
-        // RPC exists but returned 0 rows — data is genuinely empty
+      if (parsed != null && parsed.isNotEmpty) {
+        return _normalizeReviewRows(parsed, queryStatus);
+      }
+      if (parsed != null && parsed.isEmpty) {
         return const [];
       }
     } on PostgrestException catch (e) {
       if (e.code == 'PGRST202') {
-        // Function doesn't exist yet — fall through to next fallback
+        // Function doesn't exist yet — fall through
       }
-    } catch (_) {}
+    } catch (e) {
+      // Log error for debugging
+      print('[repo] ceo_mobile_get_appeals error: $e');
+    }
 
     // 2. Fallback: legacy RPC (ceo_mobile_review_inbox)
     try {
@@ -192,11 +208,27 @@ class CeoRepository {
         'ceo_mobile_review_inbox',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
       ).timeout(const Duration(seconds: 6));
-      if (raw is List && raw.isNotEmpty) {
-        return _normalizeReviewRows(raw.cast<Map<String, dynamic>>(), queryStatus);
+      // Same fix for JSONB string response
+      final List<Map<String, dynamic>>? parsed;
+      if (raw is List) {
+        parsed = raw.cast<Map<String, dynamic>>();
+      } else if (raw is String && raw.isNotEmpty && raw != 'null') {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          parsed = decoded.cast<Map<String, dynamic>>();
+        } else {
+          parsed = null;
+        }
+      } else {
+        parsed = null;
       }
-      if (raw is List && raw.isEmpty) return const [];
-    } catch (_) {}
+      if (parsed != null && parsed.isNotEmpty) {
+        return _normalizeReviewRows(parsed, queryStatus);
+      }
+      if (parsed != null && parsed.isEmpty) return const [];
+    } catch (e) {
+      print('[repo] ceo_mobile_review_inbox error: $e');
+    }
 
     // 3. Last resort: direct query
     try {
