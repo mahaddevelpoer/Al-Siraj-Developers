@@ -529,44 +529,29 @@ class CeoRepository {
   }
 
   Future<List<OperatorPresence>> loadOperatorPresence() async {
-    final presenceRows = await _safeRows(
+    final rows = await _safeRows(
       () => supabase
-          .from('operator_presence')
+          .from('users')
           .select('*')
+          .inFilter('role', ['accountant', 'agent'])
           .order('last_seen_at', ascending: false)
           .limit(80),
       timeout: const Duration(seconds: 5),
     );
-    final rows = presenceRows.isNotEmpty
-        ? presenceRows
-        : await _safeRows(
-            () => supabase
-                .from('users')
-                .select('*')
-                .order('updated_at', ascending: false)
-                .limit(80),
-            timeout: const Duration(seconds: 5),
-          );
     return rows.map((row) {
+      final onlineStatus = textOf(row['online_status']).toLowerCase();
       final lastSeen = textOf(
-        row['last_seen_at'] ??
-            row['last_seen'] ??
-            row['online_at'] ??
-            row['updated_at'] ??
-            row['created_at'],
+        row['last_seen_at'] ?? row['updated_at'] ?? row['created_at'],
       );
-      final onlineRaw = row['is_online'] ?? row['online'] ?? row['status'];
-      final onlineText = textOf(onlineRaw).toLowerCase();
-      final online = onlineRaw == true ||
-          onlineText == 'online' ||
-          onlineText == 'active' ||
-          _seenRecently(lastSeen);
+      final online =
+          (onlineStatus == 'online' || onlineStatus == 'active') &&
+              _seenRecently(lastSeen);
       return OperatorPresence(
         name: textOf(
-          row['full_name'] ?? row['name'] ?? row['email'] ?? row['user_email'],
+          row['full_name'] ?? row['name'] ?? row['email'],
           'Unknown operator',
         ),
-        role: pretty(row['role'] ?? row['user_role'] ?? 'operator'),
+        role: pretty(row['role'] ?? 'operator'),
         townName: textOf(row['town_name'] ?? row['Town_Name'] ?? row['town'], 'No town'),
         online: online,
         lastSeenText: lastSeen.isEmpty ? 'No activity time' : formatAnyDate(lastSeen),
