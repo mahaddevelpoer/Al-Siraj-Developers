@@ -85,24 +85,9 @@ class _AdminPasswordSetupState extends State<AdminPasswordSetup> {
   }
 
   Future<void> _toggleBiometric(bool enabled) async {
-    if (enabled) {
-      try {
-        final authenticated = await _localAuth.authenticate(
-          localizedReason: 'Enable device lock for CEO app security',
-          options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
-        );
-        if (!authenticated) return;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('biometric_enabled', true);
-        if (mounted) setState(() => _biometricEnabled = true);
-        return;
-      } catch (_) {
-        return;
-      }
-    }
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('biometric_enabled', false);
-    if (mounted) setState(() => _biometricEnabled = false);
+    await prefs.setBool('biometric_enabled', enabled);
+    if (mounted) setState(() => _biometricEnabled = enabled);
   }
 
   @override

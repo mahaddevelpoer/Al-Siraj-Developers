@@ -1064,11 +1064,9 @@ class _MoreScreenState extends State<MoreScreen> {
   }
 
   Future<void> _toggleDeviceLock(bool enabled) async {
-    if (enabled) return;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('biometric_enabled', false);
-    await prefs.setBool('admin_password_set', false);
-    if (mounted) setState(() => _deviceLockEnabled = false);
+    await prefs.setBool('biometric_enabled', enabled);
+    if (mounted) setState(() => _deviceLockEnabled = enabled);
   }
 
   @override
@@ -1099,17 +1097,18 @@ class _MoreScreenState extends State<MoreScreen> {
             contentPadding: EdgeInsets.zero,
           ),
         ),
-        if (_deviceLockEnabled)
-          AppCard(
-            child: SwitchListTile(
-              secondary: const Icon(Icons.lock_outline, color: kAmber),
-              title: const Text('Device Lock'),
-              subtitle: const Text('Fingerprint / PIN on app open'),
-              value: _deviceLockEnabled,
-              onChanged: _loadingLock ? null : _toggleDeviceLock,
-              contentPadding: EdgeInsets.zero,
+        AppCard(
+          child: SwitchListTile(
+            secondary: const Icon(Icons.lock_outline, color: kAmber),
+            title: const Text('Device Lock'),
+            subtitle: Text(
+              _deviceLockEnabled ? 'Fingerprint / PIN on app open' : 'Fingerprint / PIN required for unlock',
             ),
+            value: _deviceLockEnabled,
+            onChanged: _loadingLock ? null : _toggleDeviceLock,
+            contentPadding: EdgeInsets.zero,
           ),
+        ),
         AppCard(
           child: ListTile(
             leading: const Icon(Icons.logout_rounded, color: kRed),

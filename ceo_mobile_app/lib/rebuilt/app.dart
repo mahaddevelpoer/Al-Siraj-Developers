@@ -57,16 +57,31 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
-class _AuthGateState extends State<AuthGate> {
+class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   bool _checking = true;
   bool _showDashboard = false;
   bool _needsPasswordSetup = false;
-  bool _needsBiometric = false;
+  bool _needsUnlock = false;
+  bool _hasBiometrics = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkAuth();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _showDashboard) {
+      _checkAuth();
+    }
   }
 
   Future<void> _checkAuth() async {
@@ -76,40 +91,33 @@ class _AuthGateState extends State<AuthGate> {
         _checking = false;
         _showDashboard = false;
         _needsPasswordSetup = false;
-        _needsBiometric = false;
+        _needsUnlock = false;
       });
       return;
     }
 
     final prefs = await SharedPreferences.getInstance();
     final passwordSet = prefs.getBool('admin_password_set') ?? false;
-    final biometricEnabled = prefs.getBool('biometric_enabled') ?? false;
 
     if (!passwordSet) {
       setState(() {
         _checking = false;
         _needsPasswordSetup = true;
         _showDashboard = false;
-        _needsBiometric = false;
+        _needsUnlock = false;
       });
       return;
     }
 
-    if (biometricEnabled) {
-      setState(() {
-        _checking = false;
-        _needsBiometric = true;
-        _showDashboard = false;
-        _needsPasswordSetup = false;
-      });
-      return;
-    }
+    // Password is set — always show unlock screen on app open
+    final biometricEnabled = prefs.getBool('biometric_enabled') ?? false;
 
     setState(() {
       _checking = false;
-      _showDashboard = true;
+      _needsUnlock = true;
+      _showDashboard = false;
       _needsPasswordSetup = false;
-      _needsBiometric = false;
+      _hasBiometrics = biometricEnabled;
     });
   }
 
@@ -126,7 +134,7 @@ class _AuthGateState extends State<AuthGate> {
       if (!mounted) return;
       if (authenticated) {
         setState(() {
-          _needsBiometric = false;
+          _needsUnlock = false;
           _showDashboard = true;
         });
       }
@@ -135,7 +143,7 @@ class _AuthGateState extends State<AuthGate> {
     }
   }
 
-  Future<void> _handleAdminPasswordUnlock(String password) async {
+  Future<void> _handlePasswordUnlock(String password) async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('admin_password') ?? '';
     if (saved.isEmpty || saved != password) {
@@ -143,7 +151,7 @@ class _AuthGateState extends State<AuthGate> {
     }
     if (!mounted) return;
     setState(() {
-      _needsBiometric = false;
+      _needsUnlock = false;
       _showDashboard = true;
     });
   }
@@ -167,10 +175,11 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
-    if (_needsBiometric) {
-      return _BiometricUnlockScreen(
+    if (_needsUnlock) {
+      return _UnlockScreen(
+        hasBiometrics: _hasBiometrics,
         onBiometric: _handleBiometricUnlock,
-        onPassword: _handleAdminPasswordUnlock,
+        onPassword: _handlePasswordUnlock,
       );
     }
 
@@ -186,20 +195,22 @@ class _AuthGateState extends State<AuthGate> {
   }
 }
 
-class _BiometricUnlockScreen extends StatefulWidget {
-  const _BiometricUnlockScreen({
+class _UnlockScreen extends StatefulWidget {
+  const _UnlockScreen({
+    required this.hasBiometrics,
     required this.onBiometric,
     required this.onPassword,
   });
 
+  final bool hasBiometrics;
   final Future<void> Function() onBiometric;
   final Future<void> Function(String password) onPassword;
 
   @override
-  State<_BiometricUnlockScreen> createState() => _BiometricUnlockScreenState();
+  State<_UnlockScreen> createState() => _UnlockScreenState();
 }
 
-class _BiometricUnlockScreenState extends State<_BiometricUnlockScreen> {
+class _UnlockScreenState extends State<_UnlockScreen> {
   final _passwordController = TextEditingController();
   bool _busy = false;
   String? _error;
@@ -207,7 +218,7 @@ class _BiometricUnlockScreenState extends State<_BiometricUnlockScreen> {
   @override
   void initState() {
     super.initState();
-    _tryBiometric();
+    if (widget.hasBiometrics) _tryBiometric();
   }
 
   @override
@@ -260,40 +271,48 @@ class _BiometricUnlockScreenState extends State<_BiometricUnlockScreen> {
                       color: kBlue.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(24),
                     ),
-                    child: const Icon(Icons.fingerprint, size: 40, color: kBlue),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'App Locked',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Use your fingerprint or device PIN to unlock.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: kMuted, fontSize: 15),
-                  ),
-                  const SizedBox(height: 32),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _tryBiometric,
-                      icon: const Icon(Icons.fingerprint),
-                      label: const Text('Unlock with Fingerprint'),
+                    child: Icon(
+                      widget.hasBiometrics ? Icons.fingerprint : Icons.lock,
+                      size: 40,
+                      color: kBlue,
                     ),
                   ),
                   const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      const Expanded(child: Divider()),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text('or', style: TextStyle(color: kMuted)),
-                      ),
-                      const Expanded(child: Divider()),
-                    ],
+                  Text(
+                    widget.hasBiometrics ? 'App Locked' : 'Enter Password',
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.hasBiometrics
+                        ? 'Use your fingerprint or device PIN to unlock.'
+                        : 'Enter your administration password to continue.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: kMuted, fontSize: 15),
+                  ),
+                  if (widget.hasBiometrics) ...[
+                    const SizedBox(height: 32),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _tryBiometric,
+                        icon: const Icon(Icons.fingerprint),
+                        label: const Text('Unlock with Fingerprint'),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        const Expanded(child: Divider()),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('or', style: TextStyle(color: kMuted)),
+                        ),
+                        const Expanded(child: Divider()),
+                      ],
+                    ),
+                  ],
+                  SizedBox(height: widget.hasBiometrics ? 24 : 32),
                   TextField(
                     controller: _passwordController,
                     obscureText: true,
@@ -321,7 +340,7 @@ class _BiometricUnlockScreenState extends State<_BiometricUnlockScreen> {
                               height: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('Unlock with Password'),
+                          : const Text('Unlock'),
                     ),
                   ),
                 ],
