@@ -50,6 +50,8 @@ class RebuiltCeoApp extends StatelessWidget {
   }
 }
 
+// ─── AuthGate ───────────────────────────────────────────────────────────────
+
 class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
 
@@ -57,18 +59,32 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
+enum _AppScreen { loading, login, passwordSetup, unlock, dashboard }
+
 class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
-  bool _checking = true;
-  bool _showDashboard = false;
-  bool _needsPasswordSetup = false;
-  bool _needsUnlock = false;
-  bool _hasBiometrics = false;
+  _AppScreen _screen = _AppScreen.loading;
+  bool _biometricEnabled = false;
+
+  // Session-level flag: once unlocked, stays unlocked until genuinely backgrounded.
+  bool _unlockedThisSession = false;
+
+  // Track when app was last paused to decide if re-lock is needed.
+  DateTime? _pausedAt;
+
+  // How long the app must be backgrounded before re-locking (like WhatsApp).
+  static const _lockAfter = Duration(seconds: 30);
+
+  // Single instance — never create multiple LocalAuthentication objects.
+  final _localAuth = LocalAuthentication();
+
+  // Prevent concurrent authenticate() calls (causes auth_in_progress).
+  bool _authInFlight = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _checkAuth();
+    _boot();
   }
 
   @override
@@ -77,22 +93,34 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  // ── Lifecycle: only re-lock after genuine background time ──
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _showDashboard) {
-      _checkAuth();
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _pausedAt ??= DateTime.now();
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      final pausedAt = _pausedAt;
+      _pausedAt = null; // reset
+
+      // Only re-lock if the app was genuinely backgrounded for _lockAfter
+      if (_unlockedThisSession &&
+          _biometricEnabled &&
+          pausedAt != null &&
+          DateTime.now().difference(pausedAt) >= _lockAfter) {
+        _unlockedThisSession = false;
+        setState(() => _screen = _AppScreen.unlock);
+      }
     }
   }
 
-  Future<void> _checkAuth() async {
+  // ── Initial boot ──
+  Future<void> _boot() async {
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) {
-      setState(() {
-        _checking = false;
-        _showDashboard = false;
-        _needsPasswordSetup = false;
-        _needsUnlock = false;
-      });
+      setState(() => _screen = _AppScreen.login);
       return;
     }
 
@@ -100,98 +128,88 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     final passwordSet = prefs.getBool('admin_password_set') ?? false;
 
     if (!passwordSet) {
-      setState(() {
-        _checking = false;
-        _needsPasswordSetup = true;
-        _showDashboard = false;
-        _needsUnlock = false;
-      });
+      setState(() => _screen = _AppScreen.passwordSetup);
       return;
     }
 
-    // Password is set — always show unlock screen on app open
-    final biometricEnabled = prefs.getBool('biometric_enabled') ?? false;
+    _biometricEnabled = prefs.getBool('biometric_enabled') ?? false;
 
-    setState(() {
-      _checking = false;
-      _needsUnlock = true;
-      _showDashboard = false;
-      _needsPasswordSetup = false;
-      _hasBiometrics = biometricEnabled;
-    });
-  }
-
-  Future<void> _handleBiometricUnlock() async {
-    final localAuth = LocalAuthentication();
-    final authenticated = await localAuth.authenticate(
-      localizedReason: 'Unlock AL SIRAJ CEO',
-      options: const AuthenticationOptions(
-        biometricOnly: false,
-        stickyAuth: true,
-      ),
-    );
-    if (!mounted) return;
-    if (authenticated) {
-      setState(() {
-        _needsUnlock = false;
-        _showDashboard = true;
-      });
+    if (_biometricEnabled && !_unlockedThisSession) {
+      setState(() => _screen = _AppScreen.unlock);
     } else {
-      throw Exception('Authentication failed or cancelled by user.');
+      _unlockedThisSession = true;
+      setState(() => _screen = _AppScreen.dashboard);
     }
   }
 
-  Future<void> _handlePasswordUnlock(String password) async {
+  // ── Biometric unlock (called from _UnlockScreen) ──
+  Future<bool> _doBiometricAuth() async {
+    if (_authInFlight) return false; // prevent auth_in_progress
+    _authInFlight = true;
+    try {
+      final ok = await _localAuth.authenticate(
+        localizedReason: 'Unlock AL SIRAJ CEO',
+        options: const AuthenticationOptions(
+          biometricOnly: false,
+          stickyAuth: true,
+        ),
+      );
+      if (ok && mounted) {
+        _unlockedThisSession = true;
+        setState(() => _screen = _AppScreen.dashboard);
+      }
+      return ok;
+    } finally {
+      _authInFlight = false;
+    }
+  }
+
+  // ── Password unlock ──
+  Future<void> _doPasswordUnlock(String password) async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('admin_password') ?? '';
     if (saved.isEmpty || saved != password) {
       throw Exception('Incorrect password');
     }
     if (!mounted) return;
-    setState(() {
-      _needsUnlock = false;
-      _showDashboard = true;
-    });
+    _unlockedThisSession = true;
+    setState(() => _screen = _AppScreen.dashboard);
   }
 
+  // ── Build ──
   @override
   Widget build(BuildContext context) {
-    if (_checking) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+    switch (_screen) {
+      case _AppScreen.loading:
+        return const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        );
 
-    if (_needsPasswordSetup) {
-      return AdminPasswordSetup(
-        onSetupComplete: () {
-          setState(() {
-            _needsPasswordSetup = false;
-            _showDashboard = true;
-          });
-        },
-      );
-    }
+      case _AppScreen.login:
+        return LoginScreen(onLoggedIn: () => _boot());
 
-    if (_needsUnlock) {
-      return _UnlockScreen(
-        hasBiometrics: _hasBiometrics,
-        onBiometric: _handleBiometricUnlock,
-        onPassword: _handlePasswordUnlock,
-      );
-    }
+      case _AppScreen.passwordSetup:
+        return AdminPasswordSetup(
+          onSetupComplete: () {
+            _unlockedThisSession = true;
+            setState(() => _screen = _AppScreen.dashboard);
+          },
+        );
 
-    if (_showDashboard) {
-      return const CeoShell();
-    }
+      case _AppScreen.unlock:
+        return _UnlockScreen(
+          hasBiometrics: _biometricEnabled,
+          onBiometric: _doBiometricAuth,
+          onPassword: _doPasswordUnlock,
+        );
 
-    return LoginScreen(
-      onLoggedIn: () {
-        _checkAuth();
-      },
-    );
+      case _AppScreen.dashboard:
+        return const CeoShell();
+    }
   }
 }
+
+// ─── Unlock Screen ──────────────────────────────────────────────────────────
 
 class _UnlockScreen extends StatefulWidget {
   const _UnlockScreen({
@@ -201,7 +219,7 @@ class _UnlockScreen extends StatefulWidget {
   });
 
   final bool hasBiometrics;
-  final Future<void> Function() onBiometric;
+  final Future<bool> Function() onBiometric;
   final Future<void> Function(String password) onPassword;
 
   @override
@@ -216,6 +234,7 @@ class _UnlockScreenState extends State<_UnlockScreen> {
   @override
   void initState() {
     super.initState();
+    // Auto-prompt biometric after first frame is drawn
     if (widget.hasBiometrics) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _tryBiometric();
@@ -236,10 +255,24 @@ class _UnlockScreenState extends State<_UnlockScreen> {
       _error = null;
     });
     try {
-      await widget.onBiometric();
+      final ok = await widget.onBiometric();
+      // If not ok (user cancelled), just reset busy — stay on screen
+      if (!ok && mounted) {
+        setState(() => _error = null);
+      }
     } catch (e) {
-      final msg = e.toString().replaceAll('Exception: ', '');
-      if (mounted) setState(() => _error = msg);
+      if (mounted) {
+        final raw = e.toString();
+        String msg;
+        if (raw.contains('auth_in_progress')) {
+          msg = 'Please wait, authentication is in progress...';
+        } else if (raw.contains('NotAvailable') || raw.contains('NotEnrolled')) {
+          msg = 'Biometrics not available. Use your password instead.';
+        } else {
+          msg = raw.replaceAll('Exception: ', '').replaceAll('PlatformException', 'Error');
+        }
+        setState(() => _error = msg);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -258,7 +291,9 @@ class _UnlockScreenState extends State<_UnlockScreen> {
     try {
       await widget.onPassword(password);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) {
+        setState(() => _error = e.toString().replaceAll('Exception: ', ''));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -277,6 +312,7 @@ class _UnlockScreenState extends State<_UnlockScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Lock icon
                   Container(
                     width: 72,
                     height: 72,
@@ -291,6 +327,8 @@ class _UnlockScreenState extends State<_UnlockScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
+
+                  // Title
                   Text(
                     widget.hasBiometrics ? 'App Locked' : 'Enter Password',
                     style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
@@ -301,16 +339,27 @@ class _UnlockScreenState extends State<_UnlockScreen> {
                         ? 'Use your fingerprint or device PIN to unlock.'
                         : 'Enter your administration password to continue.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: kMuted, fontSize: 15),
+                    style: const TextStyle(color: kMuted, fontSize: 15),
                   ),
+
+                  // Biometric button
                   if (widget.hasBiometrics) ...[
                     const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: _tryBiometric,
-                        icon: const Icon(Icons.fingerprint),
-                        label: const Text('Unlock with Fingerprint'),
+                        onPressed: _busy ? null : _tryBiometric,
+                        icon: _busy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.fingerprint),
+                        label: Text(_busy ? 'Verifying...' : 'Unlock with Fingerprint'),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -325,6 +374,8 @@ class _UnlockScreenState extends State<_UnlockScreen> {
                       ],
                     ),
                   ],
+
+                  // Password field
                   SizedBox(height: widget.hasBiometrics ? 24 : 32),
                   TextField(
                     controller: _passwordController,
@@ -334,11 +385,16 @@ class _UnlockScreenState extends State<_UnlockScreen> {
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.lock),
                     ),
+                    onSubmitted: (_) => _submitPassword(),
                   ),
+
+                  // Error message
                   if (_error != null) ...[
                     const SizedBox(height: 12),
                     Text(_error!, style: const TextStyle(color: kRed)),
                   ],
+
+                  // Password unlock button
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
