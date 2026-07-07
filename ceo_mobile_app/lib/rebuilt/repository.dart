@@ -164,26 +164,50 @@ class CeoRepository {
     return future;
   }
 
+  // ========================================================================
+  // FIX: EXACT same query as inbox_repository.dart — the one that WORKS
+  // Bell shows "1" because this query works. Now Approvals tab uses it too.
+  // ========================================================================
   Future<List<ReviewItem>> _loadReviews(String status) async {
     final queryStatus = normalizeStatus(status);
 
-    // PRIMARY: NEW ceo_mobile_get_appeals_table RPC
-    // Returns TABLE rows (not jsonb) — guaranteed List<Map<String, dynamic>>
+    // PRIMARY: Direct query — same as loadCeoInboxRows in inbox_repository.dart
+    // This is PROVEN to work (bell notification count uses this exact pattern)
     try {
-      final raw = await supabase.rpc(
-        'ceo_mobile_get_appeals_table',
-        params: {'p_status': queryStatus, 'p_limit': reviewLimit},
-      ).timeout(const Duration(seconds: 10));
+      final raw = await supabase
+          .from('appeals')
+          .select(
+            'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id(full_name,email,town_name)',
+          )
+          .eq('status', queryStatus)
+          .order('created_at', ascending: false)
+          .limit(reviewLimit)
+          .timeout(const Duration(seconds: 10));
+
       if (raw is List && raw.isNotEmpty) {
-        final rows = raw.cast<Map<String, dynamic>>();
+        final rows = raw.cast<Map<String, dynamic>>()
+            .map((r) => {...r, 'review_kind': 'appeal'})
+            .toList();
         return _normalizeReviewRows(rows, queryStatus);
       }
       if (raw is List && raw.isEmpty) return const [];
     } catch (e) {
-      print('[repo] ceo_mobile_get_appeals_table error: $e');
+      print('[repo] direct appeals query error: $e');
     }
 
-    // FALLBACK 1: Legacy ceo_mobile_get_appeals RPC (jsonb)
+    // FALLBACK: ceo_mobile_review_inbox RPC (unified inbox)
+    try {
+      final raw = await supabase.rpc(
+        'ceo_mobile_review_inbox',
+        params: {'p_status': queryStatus, 'p_limit': reviewLimit},
+      ).timeout(const Duration(seconds: 6));
+      if (raw is List && raw.isNotEmpty) {
+        return _normalizeReviewRows(raw.cast<Map<String, dynamic>>(), queryStatus);
+      }
+      if (raw is List && raw.isEmpty) return const [];
+    } catch (_) {}
+
+    // FALLBACK: ceo_mobile_get_appeals RPC (jsonb, may need String parsing)
     try {
       final raw = await supabase.rpc(
         'ceo_mobile_get_appeals',
@@ -202,51 +226,7 @@ class CeoRepository {
       if (parsed != null && parsed.isNotEmpty) {
         return _normalizeReviewRows(parsed, queryStatus);
       }
-      if (parsed != null && parsed.isEmpty) return const [];
     } catch (_) {}
-
-    // FALLBACK 2: ceo_mobile_review_inbox RPC
-    try {
-      final raw = await supabase.rpc(
-        'ceo_mobile_review_inbox',
-        params: {'p_status': queryStatus, 'p_limit': reviewLimit},
-      ).timeout(const Duration(seconds: 6));
-      final List<Map<String, dynamic>>? parsed;
-      if (raw is List) {
-        parsed = raw.cast<Map<String, dynamic>>();
-      } else if (raw is String && raw.isNotEmpty && raw != 'null') {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) parsed = decoded.cast<Map<String, dynamic>>();
-        else parsed = null;
-      } else {
-        parsed = null;
-      }
-      if (parsed != null && parsed.isNotEmpty) {
-        return _normalizeReviewRows(parsed, queryStatus);
-      }
-      if (parsed != null && parsed.isEmpty) return const [];
-    } catch (_) {}
-
-    // FALLBACK 3: Direct query (subject to RLS)
-    try {
-      final raw = await supabase
-          .from('appeals')
-          .select('id,status,appeal_type,entity_type,entity_id,town_name,reason,requested_data,requested_by_user_id,created_at')
-          .eq('status', queryStatus)
-          .order('created_at', ascending: false)
-          .limit(reviewLimit)
-          .timeout(const Duration(seconds: 10));
-      if (raw is List && raw.isNotEmpty) {
-        final withReviewKind = raw
-            .cast<Map<String, dynamic>>()
-            .map((r) => {...r, 'review_kind': 'appeal'})
-            .toList();
-        return _normalizeReviewRows(withReviewKind, queryStatus);
-      }
-      if (raw is List && raw.isEmpty) return const [];
-    } catch (e) {
-      print('[repo] direct query error: $e');
-    }
 
     throw Exception('All appeal query methods failed.');
   }
