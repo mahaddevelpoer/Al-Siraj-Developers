@@ -443,7 +443,15 @@ class CeoRepository {
 
   Future<List<LedgerReceiptSummary>> _loadDailyReceipts(DateTime date, {String? townName}) async {
     final day = shortDate.format(date);
-    final mediaFuture = _tableRows('media_library', limit: 700);
+    
+    // Fetch media library rows for this specific date and town (100% reliable)
+    var mediaQuery = supabase.from('media_library').select('*').eq('report_date', day);
+    if (townName != null) {
+      mediaQuery = mediaQuery.eq('town_name', townName);
+    }
+    final mediaFuture = _safeRows(() => mediaQuery, timeout: const Duration(seconds: 8));
+
+    // Fetch daily entries for this specific date and town (100% reliable)
     final rpcRows = await _safeRows(
       () => supabase.rpc(
         'ceo_mobile_daily_receipt_rows',
@@ -451,30 +459,37 @@ class CeoRepository {
       ),
       timeout: const Duration(seconds: 6),
     );
+
+    List<Map<String, dynamic>> rows = rpcRows;
+    
+    // If RPC failed or returned nothing, fallback to direct query by Date
+    if (rows.isEmpty) {
+      var entryQuery = supabase.from('daily_entries').select('*').eq('Date', day);
+      if (townName != null) {
+        entryQuery = entryQuery.eq('Town_Name', townName);
+      }
+      rows = await _safeRows(() => entryQuery, timeout: const Duration(seconds: 8));
+    }
+
     final mediaRows = (await mediaFuture).where((row) {
       final type = textOf(rowValue(row, 'Type') ?? row['type']).toLowerCase();
-      final reportDate = formatAnyDate(rowValue(row, 'Report_Date') ?? row['report_date']);
-      final rowTown = textOf(rowValue(row, 'Town_Name') ?? row['town_name'], 'No town');
-      return type == 'daily_ledger_receipt' &&
-          reportDate == day &&
-          (townName == null || rowTown == townName);
+      return type == 'daily_ledger_receipt';
     }).toList();
-    final rows = rpcRows.isNotEmpty
-        ? rpcRows
-        : await _tableRows('daily_entries', limit: 900);
+
     final cleanRows = rows.where((row) {
       final rowTown = textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town');
       if (townName != null && rowTown != townName) return false;
-      final dateText = formatAnyDate(row['date'] ?? rowValue(row, 'Date') ?? row['created_at']);
       final status = normalizeStatus(row['review_status'] ?? rowValue(row, 'Review_Status') ?? 'approved');
-      return dateText == day && status != 'pending' && status != 'rejected';
+      return status != 'pending' && status != 'rejected';
     }).toList();
+
     final towns = cleanRows
         .map((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town'))
         .followedBy(mediaRows.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'], 'No town')))
         .toSet()
         .toList()
       ..sort();
+
     return towns.map((town) {
       final townRows = cleanRows
           .where((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town') == town)

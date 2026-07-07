@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,22 +14,21 @@ Future<void> main() async {
     FlutterError.presentError(details);
   };
 
-  try {
-    await Firebase.initializeApp();
-  } catch (_) {
-    // CEO app must still open if Firebase is temporarily unavailable.
-  }
+  // Do not block app startup with Firebase and Notification initialization
+  // to reduce the splash screen time.
+  unawaited(Future(() async {
+    try {
+      await Firebase.initializeApp();
+    } catch (_) {}
+    try {
+      await CeoNotificationService.init();
+    } catch (_) {}
+  }));
 
   await Supabase.initialize(
     url: supabaseUrl,
     anonKey: supabaseAnonKey,
   );
-
-  try {
-    await CeoNotificationService.init();
-  } catch (_) {
-    // Local notification setup is non-blocking.
-  }
 
   runApp(const RebuiltCeoApp());
 }
