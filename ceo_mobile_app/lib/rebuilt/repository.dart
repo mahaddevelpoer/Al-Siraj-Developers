@@ -166,53 +166,78 @@ class CeoRepository {
 
   Future<List<ReviewItem>> _loadReviews(String status) async {
     final queryStatus = normalizeStatus(status);
+    print('[repo] === LOAD REVIEWS === status=$status queryStatus=$queryStatus');
 
     // 1. ceo_mobile_get_appeals — SECURITY DEFINER, bypasses RLS
     try {
+      print('[repo] Trying ceo_mobile_get_appeals RPC...');
       final raw = await supabase.rpc(
         'ceo_mobile_get_appeals',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
       ).timeout(const Duration(seconds: 8));
-      // FIX: Supabase RPC returning jsonb may arrive as String, not List.
+      print('[repo] RPC raw type=${raw.runtimeType}');
+      if (raw != null) {
+        print('[repo] RPC raw length=${raw.toString().length} chars');
+        print('[repo] RPC raw first 200=${raw.toString().substring(0, raw.toString().length > 200 ? 200 : raw.toString().length)}');
+      }
+
       final List<Map<String, dynamic>>? parsed;
       if (raw is List) {
+        print('[repo] RPC raw is List with ${raw.length} items');
         parsed = raw.cast<Map<String, dynamic>>();
       } else if (raw is String && raw.isNotEmpty && raw != 'null') {
+        print('[repo] RPC raw is String, attempting jsonDecode...');
         final decoded = jsonDecode(raw);
         if (decoded is List) {
+          print('[repo] RPC decoded List with ${decoded.length} items');
           parsed = decoded.cast<Map<String, dynamic>>();
         } else {
+          print('[repo] RPC decoded is NOT a List: ${decoded.runtimeType}');
           parsed = null;
         }
       } else {
+        print('[repo] RPC raw is null or empty, parsed=null');
         parsed = null;
       }
+
       if (parsed != null && parsed.isNotEmpty) {
-        return _normalizeReviewRows(parsed, queryStatus);
+        print('[repo] RPC parsed first row keys=${parsed.first.keys.toList()}');
+        print('[repo] RPC parsed first row status=${parsed.first['status']}');
+        print('[repo] RPC parsed first row review_kind=${parsed.first['review_kind']}');
+        final normalized = _normalizeReviewRows(parsed, queryStatus);
+        print('[repo] RPC normalized count=${normalized.length}');
+        return normalized;
       }
       if (parsed != null && parsed.isEmpty) {
+        print('[repo] RPC returned empty list — no pending appeals');
         return const [];
       }
+      print('[repo] RPC parsed is null, falling through');
     } on PostgrestException catch (e) {
       if (e.code == 'PGRST202') {
-        // Function doesn't exist yet — fall through
+        print('[repo] RPC function not found, falling through');
+      } else {
+        print('[repo] RPC PostgrestException: $e');
       }
     } catch (e) {
-      // Log error for debugging
-      print('[repo] ceo_mobile_get_appeals error: $e');
+      print('[repo] RPC unexpected error: $e');
     }
 
     // 2. Fallback: legacy RPC (ceo_mobile_review_inbox)
     try {
+      print('[repo] Trying ceo_mobile_review_inbox RPC...');
       final raw = await supabase.rpc(
         'ceo_mobile_review_inbox',
         params: {'p_status': queryStatus, 'p_limit': reviewLimit},
       ).timeout(const Duration(seconds: 6));
-      // Same fix for JSONB string response
+      print('[repo] inbox RPC raw type=${raw.runtimeType}');
+
       final List<Map<String, dynamic>>? parsed;
       if (raw is List) {
+        print('[repo] inbox RPC raw is List with ${raw.length} items');
         parsed = raw.cast<Map<String, dynamic>>();
       } else if (raw is String && raw.isNotEmpty && raw != 'null') {
+        print('[repo] inbox RPC raw is String, decoding...');
         final decoded = jsonDecode(raw);
         if (decoded is List) {
           parsed = decoded.cast<Map<String, dynamic>>();
@@ -223,30 +248,43 @@ class CeoRepository {
         parsed = null;
       }
       if (parsed != null && parsed.isNotEmpty) {
+        print('[repo] inbox RPC normalized count=${_normalizeReviewRows(parsed, queryStatus).length}');
         return _normalizeReviewRows(parsed, queryStatus);
       }
       if (parsed != null && parsed.isEmpty) return const [];
+      print('[repo] inbox RPC parsed is null, falling through');
     } catch (e) {
-      print('[repo] ceo_mobile_review_inbox error: $e');
+      print('[repo] inbox RPC error: $e');
     }
 
     // 3. Last resort: direct query
     try {
+      print('[repo] Trying direct appeals query...');
       final raw = await supabase
           .from('appeals')
           .select('id,status,town_name,requested_data,requested_by_user_id,reason,appeal_type,created_at')
+          .eq('status', queryStatus)
           .order('created_at', ascending: false)
           .limit(reviewLimit)
           .timeout(const Duration(seconds: 6));
-      if (raw.isNotEmpty) {
-        return _normalizeReviewRows(
-          raw.cast<Map<String, dynamic>>().map((r) => {...r, 'review_kind': 'appeal'}).toList(),
-          queryStatus,
-        );
+      print('[repo] direct query raw type=${raw.runtimeType}');
+      if (raw is List) {
+        print('[repo] direct query raw has ${raw.length} items');
+        if (raw.isNotEmpty) {
+          print('[repo] direct query first row: ${raw.first}');
+          final withReviewKind = raw.cast<Map<String, dynamic>>().map((r) => {...r, 'review_kind': 'appeal'}).toList();
+          final normalized = _normalizeReviewRows(withReviewKind, queryStatus);
+          print('[repo] direct query normalized count=${normalized.length}');
+          return normalized;
+        }
       }
-    } catch (_) {}
+      print('[repo] direct query returned empty or non-list');
+    } catch (e) {
+      print('[repo] direct query error: $e');
+    }
 
-    throw Exception('All query methods failed. Check app logs.');
+    print('[repo] === ALL METHODS FAILED ===');
+    throw Exception('All query methods failed. Check app logs for details.');
   }
 
   List<ReviewItem> _normalizeReviewRows(
