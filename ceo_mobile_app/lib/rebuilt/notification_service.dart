@@ -4,10 +4,12 @@ import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'constants.dart';
 
 final notificationTapStream = StreamController<Map<String, dynamic>>.broadcast();
+final notificationActionStream = StreamController<Map<String, dynamic>>.broadcast();
 
 @pragma('vm:entry-point')
 Future<void> ceoFirebaseBackgroundHandler(RemoteMessage message) async {
@@ -30,12 +32,24 @@ class CeoNotificationService {
       settings,
       onDidReceiveNotificationResponse: (response) {
         final payload = response.payload;
+        final actionId = response.actionId;
+        
         if (payload == null || payload.trim().isEmpty) return;
         try {
-          notificationTapStream.add({
-            ...Map<String, dynamic>.from(jsonDecode(payload)),
-            if (response.actionId != null) 'action': response.actionId,
-          });
+          final data = Map<String, dynamic>.from(jsonDecode(payload));
+          
+          // Check if action button was pressed
+          if (actionId == 'approve' || actionId == 'reject') {
+            final status = actionId == 'approve' ? 'approved' : 'rejected';
+            final appealId = data['id'] ?? '';
+            if (appealId.isNotEmpty) {
+              notificationActionStream.add({'id': appealId, 'status': status});
+              _handleNotificationAction(appealId, status);
+            }
+            return;
+          }
+          
+          notificationTapStream.add(data);
         } catch (_) {
           notificationTapStream.add({'route': payload});
         }
@@ -60,6 +74,27 @@ class CeoNotificationService {
       ),
     );
     _ready = true;
+  }
+
+  // Handle approve/reject action from notification (works even when app is in background)
+  static Future<void> _handleNotificationAction(String appealId, String status) async {
+    try {
+      await Supabase.instance.client.rpc(
+        'ceo_review_appeal',
+        params: {'appeal_id': appealId, 'new_status': status},
+      );
+      print('[NOTIFICATION] Appeal $appealId $status via notification action');
+      
+      // Show confirmation notification
+      await showLocal(
+        title: 'Appeal ${status == 'approved' ? 'Approved' : 'Rejected'}',
+        body: 'You ${status == 'approved' ? "approved" : "rejected"} the appeal.',
+        routeData: {'route': 'approvals'},
+        channelId: 'ceo_approvals',
+      );
+    } catch (e) {
+      print('[NOTIFICATION] Failed to $status appeal: $e');
+    }
   }
 
   static Future<void> startFcm() async {

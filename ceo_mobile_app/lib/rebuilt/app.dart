@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../components/admin_password_setup.dart';
 import 'constants.dart';
 import 'screens.dart';
 
@@ -55,11 +57,121 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
-  bool get _loggedIn => Supabase.instance.client.auth.currentSession != null;
+  bool _checking = true;
+  bool _showDashboard = false;
+  bool _needsPasswordSetup = false;
+  bool _needsBiometric = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAuth();
+  }
+
+  Future<void> _checkAuth() async {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      setState(() {
+        _checking = false;
+        _showDashboard = false;
+        _needsPasswordSetup = false;
+        _needsBiometric = false;
+      });
+      return;
+    }
+
+    // Check admin password status
+    final prefs = await SharedPreferences.getInstance();
+    final passwordSet = prefs.getBool('admin_password_set') ?? false;
+    final biometricEnabled = prefs.getBool('biometric_enabled') ?? false;
+
+    if (!passwordSet) {
+      setState(() {
+        _checking = false;
+        _needsPasswordSetup = true;
+        _showDashboard = false;
+        _needsBiometric = false;
+      });
+      return;
+    }
+
+    // Check biometric if enabled
+    if (biometricEnabled) {
+      try {
+        final localAuth = LocalAuthentication();
+        final canCheck = await localAuth.canCheckBiometrics;
+        final biometrics = await localAuth.getAvailableBiometrics();
+        if (canCheck && biometrics.isNotEmpty) {
+          final authenticated = await localAuth.authenticate(
+            localizedReason: 'Open CEO app',
+            options: const AuthenticationOptions(biometricOnly: true),
+          );
+          if (!authenticated) {
+            setState(() {
+              _checking = false;
+              _showDashboard = false;
+              _needsPasswordSetup = false;
+              _needsBiometric = false;
+            });
+            return;
+          }
+        } else {
+          // Fallback to device PIN/pattern
+          final authenticated = await localAuth.authenticate(
+            localizedReason: 'Open CEO app',
+            options: const AuthenticationOptions(),
+          );
+          if (!authenticated) {
+            setState(() {
+              _checking = false;
+              _showDashboard = false;
+              _needsPasswordSetup = false;
+              _needsBiometric = false;
+            });
+            return;
+          }
+        }
+      } catch (_) {
+        // If biometric fails, still allow access
+      }
+    }
+
+    setState(() {
+      _checking = false;
+      _showDashboard = true;
+      _needsPasswordSetup = false;
+      _needsBiometric = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (_loggedIn) return const CeoShell();
-    return LoginScreen(onLoggedIn: () => setState(() {}));
+    if (_checking) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_needsPasswordSetup) {
+      return AdminPasswordSetup(
+        onSetupComplete: () {
+          setState(() {
+            _needsPasswordSetup = false;
+            _showDashboard = true;
+          });
+        },
+      );
+    }
+
+    if (_showDashboard) {
+      return const CeoShell();
+    }
+
+    return LoginScreen(
+      onLoggedIn: () {
+        // After login, check password setup again
+        _checkAuth();
+      },
+    );
   }
 }

@@ -713,35 +713,10 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
     final isError = _error != null;
     final errorText = isError ? '${_error}' : '';
 
-    // DEBUG: Force log every build
-    print('[UI-BUILD] ApprovalsScreen REBUILDING: rows=${rows.length}, loading=$_loading');
-
     return ScreenScaffold(
       title: 'Approvals',
       onRefresh: _refresh,
       children: [
-        // DEBUG BANNER: Shows exact state
-        if (_loading == false)
-          Container(
-            color: Colors.red.shade100,
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                Text(
-                  '🔴 DEBUG: ROWS COUNT = ${rows.length}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.red),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: () {
-                    print('[FORCE-REFRESH] PRESSED');
-                    _refresh(force: true);
-                  },
-                  child: const Text('⚡ FORCE REFRESH'),
-                ),
-              ],
-            ),
-          ),
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
