@@ -641,6 +641,7 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
 
   Future<void> _load({bool force = true}) async {
     final token = ++_loadToken;
+    print('[UI-load] START: token=$token, status=$_status, force=$force');
     setState(() {
       _loading = true;
       _error = null;
@@ -650,12 +651,19 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
       final rows = await widget.repo
           .loadReviews(_status, force: force)
           .timeout(const Duration(seconds: 30), onTimeout: () => <ReviewItem>[]);
-      if (!mounted || token != _loadToken) return;
+      print('[UI-load] Got rows: count=${rows.length}, token=$token, currentToken=$_loadToken');
+      print('[UI-load] First row (if any): ${rows.isNotEmpty ? rows.first : "none"}');
+      if (!mounted || token != _loadToken) {
+        print('[UI-load] SKIPPED: mounted=$mounted, tokenMismatch=${token != _loadToken}');
+        return;
+      }
+      print('[UI-load] UPDATING STATE: setting ${rows.length} rows');
       setState(() {
         _rows = rows;
         _loading = false;
       });
     } catch (e) {
+      print('[UI-load] ERROR: $e');
       if (!mounted || token != _loadToken) return;
       setState(() {
         _error = e;
@@ -689,6 +697,10 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
     final rows = _rows;
     final isError = _error != null;
     final errorText = isError ? '${_error}' : '';
+
+    // DEBUG: Log UI state on every build
+    print('[UI] Building ApprovalsScreen: rows=${rows.length}, loading=$_loading, error=$_error');
+
     return ScreenScaffold(
       title: 'Approvals',
       onRefresh: _refresh,
@@ -707,19 +719,21 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
                 style: const TextStyle(color: kMuted),
               ),
               // DEBUG: Show raw query result for troubleshooting
-              if (!isError && _loading == false && rows.isEmpty)
+              if (_loading == false && rows.isEmpty)
                 Container(
                   margin: const EdgeInsets.only(top: 12),
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: kBg, borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(color: kRed.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: kRed)),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('DEBUG INFO', style: TextStyle(fontWeight: FontWeight.bold, color: kRed)),
+                      Text('️ DEBUG INFO', style: TextStyle(fontWeight: FontWeight.bold, color: kRed)),
                       const SizedBox(height: 4),
                       Text('Status filter: $_status'),
                       Text('Query status: ${normalizeStatus(_status)}'),
                       Text('Rows returned: ${rows.length}'),
+                      Text('Loading: $_loading'),
+                      Text('Error: $errorText'),
                       const SizedBox(height: 8),
                       Text('Pull down to refresh', style: TextStyle(fontSize: 11, color: kMuted)),
                     ],

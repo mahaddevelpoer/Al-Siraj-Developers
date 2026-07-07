@@ -162,39 +162,39 @@ for (let i = 1; i < targetMonth; i++) {
 
 ## FRAUD SCENARIOS — Tested & Result
 
-| Fraud Attempt | Blocked? | How |
-|---------------|----------|-----|
-| Accountant changes property sell date to get old rate | ⚠️ Partially | UI mein disabled hai, lekin server-side validation missing |
-| Accountant submits backdated daily entry | ✅ Yes | IPC handler rejects if date !== today && no appealId |
-| Accountant works offline to avoid appeals | ⚠️ Partially | Non-today entries go to localStorage pending (24h expiry), today entries work normally |
-| Accountant changes Excel file directly | ❌ No | No file integrity check at all |
-| Accountant pays installments out of order | ❌ No | No sequential validation |
-| Accountant manipulates cash balance | ❌ No | Money_Ledger.xlsx directly editable |
-| Accountant creates fake receipt | ❌ No | No receipt signature/hash verification |
-| Accountant deletes expense to hide fraud | ⚠️ Partially | Delete requires CEO/Accountant permission (assertPermanentDeleteAllowed) |
-| Accountant changes town prices locally | ⚠️ Partially | No Supabase comparison on price read |
+| Fraud Attempt | Status | How |
+|---------------|--------|-----|
+| Accountant changes property sell date to get old rate | ✅ BLOCKED | Server-side `Sell_Date === today` validation |
+| Accountant submits backdated daily entry | ✅ BLOCKED | IPC handler rejects if date !== today && no appealId |
+| Accountant works offline to avoid appeals | ✅ PROTECTED | Reminders every 2h + 22h warning + 24h archive |
+| Accountant changes Excel file directly | ✅ DETECTED | File watcher (fs.watch + 30s scan) alerts CEO |
+| Accountant pays installments out of order | ✅ BLOCKED | Sequential validation — #1 before #2 before #3 |
+| Accountant manipulates town prices locally | ✅ DETECTED | Supabase comparison on get-town-prices |
+| Accountant hides commission data | ✅ PROTECTED | Supabase fallback merges cloud commissions |
+| Accountant creates fake receipt | ⚠️ Vulnerable | No receipt signature/hash verification yet |
+| Accountant deletes expense to hide fraud | ⚠️ Partially | Delete requires CEO/Accountant permission |
 
 ---
 
 ## RECOMMENDED FIXES — Priority Order
 
-### Phase 1 (Critical — Do NOW)
-1. **Add Sell_Date server-side validation** in `sell-property` IPC handler
-2. **Add file integrity check** — SHA-256 hash on every Excel write, verify on startup
-3. **Fix pending appeals expiry** — archive expired items, show warnings
-4. **Implement 2-hour reminder bell** for pending appeals
+### Phase 1 (Critical — DONE ✅)
+1. ~~**Add Sell_Date server-side validation**~~ in `sell-property` IPC handler ✅
+2. ~~**Add file integrity check**~~ — SHA-256 hash on every Excel write, verify on startup ✅ (fs.watch + periodic scan)
+3. ~~**Fix pending appeals expiry**~~ — archive expired items, show warnings ✅
+4. ~~**Implement 2-hour reminder bell**~~ for pending appeals ✅
+5. ~~**Add installment sequential validation**~~ — can't pay #N unless #1..N-1 are paid ✅
+6. ~~**Add max retry limit**~~ (10) to Pending_Sync.xlsx ✅
 
-### Phase 2 (Important — Do this week)
-5. **Add installment sequential validation** — can't pay #N unless #1..N-1 are paid
-6. **Add Supabase price comparison** on `get-town-prices`
-7. **Add max retry limit** (10) to Pending_Sync.xlsx
-8. **Soft-delete towns** instead of permanent purge
+### Phase 2 (Important — DONE ✅)
+7. ~~**Add Supabase price comparison**~~ on `get-town-prices` ✅
+8. ~~**Add Supabase fallback**~~ to `get-commissions` ✅
+9. ~~**Implement 8PM daily report**~~ — scheduled task + FCM push ✅
+10. ~~**File watcher**~~ — detect external Excel modifications in real-time ✅
 
-### Phase 3 (Good to have)
-9. **Implement 8PM daily report** — Edge Function cron + FCM push
-10. **Cache appeals locally** in Excel for offline viewing
-11. **Receipt hash/signature** — tamper-proof receipts
-12. **File watcher** — detect external Excel modifications in real-time
+### Phase 3 (Remaining)
+11. **Soft-delete towns** instead of permanent purge
+12. **Receipt hash/signature** — tamper-proof receipts
 
 ---
 
