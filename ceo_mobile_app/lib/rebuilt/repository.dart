@@ -167,28 +167,23 @@ class CeoRepository {
   Future<List<ReviewItem>> _loadReviews(String status) async {
     final queryStatus = normalizeStatus(status);
 
-    // PRIMARY: Direct Supabase query — always works, no JSONB type issues
+    // PRIMARY: NEW ceo_mobile_get_appeals_table RPC
+    // Returns TABLE rows (not jsonb) — guaranteed List<Map<String, dynamic>>
     try {
-      final raw = await supabase
-          .from('appeals')
-          .select('id,status,appeal_type,entity_type,entity_id,town_name,reason,requested_data,requested_by_user_id,created_at,otp_code,otp_expires_at,reviewed_at,reviewed_by_user_id')
-          .eq('status', queryStatus)
-          .order('created_at', ascending: false)
-          .limit(reviewLimit)
-          .timeout(const Duration(seconds: 10));
+      final raw = await supabase.rpc(
+        'ceo_mobile_get_appeals_table',
+        params: {'p_status': queryStatus, 'p_limit': reviewLimit},
+      ).timeout(const Duration(seconds: 10));
       if (raw is List && raw.isNotEmpty) {
-        final withReviewKind = raw
-            .cast<Map<String, dynamic>>()
-            .map((r) => {...r, 'review_kind': 'appeal'})
-            .toList();
-        return _normalizeReviewRows(withReviewKind, queryStatus);
+        final rows = raw.cast<Map<String, dynamic>>();
+        return _normalizeReviewRows(rows, queryStatus);
       }
       if (raw is List && raw.isEmpty) return const [];
     } catch (e) {
-      print('[repo] direct query error: $e');
+      print('[repo] ceo_mobile_get_appeals_table error: $e');
     }
 
-    // FALLBACK 1: ceo_mobile_get_appeals RPC (JSONB may return as String)
+    // FALLBACK 1: Legacy ceo_mobile_get_appeals RPC (jsonb)
     try {
       final raw = await supabase.rpc(
         'ceo_mobile_get_appeals',
@@ -231,6 +226,27 @@ class CeoRepository {
       }
       if (parsed != null && parsed.isEmpty) return const [];
     } catch (_) {}
+
+    // FALLBACK 3: Direct query (subject to RLS)
+    try {
+      final raw = await supabase
+          .from('appeals')
+          .select('id,status,appeal_type,entity_type,entity_id,town_name,reason,requested_data,requested_by_user_id,created_at')
+          .eq('status', queryStatus)
+          .order('created_at', ascending: false)
+          .limit(reviewLimit)
+          .timeout(const Duration(seconds: 10));
+      if (raw is List && raw.isNotEmpty) {
+        final withReviewKind = raw
+            .cast<Map<String, dynamic>>()
+            .map((r) => {...r, 'review_kind': 'appeal'})
+            .toList();
+        return _normalizeReviewRows(withReviewKind, queryStatus);
+      }
+      if (raw is List && raw.isEmpty) return const [];
+    } catch (e) {
+      print('[repo] direct query error: $e');
+    }
 
     throw Exception('All appeal query methods failed.');
   }
