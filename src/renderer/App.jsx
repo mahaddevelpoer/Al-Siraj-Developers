@@ -17,6 +17,7 @@ import CEOProjectsHub from './components/CEOProjectsHub';
 import TownDashboard from './components/TownDashboard';
 import AuthScreen from './components/AuthScreen';
 import AccountantUnlockScreen from './components/AccountantUnlockScreen';
+import TermsScreen from './components/TermsScreen';
 import AppealDashboard from './systems/AppealSystem/AppealDashboard';
 import PendingCollections from './components/PendingCollections';
 import { LanguageProvider } from './LanguageContext';
@@ -348,6 +349,9 @@ function AppInner() {
     } catch {
       return [];
     }
+  });
+  const [termsAccepted, setTermsAccepted] = useState(() => {
+    return localStorage.getItem('al_siraj_terms_accepted') === '1';
   });
   const sessionHydratedRef = useRef(false);
 
@@ -1140,6 +1144,15 @@ function AppInner() {
       default: return <Dashboard {...props} />;
     }
   };
+
+  if (!termsAccepted) {
+    return (
+      <TermsScreen onAccept={() => {
+        localStorage.setItem('al_siraj_terms_accepted', '1');
+        setTermsAccepted(true);
+      }} />
+    );
+  }
 
   return (
     <div className="app-layout">

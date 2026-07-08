@@ -59,7 +59,7 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
-enum _AppScreen { loading, login, passwordSetup, unlock, dashboard }
+enum _AppScreen { loading, login, passwordSetup, unlock, terms, dashboard }
 
 class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   _AppScreen _screen = _AppScreen.loading;
@@ -132,6 +132,12 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       return;
     }
 
+    final termsAccepted = prefs.getBool('al_siraj_terms_accepted') ?? false;
+    if (!termsAccepted) {
+      setState(() => _screen = _AppScreen.terms);
+      return;
+    }
+
     _biometricEnabled = prefs.getBool('biometric_enabled') ?? false;
 
     if (_biometricEnabled && !_unlockedThisSession) {
@@ -201,6 +207,15 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
           hasBiometrics: _biometricEnabled,
           onBiometric: _doBiometricAuth,
           onPassword: _doPasswordUnlock,
+        );
+
+      case _AppScreen.terms:
+        return TermsScreen(
+          onAccept: () async {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('al_siraj_terms_accepted', true);
+            _boot();
+          },
         );
 
       case _AppScreen.dashboard:

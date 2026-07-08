@@ -530,6 +530,23 @@ export default function TownDashboard({
   const [townData, setTownData] = useState(selectedTown || {});
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [isUploadingReport, setIsUploadingReport] = useState(false);
+
+  const handleUpload8pmReport = async () => {
+    setIsUploadingReport(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await window.api.generateDailyTownReceipts(today);
+      if (res && res.error) {
+        showToast?.('error', `Upload failed: ${res.error}`);
+      } else {
+        showToast?.('success', '8 PM Report successfully uploaded to cloud.');
+      }
+    } catch (error) {
+      showToast?.('error', 'Error uploading report.');
+    }
+    setIsUploadingReport(false);
+  };
 
   // Sync when selectedTown changes
   useEffect(() => {
@@ -629,6 +646,19 @@ export default function TownDashboard({
           <span className="ui-town-topbar-badge commission" style={{ display:'flex', alignItems:'center', gap:4 }}>
             <HandshakeIcon size={12}/> {townData.Commission_Rate || 0}% Commission
           </span>
+          {isAccountant && (
+            <button
+              className="ui-town-topbar-badge"
+              type="button"
+              onClick={handleUpload8pmReport}
+              disabled={isUploadingReport}
+              style={{ cursor: isUploadingReport ? 'wait' : 'pointer', color: '#047857', border: '1px solid rgba(4,120,87,0.22)' }}
+            >
+              <span className="ui-town-sidebar-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <ChartIcon size={12}/> {isUploadingReport ? 'Uploading...' : 'Upload 8PM Report'}
+              </span>
+            </button>
+          )}
           {isAccountant && (
             <button
               className="ui-town-topbar-badge"
