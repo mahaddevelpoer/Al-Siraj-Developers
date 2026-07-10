@@ -249,10 +249,37 @@ async function initializeDatabase(dbPath) {
 
   for (const gf of globalFiles) {
     const filePath = path.join(getGlobalsPath(), gf.name);
+    let needRecreate = false;
+
     if (!fs.existsSync(filePath)) {
+      needRecreate = true;
+    } else {
+      try {
+        const stats = fs.statSync(filePath);
+        if (stats.size === 0) {
+          needRecreate = true;
+        } else {
+          const tempWorkbook = new ExcelJS.Workbook();
+          await tempWorkbook.xlsx.readFile(filePath);
+        }
+      } catch (err) {
+        console.warn(`[initializeDatabase] File ${gf.name} is corrupted or empty. Backing up and recreating.`, err.message);
+        needRecreate = true;
+        if (fs.existsSync(filePath)) {
+          try {
+            fs.renameSync(filePath, `${filePath}.broken-${Date.now()}`);
+          } catch (_) {}
+        }
+      }
+    }
+
+    if (needRecreate) {
       const workbook = new ExcelJS.Workbook();
       createSheetWithFriendlyHeaders(workbook, 'Data', gf.columns);
       await workbook.xlsx.writeFile(filePath);
+    } else {
+      // Migrations: ensure columns exist in existing valid file
+      await ensureSheetColumns(filePath, 'Data', gf.columns);
     }
   }
 }
@@ -450,16 +477,16 @@ async function updateAllFileHashes() {
   ];
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) continue;
-    const walk = (d) => {
+    const walk = async (d) => {
       for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
         const full = path.join(d, entry.name);
-        if (entry.isDirectory()) { walk(full); continue; }
+        if (entry.isDirectory()) { await walk(full); continue; }
         if (!entry.name.endsWith('.xlsx')) continue;
         const rel = path.relative(DB_PATH, full);
         hashes[rel] = await hashExcelFile(full);
       }
     };
-    walk(dir);
+    await walk(dir);
   }
   const hashPath = path.join(DB_PATH, 'Global', 'File_Integrity_Hashes.json');
   fs.writeFileSync(hashPath, JSON.stringify(hashes, null, 2));

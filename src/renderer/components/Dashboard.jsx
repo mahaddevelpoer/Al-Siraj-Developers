@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { setBusinessAppealOtp } from '../lib/appeals';
 import PendingCollections from './PendingCollections';
+import { Emoji } from './Icons';
 
 ChartJS.register(CategoryScale, LinearScale, ArcElement, PointElement, LineElement, Filler, Title, Tooltip, Legend);
 
@@ -235,7 +236,7 @@ function AgentDashboard({ sales }) {
       {agentTab === 'pendings' && (
         <div className="table-container">
           <div className="table-header">
-            <h3>⏳ Pending CEO Approvals — Installment Plans</h3>
+            <h3><Emoji emoji="⏳" /> Pending CEO Approvals — Installment Plans</h3>
           </div>
           {loadingAppeals ? (
             <div className="empty-state"><p>Loading...</p></div>
@@ -279,7 +280,7 @@ function AgentDashboard({ sales }) {
                             onClick={() => handleAppeal(item)}
                             style={{ whiteSpace: 'nowrap' }}
                           >
-                            ⏳ Appeal
+                            <Emoji emoji="⏳" /> Appeal
                           </button>
                         </td>
                       </tr>

@@ -105,32 +105,28 @@ export default function AppealDashboard() {
   const loadAppeals = async (filter = activeFilter) => {
     try {
       let data = [];
-      if (window.api?.getAppeals) {
-        const result = await window.api.getAppeals({ status: filter === 'all' ? undefined : filter, limit: 200 });
-        if (result?.error) throw new Error(result.error);
-        if (result?.success) data = result.data || [];
-      } else {
-        const res = await supabase
-          .from('appeals')
-          .select('*')
-          .order('created_at', { ascending: false });
-        if (res.error) throw res.error;
-        const requesterIds = [...new Set((res.data || []).map(a => a.requested_by_user_id).filter(Boolean))];
-        let userMap = {};
-        if (requesterIds.length) {
-          const { data: users } = await supabase
-            .from('users')
-            .select('id, full_name, email, phone_number, role, town_name, agent_town')
-            .in('id', requesterIds);
-          if (users) {
-            userMap = Object.fromEntries(users.map(u => [u.id, u]));
-          }
+      const res = await supabase
+        .from('appeals')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (res.error) throw res.error;
+      
+      const requesterIds = [...new Set((res.data || []).map(a => a.requested_by_user_id).filter(Boolean))];
+      let userMap = {};
+      if (requesterIds.length) {
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, full_name, email, phone_number, role, town_name, agent_town')
+          .in('id', requesterIds);
+        if (users) {
+          userMap = Object.fromEntries(users.map(u => [u.id, u]));
         }
-        data = (res.data || []).map((appeal) => ({
-          ...appeal,
-          requested_by_user_id: userMap[appeal.requested_by_user_id] || appeal.requested_by_user_id,
-        }));
       }
+      
+      data = (res.data || []).map((appeal) => ({
+        ...appeal,
+        requested_by_user_id: userMap[appeal.requested_by_user_id] || appeal.requested_by_user_id,
+      }));
 
       const rows = data
         .filter((appeal) => normalizeStatus(appeal.status) === filter)

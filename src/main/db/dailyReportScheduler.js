@@ -72,10 +72,35 @@ async function runDailyReport(dbPath, mainWindow) {
 
     const summaries = generateTownSummary(towns, sales, expenses, entries);
 
-    // Build notification message
+    // Build notification message and Save Daily Reports Locally (triggers sync)
     let message = '';
+    const { saveDailyReportLocally } = require('./dailyReports');
+    const onlineDb = require('./online');
+    const { syncOnline } = require('./syncHelpers');
+    
     for (const s of summaries) {
       message += `\n${s.townName}: ${s.propertiesSold} sold | PKR ${s.net.toLocaleString()} net`;
+      
+      // Dual-write snapshot
+      const reportDate = new Date().toISOString().slice(0, 10);
+      const reportPayload = {
+        Report_ID: `EOD-${s.townName}-${reportDate}`.replace(/[^a-zA-Z0-9-]/g, ''),
+        Town_Name: s.townName,
+        Date: reportDate,
+        Generated_At: new Date().toISOString(),
+        Total_Received: s.totalReceived,
+        Total_Expenses: s.totalExpenses,
+        Daily_Entries: s.dailyEntries,
+        Net_Balance: s.net,
+        Properties_Sold: s.propertiesSold,
+        Report_Data: s,
+      };
+
+      await syncOnline(
+        () => saveDailyReportLocally(reportPayload),
+        (localReport) => onlineDb.insert('daily_reports', localReport),
+        { tableName: 'daily_reports', operation: 'insert', payload: reportPayload, clientWriteId: reportPayload.Report_ID }
+      ).catch(e => console.warn('[daily-report] Failed to save/sync report for', s.townName, e.message));
     }
 
     // Desktop notification

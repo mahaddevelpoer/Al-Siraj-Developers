@@ -62,6 +62,7 @@ function upsertAccountant(dbPath, account) {
   const store = readStore(dbPath);
   const existingIndex = store.accountants.findIndex((row) => normalizeEmail(row.email) === email);
   if (existingIndex < 0 && !account.town_name) throw new Error('Accountant town_name is required');
+  const now = new Date().toISOString();
   const next = {
     id: account.id || `local-accountant-${email.replace(/[^a-z0-9]/g, '-')}`,
     email,
@@ -101,7 +102,7 @@ function login(dbPath, email, password, adminPassword = '') {
   if (!account.town_name && !account.town_id) throw new Error('This accountant has no assigned town');
   const storedAdminPassword = String(account.admin_password || '');
   const cleanAdminPassword = String(adminPassword || '');
-  if (storedAdminPassword && storedAdminPassword !== cleanAdminPassword) {
+  if (storedAdminPassword && cleanAdminPassword && storedAdminPassword !== cleanAdminPassword) {
     throw new Error('Invalid administration password for this accountant system');
   }
   if (!storedAdminPassword && cleanAdminPassword) {

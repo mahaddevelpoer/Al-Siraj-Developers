@@ -72,6 +72,13 @@ export function AuthProvider({ children }) {
           setUserProfile(null);
           return;
         }
+        if (profile && profile.role === 'accountant' && profile.is_active === false) {
+          await auth.signOut().catch(() => {});
+          setUser(null);
+          setUserRole(null);
+          setUserProfile(null);
+          return;
+        }
         setUser(session.user);
       } else {
         setUser(null);
@@ -133,6 +140,13 @@ export function AuthProvider({ children }) {
       if (session?.user) {
         const profile = await fetchUserProfile(session.user.id);
         if (shouldRequireAdminUnlock(profile)) {
+          await auth.signOut().catch(() => {});
+          setUser(null);
+          setUserRole(null);
+          setUserProfile(null);
+          return;
+        }
+        if (profile && profile.role === 'accountant' && profile.is_active === false) {
           await auth.signOut().catch(() => {});
           setUser(null);
           setUserRole(null);

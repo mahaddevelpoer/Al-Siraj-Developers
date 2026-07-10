@@ -11,6 +11,7 @@ export default function Settings({ onClose }) {
   const [dailySettings, setDailySettings] = useState(null);
   const [dailySaving, setDailySaving] = useState(false);
   const [dailyGenerating, setDailyGenerating] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
   const [soundSettings, setSoundSettings] = useState(() => getSoundSettings());
 
   useEffect(() => {
@@ -127,6 +128,32 @@ export default function Settings({ onClose }) {
       playFailed();
     } finally {
       setDailyGenerating(false);
+    }
+  };
+
+  const handleFactoryReset = async () => {
+    if (!window.confirm("WARNING: This will permanently wipe ALL test data (towns, properties, sales, expenses) from both local storage and the cloud. The CEO account will remain. Are you absolutely sure?")) {
+      return;
+    }
+    if (!window.confirm("FINAL WARNING: All your entered data will be gone forever. Type OK to continue.")) {
+      return;
+    }
+    try {
+      setResetBusy(true);
+      const result = await window.api?.factoryReset?.();
+      if (result?.error) throw new Error(result.error);
+      toast.success("All test data has been wiped successfully!");
+      playSuccess();
+      localStorage.clear();
+      sessionStorage.clear();
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (e) {
+      toast.error("Factory reset failed: " + e.message);
+      playFailed();
+    } finally {
+      setResetBusy(false);
     }
   };
 
@@ -309,6 +336,26 @@ export default function Settings({ onClose }) {
             disabled={soundSettings.enabled === false}
           >
             Test Sound
+          </button>
+        </div>
+
+        <div style={{
+          padding: 16, borderRadius: 12, background: 'rgba(239,68,68,0.08)',
+          border: '1px solid rgba(239,68,68,0.28)', marginBottom: 24,
+        }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color: '#b91c1c', marginBottom: 6 }}>
+            Danger Zone
+          </div>
+          <div style={{ fontSize: 12, color: '#991b1b', lineHeight: 1.55, marginBottom: 12 }}>
+            Permanently wipe all test data (Towns, Sales, Expenses, Accountants) from local storage and the cloud. This action cannot be undone.
+          </div>
+          <button 
+            onClick={handleFactoryReset} 
+            className="btn" 
+            style={{ background: '#ef4444', color: 'white', borderColor: '#ef4444' }}
+            disabled={resetBusy}
+          >
+            {resetBusy ? 'Wiping Data...' : 'Wipe All Test Data'}
           </button>
         </div>
 

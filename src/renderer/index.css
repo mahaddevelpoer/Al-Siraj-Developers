@@ -4120,6 +4120,7 @@ tr:hover .status-badge { transform: scale(1.05); }
   bottom: 18px;
   width: min(360px, calc(100vw - 36px));
   z-index: 5000;
+  pointer-events: auto;
   padding: 12px 14px;
   border: 1px solid rgba(37, 99, 235, 0.18);
   border-radius: 14px;
@@ -8109,6 +8110,7 @@ tbody tr:hover {
   top: 18px;
   right: 22px;
   z-index: 9999;
+  pointer-events: auto;
 }
 
 .global-bell-center.embedded {
@@ -8165,6 +8167,7 @@ tbody tr:hover {
   background: #fff;
   box-shadow: 0 28px 80px rgba(15, 23, 42, 0.22);
   overflow: hidden;
+  z-index: 99999 !important;
 }
 
 .global-bell-head {
@@ -9699,6 +9702,7 @@ button:disabled {
   border-radius: 18px !important;
   background: #ffffff !important;
   box-shadow: 0 20px 52px rgba(15, 23, 42, 0.16) !important;
+  z-index: 9999 !important;
 }
 
 .notif-header {
@@ -10699,6 +10703,11 @@ body,
   }
 }
 
+.ui-topbar {
+  position: relative;
+  z-index: 100;
+}
+
 /* Burger navigation drawer: sidebar is fully hidden until requested. */
 .ui-town-burger-btn {
   flex: 0 0 auto;
@@ -11276,4 +11285,387 @@ textarea:focus {
     scroll-behavior: auto !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAMPER LOCK SECURITY SCREEN
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.tamper-lock-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(8px);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Inter', system-ui, sans-serif;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.tamper-lock-modal {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 32px;
+  width: 90%;
+  max-width: 480px;
+  box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.15);
+  animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: auto;
+}
+
+.tamper-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.tamper-icon-wrapper {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  background: #f0f9ff;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0ea5e9;
+}
+
+.tamper-title {
+  color: #0f172a;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  margin: 0 0 4px 0;
+}
+
+.tamper-subtitle {
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.tamper-details {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  border: 1px solid #e2e8f0;
+}
+
+.tamper-details p {
+  color: #475569;
+  font-size: 13px;
+  margin: 0 0 8px 0;
+}
+
+.tamper-file-path {
+  background: #ffffff;
+  color: #0f172a;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  word-break: break-all;
+  margin-bottom: 8px;
+  border: 1px solid #cbd5e1;
+}
+
+.tamper-timestamp {
+  font-size: 12px !important;
+  color: #94a3b8 !important;
+  margin: 0 !important;
+}
+
+.tamper-warning-box {
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: left;
+  margin-bottom: 24px;
+  border-left: 4px solid #ef4444;
+}
+
+.tamper-password-section p {
+  font-size: 13px;
+  color: #334155;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.tamper-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  background: #ffffff;
+  color: #0f172a;
+  transition: all 0.2s;
+  pointer-events: auto;
+  position: relative;
+  z-index: 10;
+}
+
+.tamper-input:focus {
+  outline: none;
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+}
+
+.tamper-error {
+  color: #ef4444;
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tamper-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.tamper-actions button {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tamper-actions button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.tamper-btn-primary {
+  background: #0ea5e9;
+  color: white;
+  box-shadow: 0 2px 4px rgba(14, 165, 233, 0.2);
+}
+
+.tamper-btn-primary:hover:not(:disabled) {
+  background: #0284c7;
+  box-shadow: 0 4px 6px rgba(14, 165, 233, 0.3);
+}
+
+.tamper-btn-secondary {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.tamper-btn-secondary:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+@keyframes slideUpFade {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   FINTECH LAYOUT OVERHAUL
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.fintech-hero {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  border-radius: 16px;
+  padding: 32px 40px;
+  color: #fff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.5);
+  position: relative;
+  overflow: hidden;
+}
+
+.fintech-hero::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: radial-gradient(circle at top right, rgba(255,255,255,0.05) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.fintech-hero-copy h2 {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  margin: 0 0 8px 0;
+  color: #fff;
+}
+
+.fintech-hero-copy p {
+  color: #94a3b8;
+  font-size: 14px;
+  margin: 0;
+}
+
+.fintech-hero-metrics {
+  display: flex;
+  gap: 32px;
+  align-items: center;
+}
+
+.fintech-hero-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.fintech-hero-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #94a3b8;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.fintech-hero-value {
+  font-size: 24px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+
+.fintech-hero-value-main {
+  font-size: 32px;
+}
+
+.fintech-hero-divider {
+  width: 1px;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.fintech-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.fintech-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.fintech-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px -8px rgba(15, 23, 42, 0.08);
+  border-color: #cbd5e1;
+}
+
+.fintech-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.fintech-card-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+}
+
+.fintech-card-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.fintech-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+  margin-top: 16px;
+}
+
+.fintech-progress {
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.fintech-progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.fintech-stats-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.fintech-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.fintech-stat span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #64748b;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.fintech-stat strong {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.fintech-footer {
+  margin-top: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+
+.fintech-footer strong {
+  font-size: 18px;
+  font-weight: 800;
 }

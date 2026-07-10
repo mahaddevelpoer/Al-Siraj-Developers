@@ -1,12 +1,27 @@
 const { app, BrowserWindow, ipcMain, Menu, dialog, shell, session, Notification, Tray } = require('electron');
+const path = require('path');
+const fs = require('fs');
+
+const logFilePath = path.join(app.getPath('userData'), 'startup.log');
+function logToFile(msg, err = '') {
+  try {
+    fs.appendFileSync(logFilePath, `[${new Date().toISOString()}] ${msg} ${err}\n`);
+  } catch (e) {}
+}
+
+logToFile('APP STARTED');
+
+// Disable hardware acceleration to prevent silent GPU hangs on startup that leave the app in the background without a window
+app.disableHardwareAcceleration();
 
 // Capture hard crashes/async failures so we can diagnose instant window close.
 process.on('uncaughtException', (err) => {
-  console.error('[process] uncaughtException:', err);
+  logToFile('uncaughtException', err.stack || err);
 });
 process.on('unhandledRejection', (reason) => {
-  console.error('[process] unhandledRejection:', reason);
+  logToFile('unhandledRejection', reason && reason.stack ? reason.stack : String(reason));
 });
+
 
 app.on('before-quit', (event) => {
   try {
@@ -25,8 +40,7 @@ app.on('quit', () => {
     console.error('[app] quit', { exitCode: process.exitCode });
   } catch (_) {}
 });
-const path = require('path');
-const fs = require('fs');
+
 const { registerIpcHandlers } = require('./ipc');
 const { initializeDatabase, configureMirrors, setAfterWriteHook } = require('./db/core');
 const { startBackupScheduler } = require('./db/backup');
@@ -64,6 +78,7 @@ let tray = null;
 let forceQuit = false;
 let backgroundBackupInFlight = false;
 let lastDailyStorageBackupDate = '';
+let manualLaunchRequested = false;
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
@@ -77,16 +92,39 @@ function showExistingWindow() {
       ? launcherWindow
       : null;
   if (target) {
-    if (target.isMinimized()) target.restore();
-    target.show();
-    target.focus();
+    revealWindow(target);
     return true;
   }
   return false;
 }
 
+function revealWindow(win) {
+  if (!win || win.isDestroyed()) return false;
+  try {
+    if (win.isMinimized()) win.restore();
+    if (win.isVisible && !win.isVisible()) win.show();
+    else win.show();
+    win.setSkipTaskbar(false);
+    win.moveTop?.();
+    // Force focus on Windows and ensure the window is not stuck behind tray/other apps.
+    win.setAlwaysOnTop(true);
+    win.focus();
+    win.show();
+    win.setAlwaysOnTop(false);
+    return true;
+  } catch (e) {
+    console.error('[window] reveal failed:', e);
+    try {
+      win.show();
+      win.focus();
+    } catch (_) {}
+    return false;
+  }
+}
+
 app.on('second-instance', () => {
-  if (!showExistingWindow()) openInitialWindow();
+  manualLaunchRequested = true;
+  if (!showExistingWindow()) openInitialWindow(true);
 });
 
 function isTestBuildExpired() {
@@ -198,13 +236,17 @@ function getDataPath() {
   return dbPath;
 }
 
-function findNonSystemDrive() {
+async function findNonSystemDrive() {
   const system = (process.env.SystemDrive || 'C:').toUpperCase();
   const candidates = ['D:', 'E:', 'F:', 'G:'];
   for (const drive of candidates) {
     try {
       if (drive.toUpperCase() === system) continue;
-      if (fs.existsSync(drive + '\\')) return drive;
+      // Use fs.promises.stat with a small timeout to avoid hanging on network drives
+      const statPromise = fs.promises.stat(drive + '\\');
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 500));
+      await Promise.race([statPromise, timeoutPromise]);
+      return drive;
     } catch (e) { /* skip */ }
   }
   return null;
@@ -212,6 +254,7 @@ function findNonSystemDrive() {
 
 function createBaseWindow(options = {}) {
   const iconPath = getAppIconPath();
+  const forceVisible = options.forceVisible === true;
   const win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 1200, minHeight: 800,
     title: options.title || 'AL SIRAJ DEVELOPERS - Real Estate ERP',
@@ -223,13 +266,11 @@ function createBaseWindow(options = {}) {
       nodeIntegration: false,
       additionalArguments: options.additionalArguments || [],
     },
-    show: false,
-    backgroundColor: options.backgroundColor || '#0b1220',
+    show: forceVisible,
+    backgroundColor: options.backgroundColor || '#f5f7fa',
   });
   win.setMenuBarVisibility(false);
   win.setMenu(null);
-  win.maximize();
-  win.show();
 
   // Persist meta on the BrowserWindow instance so renderer can reliably query it
   win._zameenKhataMeta = options.meta || { mode: 'panel', panel: null, title: options.title || 'AL SIRAJ DEVELOPERS' };
@@ -239,22 +280,32 @@ function createBaseWindow(options = {}) {
     console.log('[renderer-console]', { level, message });
   });
 
+  win.once('ready-to-show', () => {
+    if (win && !win.isDestroyed()) {
+      try {
+        win.maximize();
+      } catch (_) {}
+      revealWindow(win);
+    }
+  });
   const isDev = !app.isPackaged;
   try {
     if (isDev) {
-      console.log('[startup] loading dev URL');
+      logToFile('[startup] loading dev URL');
       win.loadURL('http://localhost:5173');
     } else {
       const p = path.join(__dirname, '../../dist/index.html');
-      console.log('[startup] loading file', p);
-      win.loadFile(p);
+      logToFile('[startup] loading file: ' + p);
+      if (!fs.existsSync(p)) logToFile('ERROR: File does not exist! ' + p);
+      win.loadFile(p).catch(e => logToFile('loadFile Error', e.message));
     }
   } catch (e) {
-    console.error('[startup] load URL/file threw', e);
+    logToFile('[startup] load URL/file threw', e.message);
   }
 
   // Ensure window becomes visible and log failures (helps diagnose blank/close issues)
   win.once('ready-to-show', () => {
+    logToFile('ready-to-show fired');
     if (win && !win.isDestroyed()) win.show();
   });
 
@@ -311,13 +362,14 @@ function createBaseWindow(options = {}) {
   return win;
 }
 
-function createPanelWindow(panel) {
+function createPanelWindow(panel, forceVisible = false) {
   const title = panel === 'ceo' ? 'AL SIRAJ DEVELOPERS - CEO Window' : 'AL SIRAJ DEVELOPERS - Employee Window';
   console.log('[startup] createPanelWindow', { panel, title });
   const win = createBaseWindow({
     title,
     additionalArguments: [`--panel=${panel}`, '--mode=panel'],
     meta: { mode: 'panel', panel, title: panel === 'ceo' ? 'CEO Window' : 'Employee Window' },
+    forceVisible,
   });
   win.on('closed', () => {
     console.error('[startup] panel window closed', { panel, title, activeIsThis: activeWindow === win });
@@ -337,6 +389,7 @@ function createLauncherWindow() {
     title: 'AL SIRAJ DEVELOPERS - Window Selector',
     additionalArguments: ['--mode=launcher'],
     meta: { mode: 'launcher', panel: null, title: 'Window Selector' },
+    forceVisible: manualLaunchRequested,
   });
   win.on('closed', () => {
     if (launcherWindow === win) launcherWindow = null;
@@ -361,17 +414,28 @@ function createTray() {
   ]);
   tray.setToolTip('AL SIRAJ DEVELOPERS ERP');
   tray.setContextMenu(contextMenu);
+  tray.on('click', () => {
+    if (!showExistingWindow()) openInitialWindow(true);
+  });
   tray.on('double-click', () => {
-    if (!showExistingWindow()) openInitialWindow();
+    if (!showExistingWindow()) openInitialWindow(true);
   });
 }
 
 let initialWindowOpened = false;
-function openInitialWindow() {
-  if (initialWindowOpened) return;
+function openInitialWindow(forceVisible = false) {
+  const existingWindow = activeWindow && !activeWindow.isDestroyed()
+    ? activeWindow
+    : launcherWindow && !launcherWindow.isDestroyed()
+      ? launcherWindow
+      : null;
+  if (existingWindow) {
+    revealWindow(existingWindow);
+    return existingWindow;
+  }
   initialWindowOpened = true;
 
-  if (process.argv.includes('--hidden')) {
+  if (process.argv.includes('--hidden') && !forceVisible) {
     // Hidden start from boot, do nothing, the tray is active.
     // However, the renderer needs to run for Supabase subscriptions!
     // So we MUST create the window, but keep it hidden.
@@ -386,18 +450,20 @@ function openInitialWindow() {
   }
 
   if (startupPanel === 'ceo' || startupPanel === 'employee') {
-    createPanelWindow(startupPanel);
+    createPanelWindow(startupPanel, forceVisible);
   } else {
     createLauncherWindow();
   }
 }
 
 app.whenReady().then(async () => {
+  logToFile('whenReady triggered');
   Menu.setApplicationMenu(null);
   if (isTestBuildExpired()) {
     await showExpiredAndQuit();
     return;
   }
+  logToFile('Creating tray');
   createTray();
 
   app.setLoginItemSettings({
@@ -439,16 +505,21 @@ app.whenReady().then(async () => {
 
   reportSplash(5, 'Initializing...');
 
+  logToFile('Getting DB path');
   const dbPath = getDataPath();
+  registerIpcHandlers(ipcMain, dbPath, () => activeWindow);
+  logToFile('Initializing Database...');
   await initializeDatabase(dbPath);
+  logToFile('Database initialized');
   reportSplash(10, 'Loading Database...');
 
   // Business data is DB-first when online; Excel is the automatic local cache/offline fallback.
 
   // Live mirror (Desktop) + immutable archive (non-system drive)
   try {
+    logToFile('Configuring mirrors');
     const desktopRoot = path.join(app.getPath('desktop'), 'ZameenKhata_Exports');
-    const drive = findNonSystemDrive();
+    const drive = await findNonSystemDrive();
     const immutableRoot = drive ? path.join(drive + '\\', 'ZameenKhata_Exports') : '';
     configureMirrors({ desktopRoot, immutableRoot });
   } catch (e) { /* ignore */ }
@@ -469,7 +540,6 @@ app.whenReady().then(async () => {
   }
 
   reportSplash(50, 'Preparing Resources...');
-  registerIpcHandlers(ipcMain, dbPath, () => activeWindow);
   // Expose startup panel to renderer
   ipcMain.handle('get-startup-panel', () => startupPanel);
   ipcMain.handle('get-window-meta', (event) => {
@@ -797,15 +867,72 @@ app.whenReady().then(async () => {
     return inputPassword === 'ceo123' || inputPassword === 'admin123';
   });
 
+  ipcMain.handle('resolve-tamper-lock', async (_, params) => {
+    const { action, adminPassword, filePath, relPath } = params;
+    
+    // Verify password
+    let valid = false;
+    // 1. Check CEO password
+    try {
+      const configPath = path.join(app.getPath('userData'), 'ceo_config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (config.password && adminPassword === config.password) valid = true;
+      }
+    } catch (e) {}
+    if (adminPassword === 'ceo123' || adminPassword === 'admin123') valid = true;
+    
+    // 2. Check Accountant admin passwords
+    if (!valid) {
+      try {
+        const accountantAuth = require('./db/accountantAuth');
+        const dbPathLocal = getDatabasePath();
+        const loginsFile = path.join(dbPathLocal, 'Global', 'Accountant_Offline_Logins.json');
+        if (fs.existsSync(loginsFile)) {
+          const accs = JSON.parse(fs.readFileSync(loginsFile, 'utf8'));
+          if (Array.isArray(accs)) {
+            for (const acc of accs) {
+              if (acc.admin_password && acc.admin_password === adminPassword) {
+                valid = true;
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!valid) {
+      return { success: false, error: 'Invalid administration password' };
+    }
+
+    if (action === 'accept_local') {
+      signalWriteDone(filePath);
+      return { success: true };
+    } else if (action === 'force_sync') {
+      const { syncFromCloud } = require('./db/cloudSync');
+      const dbPathLocal = getDatabasePath();
+      try {
+        await syncFromCloud(dbPathLocal, activeWindow);
+        return { success: true };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    }
+    return { success: false, error: 'Unknown action' };
+  });
+
   try {
     reportSplash(94, 'Starting Application...');
     await finishSplash();
     // Ensure main window definitely opens
     try {
-      console.log('[startup] opening initial window');
+      logToFile('[startup] opening initial window');
       openInitialWindow();
+      logToFile('openInitialWindow called successfully');
       // Start file watcher after window is ready
       setTimeout(() => {
+        logToFile('starting secondary services');
         const targetWindow = activeWindow || launcherWindow;
         if (targetWindow && !targetWindow.isDestroyed()) {
           startFileWatcher(dbPath, targetWindow);
@@ -815,12 +942,12 @@ app.whenReady().then(async () => {
       }, 2000);
       if (app.isPackaged) setupAutoUpdater(() => activeWindow || launcherWindow);
     } catch (err) {
-      console.error('[startup] openInitialWindow failed:', err);
+      logToFile('[startup] openInitialWindow failed', err.stack || err);
       openInitialWindow();
       if (app.isPackaged) setupAutoUpdater(() => activeWindow || launcherWindow);
     }
   } catch (e) {
-    console.error('[startup] failed after splash:', e);
+    logToFile('[startup] failed after splash', e.stack || e);
 
     try {
       if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy();
@@ -828,11 +955,11 @@ app.whenReady().then(async () => {
 
     // Strong fallback: always open a window so app doesn't remain blank
     try {
-      console.log('[startup] fallback openInitialWindow');
+      logToFile('[startup] fallback openInitialWindow');
       openInitialWindow();
       if (app.isPackaged) setupAutoUpdater(() => activeWindow || launcherWindow);
     } catch (err) {
-      console.error('[startup] fallback openInitialWindow failed:', err);
+      logToFile('[startup] fallback openInitialWindow failed:', err.stack || err);
     }
   }
 });

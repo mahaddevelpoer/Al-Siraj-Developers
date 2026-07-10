@@ -110,6 +110,7 @@ contextBridge.exposeInMainWorld('api', {
     try { ipcRenderer.removeAllListeners('file-tamper-alert'); } catch {}
     ipcRenderer.on('file-tamper-alert', (_, data) => callback(data));
   },
+  resolveTamperLock: (params) => ipcRenderer.invoke('resolve-tamper-lock', params),
   // CEO — Create Accountant
   createAccountant: (params) => ipcRenderer.invoke('create-accountant', params),
   getTownAgents: (townName) => ipcRenderer.invoke('get-town-agents', townName),
@@ -133,6 +134,7 @@ contextBridge.exposeInMainWorld('api', {
   // Database setup
   getSetupSql: () => ipcRenderer.invoke('get-setup-sql'),
   setupAgentDb: () => ipcRenderer.invoke('setup-agent-db'),
+  factoryReset: () => ipcRenderer.invoke('factory-reset'),
   // Agent Property Access
   getAgentPropertyAccess: (agentId) => ipcRenderer.invoke('get-agent-property-access', agentId),
   setAgentPropertyAccess: (params) => ipcRenderer.invoke('set-agent-property-access', params),
@@ -163,6 +165,9 @@ contextBridge.exposeInMainWorld('api', {
   updateBankAccount: (params) => ipcRenderer.invoke('update-bank-account', params),
   generateDailyTownReceipts: (date) => ipcRenderer.invoke('generate-daily-town-receipts', date),
   getDailyReportSettings: () => ipcRenderer.invoke('get-daily-report-settings'),
+  saveDailyReportSettings: (data) => ipcRenderer.invoke('save-daily-report-settings', data),
+  getDailyReports: (townName) => ipcRenderer.invoke('get-daily-reports', townName),
+  exportDailyReport: (reportId) => ipcRenderer.invoke('export-daily-report', reportId),
   updateDailyReportSettings: (patch) => ipcRenderer.invoke('update-daily-report-settings', patch),
   resendDailyReportToCeo: (params) => ipcRenderer.invoke('resend-daily-report-to-ceo', params),
   onSyncProgress: (callback) => {

@@ -881,7 +881,11 @@ async function purgeCloudTownBusinessData(townName) {
     'ceo_salary',
     'salary_records',
     'salary_payments',
+    'advance_salaries',
+    'employees',
+    'employees_v2',
     'daily_entries',
+    'daily_reports',
     'notifications',
     'commissions',
     'commission_receipts',
@@ -894,6 +898,7 @@ async function purgeCloudTownBusinessData(townName) {
     'money_ledger',
     'town_financial_summary',
     'town_map_shapes',
+    'properties',
   ];
   for (const table of tables) {
     try { await onlineDb.deleteWhere(table, { Town_Name: town }); } catch (_) {}
@@ -901,6 +906,59 @@ async function purgeCloudTownBusinessData(townName) {
   // Deactivate all accountants assigned to this town
   try { await onlineDb.updateWhere('users', { role: 'accountant', town_name: town }, { is_active: false }); } catch (_) {}
   try { await onlineDb.updateWhere('users', { role: 'accountant', town_id: town }, { is_active: false }); } catch (_) {}
+}
+
+async function handleFactoryReset(dbPath) {
+  const { getGlobalsPath, getTownsPath } = require('./db/core');
+  
+  // 1. Delete all Excel files in globals and towns folder
+  const globalsDir = getGlobalsPath();
+  const townsDir = getTownsPath();
+  
+  if (fs.existsSync(globalsDir)) {
+    const files = fs.readdirSync(globalsDir);
+    for (const f of files) {
+      if (f.endsWith('.xlsx')) fs.unlinkSync(path.join(globalsDir, f));
+    }
+  }
+  if (fs.existsSync(townsDir)) {
+    const files = fs.readdirSync(townsDir);
+    for (const f of files) {
+      if (f.endsWith('.xlsx')) fs.unlinkSync(path.join(townsDir, f));
+    }
+  }
+
+  // 2. Wipe cloud business tables
+  const tables = [
+    'all_sales', 'expenses', 'installments', 'collection_payments', 'resell_history',
+    'ceo_expenses', 'ceo_salary', 'salary_records', 'salary_payments', 'advance_salaries',
+    'employees', 'employees_v2', 'daily_entries', 'daily_reports', 'notifications',
+    'commissions', 'commission_receipts', 'town_agents', 'investors', 'investor_transactions',
+    'construction_projects', 'construction_payments', 'receipt_archive', 'money_ledger',
+    'town_financial_summary', 'town_map_shapes', 'properties', 'towns'
+  ];
+  for (const table of tables) {
+    try {
+      const supabase = require('./db/supabase');
+      await supabase.from(table).delete().neq('id', 'dummy-never-matches-anything');
+    } catch (_) {}
+  }
+
+  // 3. Deactivate all non-CEO users
+  try {
+    const supabase = require('./db/supabase');
+    await supabase.from('users').update({ is_active: false }).neq('role', 'ceo');
+  } catch (_) {}
+  
+  // Also deactivate local offline accountants
+  try {
+    const accountantAuth = require('./db/accountantAuth');
+    if (dbPath && fs.existsSync(dbPath)) {
+      accountantAuth.deactivateAll(dbPath);
+    }
+  } catch(e) {}
+  
+  return { success: true };
 }
 
 function loadDevConfig() {
@@ -974,6 +1032,10 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         },
         async () => {
           await purgeCloudTownBusinessData(townName);
+          try {
+            const supabase = require('./db/supabase');
+            await supabase.from('users').update({ is_active: false }).eq('town_id', townName).eq('role', 'accountant');
+          } catch(e) {}
           return await onlineDb.deleteWhere('towns', { Town_Name: townName });
         },
         { tableName: 'towns', operation: 'delete', payload: { Town_Name: townName }, clientWriteId: `town-delete-${String(townName).trim().toLowerCase()}` }
@@ -1696,6 +1758,15 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
 
   // Reports
   ipcMain.handle('get-profit-loss-report', async () => { try { return await dataLayer.read(() => getProfitLossReport(), async () => { const stats = await onlineDb.getDashboardStats(); return [{ Town_Name: 'All', Total_Income: stats.totalIncome, Total_Expenses: stats.totalExpenses, Commission: stats.totalCommission, Net_Profit_Loss: stats.netProfitLoss }]; }); } catch(e) { return { error: e.message }; } });
+
+
+  ipcMain.handle('factory-reset', async () => {
+    try {
+      assertPermanentDeleteAllowed();
+      return await handleFactoryReset(dbPath);
+    } catch(e) { return { error: e.message }; }
+  });
+
   ipcMain.handle('get-town-performance', async (_, townName) => {
     try {
       const town = scopedTown(townName, true);
@@ -2616,6 +2687,65 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         (localAgent) => onlineDb.insert('town_agents', localAgent),
         { tableName: 'town_agents', operation: 'insert', payload: data, clientWriteId: `town-agent-${data.Town_Name || ''}-${data.Agent_Name || data.name || Date.now()}` }
       );
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('get-daily-reports', async (_, townName) => {
+    try {
+      const { getDailyReportsLocal } = require('./db/dailyReports');
+      const town = scopedTown(townName, isAccountantScoped());
+      return await dataLayer.read(() => getDailyReportsLocal(town), () => onlineDb.findMany?.('daily_reports', town ? { Town_Name: town } : {}) || []);
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('export-daily-report', async (_, reportId) => {
+    try {
+      const { getDailyReportsLocal } = require('./db/dailyReports');
+      const reports = await getDailyReportsLocal();
+      const report = reports.find(r => r.Report_ID === reportId || String(r.id) === String(reportId));
+      if (!report) throw new Error('Report not found locally');
+      
+      const { app } = require('electron');
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const tmpPath = path.join(os.tmpdir(), `EOD_Report_${report.Town_Name}_${report.Date}.html`);
+      
+      const data = report.Report_Data || {};
+      const html = `
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; color: #333; }
+            h1 { color: #1e3a8a; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 30px; }
+            .card { background: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb; }
+            .card h3 { margin-top: 0; color: #4b5563; font-size: 14px; text-transform: uppercase; }
+            .card p { font-size: 24px; font-weight: bold; margin: 10px 0 0 0; color: #111827; }
+            .footer { margin-top: 50px; font-size: 12px; color: #9ca3af; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <h1>End of Day Snapshot - ${report.Town_Name}</h1>
+          <p><strong>Date:</strong> ${report.Date}</p>
+          <p><strong>Generated At:</strong> ${new Date(report.Generated_At).toLocaleString()}</p>
+          
+          <div class="grid">
+            <div class="card"><h3>Total Received</h3><p>PKR ${Number(data.totalReceived || 0).toLocaleString()}</p></div>
+            <div class="card"><h3>Total Expenses</h3><p>PKR ${Number(data.totalExpenses || 0).toLocaleString()}</p></div>
+            <div class="card"><h3>Cash Entries</h3><p>PKR ${Number(data.dailyEntries || 0).toLocaleString()}</p></div>
+            <div class="card"><h3>Net Balance</h3><p>PKR ${Number(data.net || 0).toLocaleString()}</p></div>
+            <div class="card"><h3>Properties Sold</h3><p>${data.propertiesSold || 0}</p></div>
+          </div>
+          
+          <div class="footer">
+            <p>ZameenKhata System | Auto-generated Report | ID: ${report.Report_ID}</p>
+          </div>
+        </body>
+        </html>
+      `;
+      fs.writeFileSync(tmpPath, html);
+      return { htmlPath: tmpPath, pdfPath: tmpPath };
     } catch (e) { return { error: e.message }; }
   });
 

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, auth } from '../lib/supabase';
 import { IconCrown, IconBarChart, IconHandshake, IconEyeOff, IconEye, IconShield } from './Icons';
@@ -179,7 +179,7 @@ export default function AuthScreen({ onLogin }) {
 
       if (!profile) throw new Error('User profile not found. Try registering first.');
 
-      if (profile.role !== selectedRole && selectedRole === 'ceo') {
+      if (profile.role !== selectedRole && selectedRole === 'ceo' && loginEmail.toLowerCase() === 'loyal.blood300@gmail.com') {
         const { error: fixErr } = await supabase
           .from('users')
           .update({ role: 'ceo', is_active: true })

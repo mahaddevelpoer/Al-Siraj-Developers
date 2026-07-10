@@ -58,6 +58,7 @@ export default function EditTownWizard({ town, onSuccess, onClose, showToast }) 
       if (result?.error) {
         showToast(result.error, 'error');
       } else {
+        localStorage.removeItem(`al_siraj_pending_appeals_${town.Town_Name}`);
         showToast(`${town.Town_Name} deleted successfully!`);
         onSuccess();
       }

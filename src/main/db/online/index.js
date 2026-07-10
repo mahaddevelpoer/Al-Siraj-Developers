@@ -69,6 +69,7 @@ const UPSERT_CONFLICT = {
   money_ledger: 'source_type,source_id,direction',
   town_financial_summary: 'town_name',
   town_map_shapes: 'shape_id',
+  daily_reports: 'report_id',
 };
 
 function normalizeCloudRow(table, row) {

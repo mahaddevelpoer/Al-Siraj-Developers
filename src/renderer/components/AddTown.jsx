@@ -22,7 +22,7 @@ export default function AddTown({ showToast }) {
       const result = await window.api.addTown(form);
       if (result?.error) { showToast(result.error, 'error'); }
       else { showToast(`Town "${form.Town_Name}" added successfully!`); setForm({ Town_Name: '', Total_Plots: '', Total_Shops: '', Commission_Rate: '' }); loadTowns(); }
-    } catch (e) { showToast('Failed to add town', 'error'); }
+    } catch (e) { showToast('Crash adding town: ' + (e.message || String(e)), 'error'); }
     setLoading(false);
   };
 

@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import LeafletMap from '../systems/MapSystem/LeafletMap';
 import { PlusIcon, SkipIcon, CheckIcon, CrossIcon, ClockIcon } from './Icons';
 
@@ -56,7 +56,7 @@ export default function AddTownWizard({ onSuccess, onClose, showToast }) {
         onSuccess();
       }
     } catch (e) {
-      showToast('Failed to add town', 'error');
+      showToast('Crash adding town: ' + (e.message || String(e)), 'error');
     }
     setSubmitting(false);
   };

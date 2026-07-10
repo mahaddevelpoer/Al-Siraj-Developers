@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AddTownWizard from './AddTownWizard';
 import EditTownWizard from './EditTownWizard';
-import { SearchIcon, PlusIcon, BuildingIcon, LockIcon, NeighborhoodIcon, EditIcon, TrashIcon } from './Icons';
+import { SearchIcon, PlusIcon, BuildingIcon, LockIcon, NeighborhoodIcon, EditIcon, TrashIcon, Emoji } from './Icons';
 import AppealDashboard from '../systems/AppealSystem/AppealDashboard';
 
 const fmtPkr = (n) => {
@@ -110,6 +110,7 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
       if (result?.error) {
         showToast(result.error, 'error');
       } else {
+        localStorage.removeItem(`al_siraj_pending_appeals_${town.Town_Name}`);
         showToast(`${town.Town_Name} deleted!`);
         loadTowns();
       }
@@ -226,7 +227,7 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
           onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(245,158,11,0.4)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 2px 8px rgba(245,158,11,0.3)'; }}
         >
-          <span style={{ fontSize: 22, lineHeight: 1 }}>⚡</span>
+          <span style={{ fontSize: 22, lineHeight: 1 }}><Emoji emoji="⚡" /></span>
           <div>
             <strong>{pendingAppealsCount}</strong> pending appeal{pendingAppealsCount !== 1 ? 's' : ''} — tap to review
             <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>

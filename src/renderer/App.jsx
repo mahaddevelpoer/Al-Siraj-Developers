@@ -17,6 +17,7 @@ import CEOProjectsHub from './components/CEOProjectsHub';
 import TownDashboard from './components/TownDashboard';
 import AuthScreen from './components/AuthScreen';
 import AccountantUnlockScreen from './components/AccountantUnlockScreen';
+import TamperLockScreen from './components/TamperLockScreen';
 import TermsScreen from './components/TermsScreen';
 import AppealDashboard from './systems/AppealSystem/AppealDashboard';
 import PendingCollections from './components/PendingCollections';
@@ -337,6 +338,7 @@ function AppInner() {
   const [page, setPage] = useState('dashboard');
   const [toast, setToast] = useState(null);
   const [ready, setReady] = useState(false);
+  const [tamperLock, setTamperLock] = useState(null);
   const [selectedTown, setSelectedTown] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('zameen_theme') || 'light');
   const [dataRefreshKey, setDataRefreshKey] = useState(0);
@@ -591,6 +593,7 @@ function AppInner() {
     if (window.api?.onFileTamperAlert) {
       window.api.onFileTamperAlert((data) => {
         showToast(data?.message || 'SECURITY: Excel file was modified outside the app!', 'error');
+        setTamperLock(data);
       });
     }
   }, [showToast]);
@@ -962,6 +965,28 @@ function AppInner() {
   // Keep startup visually clean while auth is checked.
   if (!ready) {
     return <StartupSplash />;
+  }
+
+  // ─── Security Tamper Lock ────
+  if (tamperLock) {
+    return (
+      <>
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+        <TamperLockScreen 
+          userRole={userRole}
+          tamperData={tamperLock} 
+          onResolve={async (action, adminPassword) => {
+            if (window.api?.resolveTamperLock) {
+               const result = await window.api.resolveTamperLock({ action, adminPassword, ...tamperLock });
+               if (!result.success) throw new Error(result.error);
+            }
+            setTamperLock(null);
+          }} 
+        />
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <CloudRefreshStatus state={cloudRefresh} />
+      </>
+    );
   }
 
   // ─── Not logged in → Show Auth Screen or Accountant Unlock Screen ────
