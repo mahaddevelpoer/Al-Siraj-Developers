@@ -60,7 +60,7 @@ export default function PrintReceipt({ saleData, townName, onClose }) {
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2147483647,
       padding: '20px', overflowY: 'auto'
     }} className="no-print-overlay">
       <div style={{

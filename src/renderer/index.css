@@ -4297,7 +4297,7 @@ select { text-overflow: ellipsis; }
 }
 
 /* Smooth transitions for tab content */
-.tab-content { will-change: transform, opacity; }
+.tab-content { will-change: opacity; }
 
 /* Better focus ring color in dark mode */
 @media (prefers-color-scheme: dark) {

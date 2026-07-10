@@ -4,7 +4,7 @@ import { CrossIcon } from '../../components/Icons';
 const fmt = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
 const clean = (value, fallback = '-') => {
   const text = String(value ?? '').trim();
-  return text && text !== '-' && !text.includes('â') ? text : fallback;
+  return text && text !== '-' && !text.includes('ï¿½') ? text : fallback;
 };
 const entryTime = (entry) => clean(entry.Time || entry.time, '-');
 const entryAccount = (entry) => clean(entry.Account_Name || entry.accountName, 'General / Walk-in');
@@ -95,7 +95,7 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
   return (
     <div className="no-print-overlay" style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2147483647,
       padding: '20px', overflowY: 'auto'
     }}>
       <div className="no-print-modal-container" style={{

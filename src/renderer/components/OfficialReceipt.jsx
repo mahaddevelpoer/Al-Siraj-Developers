@@ -63,7 +63,7 @@ export default function OfficialReceipt({ data, onClose, townName }) {
   return (
     <div className="no-print-overlay" style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2147483647,
       padding: '20px', overflowY: 'auto'
     }}>
       <div className="no-print-modal-container" style={{

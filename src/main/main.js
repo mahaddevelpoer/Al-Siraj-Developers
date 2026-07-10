@@ -532,8 +532,8 @@ app.whenReady().then(async () => {
       // Manual backup / daily background backup / sync-to-cloud can flush this queue.
       storage.queueFile(relPath);
       // File watcher: signal our own write so we don't alert on our own changes
-      signalWriteStart();
-      setTimeout(() => signalWriteDone(filePath), 500);
+      signalWriteStart(filePath);
+      signalWriteDone(filePath);
     });
   } catch (e) {
     console.warn('[startup] Could not attach storage write hook:', e.message);
@@ -886,7 +886,7 @@ app.whenReady().then(async () => {
     if (!valid) {
       try {
         const accountantAuth = require('./db/accountantAuth');
-        const dbPathLocal = getDatabasePath();
+        const dbPathLocal = dbPath;
         const loginsFile = path.join(dbPathLocal, 'Global', 'Accountant_Offline_Logins.json');
         if (fs.existsSync(loginsFile)) {
           const accs = JSON.parse(fs.readFileSync(loginsFile, 'utf8'));
@@ -911,7 +911,7 @@ app.whenReady().then(async () => {
       return { success: true };
     } else if (action === 'force_sync') {
       const { syncFromCloud } = require('./db/cloudSync');
-      const dbPathLocal = getDatabasePath();
+      const dbPathLocal = dbPath;
       try {
         await syncFromCloud(dbPathLocal, activeWindow);
         return { success: true };

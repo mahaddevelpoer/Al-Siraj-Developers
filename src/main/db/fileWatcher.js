@@ -13,13 +13,26 @@ const crypto = require('crypto');
 const { Notification } = require('electron');
 
 let watchers = [];
-let fileHashes = {}; // filePath → last known hash (from our writes)
+let fileHashes = {}; // Normalized filePath → last known hash (from our writes)
 let scanInterval = null;
-let isWriting = false; // Set by write hook to suppress false positives
+let isWriting = false; // Set by write hook to suppress false positives (legacy compatibility)
 let writeGracePeriod = 3000; // ms — ignore changes within this window after our write
+
+// Set of normalized file paths currently being written by our app
+const writingFiles = new Set();
+
+function normalizePath(p) {
+  if (!p) return '';
+  try {
+    return path.resolve(p).replace(/\\/g, '/').toLowerCase();
+  } catch {
+    return String(p).replace(/\\/g, '/').toLowerCase();
+  }
+}
 
 function hashFile(filePath) {
   try {
+    if (!fs.existsSync(filePath)) return null;
     const content = fs.readFileSync(filePath);
     return crypto.createHash('sha256').update(content).digest('hex');
   } catch {
@@ -42,8 +55,9 @@ function buildBaseline(dbPath) {
           const full = path.join(d, entry.name);
           if (entry.isDirectory()) { walk(full); continue; }
           if (!entry.name.endsWith('.xlsx')) continue;
+          const norm = normalizePath(full);
           const h = hashFile(full);
-          if (h) baseline[full] = h;
+          if (h && norm) baseline[norm] = h;
         }
       } catch {}
     };
@@ -96,21 +110,25 @@ function startFileWatcher(dbPath, mainWindow) {
       // fs.watch fires on changes — but can be flaky on Windows
       const watcher = fs.watch(dir, { recursive: true }, (eventType, filename) => {
         if (!filename || !filename.endsWith('.xlsx')) return;
-        if (isWriting) return; // Our own write — skip
 
         const fullPath = path.join(dir, filename);
+        const norm = normalizePath(fullPath);
+
+        // Skip if this file is currently flagged as being written by our app, or if global override is active
+        if (writingFiles.has(norm) || isWriting) return;
+
         if (!fs.existsSync(fullPath)) return;
 
         const newHash = hashFile(fullPath);
         if (!newHash) return;
 
-        const oldHash = fileHashes[fullPath];
+        const oldHash = fileHashes[norm];
         if (oldHash && newHash !== oldHash) {
           const relPath = path.relative(dbPath, fullPath);
           sendTamperAlert(fullPath, relPath, mainWindow);
         }
         // Update baseline so we don't alert again for the same change
-        fileHashes[fullPath] = newHash;
+        fileHashes[norm] = newHash;
       });
       watchers.push(watcher);
     } catch (e) {
@@ -120,17 +138,24 @@ function startFileWatcher(dbPath, mainWindow) {
 
   // Fallback: periodic scan every 30 seconds (catches what fs.watch misses)
   scanInterval = setInterval(() => {
-    if (isWriting) return;
     const currentHashes = buildBaseline(dbPath);
-    for (const [filePath, newHash] of Object.entries(currentHashes)) {
-      const oldHash = fileHashes[filePath];
+    for (const [normPath, newHash] of Object.entries(currentHashes)) {
+      if (writingFiles.has(normPath) || isWriting) continue;
+
+      const oldHash = fileHashes[normPath];
       if (oldHash && newHash !== oldHash) {
-        const relPath = path.relative(dbPath, filePath);
-        sendTamperAlert(filePath, relPath, mainWindow);
+        // Find the actual file path from normalized path or construct it
+        // Since normPath is resolved/lowercase, we find its relative path
+        const relPath = path.relative(dbPath, normPath);
+        sendTamperAlert(normPath, relPath, mainWindow);
       }
     }
-    // Merge new files into baseline
-    Object.assign(fileHashes, currentHashes);
+    // Merge new files/hashes into baseline (only if not currently writing them)
+    for (const [normPath, newHash] of Object.entries(currentHashes)) {
+      if (!writingFiles.has(normPath)) {
+        fileHashes[normPath] = newHash;
+      }
+    }
   }, 30000);
 
   console.log('[file-watcher] Started watching Excel files');
@@ -148,17 +173,48 @@ function stopFileWatcher() {
   console.log('[file-watcher] Stopped');
 }
 
-function signalWriteStart() {
+function signalWriteStart(filePath) {
   isWriting = true;
-  setTimeout(() => { isWriting = false; }, writeGracePeriod);
+  
+  if (filePath) {
+    const norm = normalizePath(filePath);
+    if (norm) {
+      writingFiles.add(norm);
+      // Safety timeout: remove from active writes after 10s if signalWriteDone is not called
+      setTimeout(() => {
+        writingFiles.delete(norm);
+      }, 10000);
+    }
+  }
+
+  // Global legacy safety timeout
+  setTimeout(() => {
+    isWriting = false;
+  }, writeGracePeriod);
 }
 
 function signalWriteDone(filePath) {
-  // Update baseline hash immediately after our write
-  if (filePath && fs.existsSync(filePath)) {
-    const h = hashFile(filePath);
-    if (h) fileHashes[filePath] = h;
+  if (filePath) {
+    const norm = normalizePath(filePath);
+    if (norm) {
+      // Update baseline hash immediately to the current file content
+      if (fs.existsSync(filePath)) {
+        const h = hashFile(filePath);
+        if (h) {
+          fileHashes[norm] = h;
+        }
+      }
+      // Hold the file in the writingFiles set for 1.5 seconds to absorb delayed OS events
+      setTimeout(() => {
+        writingFiles.delete(norm);
+        isWriting = false;
+      }, 1500);
+      return;
+    }
   }
+  
+  // Fallback for parameterless calls
+  isWriting = false;
 }
 
 function getBaseline() {
