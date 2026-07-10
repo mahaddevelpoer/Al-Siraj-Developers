@@ -1,6 +1,6 @@
 {
   "name": "zameen-khata",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "AL SIRAJ DEVELOPERS - Real Estate ERP System",
   "main": "src/main/main.js",
   "scripts": {
