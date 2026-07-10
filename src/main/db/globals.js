@@ -575,10 +575,30 @@ async function getDashboardStats() {
 
   const totalIncome = money.totalReceived;
   const totalExpenses = money.totalExpenses;
-  const totalCommission = 0;
-  const totalCeoSalary = 0;
-  const soldPlots      = sales.filter(s => s.Type === 'Plot').length;
-  const soldShops      = sales.filter(s => s.Type === 'Shop').length;
+  const soldPlots = sales.filter(s => s.Type === 'Plot').length;
+  const soldShops = sales.filter(s => s.Type === 'Shop').length;
+
+  // Compute actual commission paid and CEO salary from money ledger
+  let totalCommission = 0;
+  let totalCeoSalary = 0;
+  let totalSalaries = 0;
+  let totalInvestorBalance = 0;
+  try {
+    const { getMoneyLedger } = require('./moneyLedger');
+    const ledger = await getMoneyLedger({});
+    for (const row of ledger) {
+      const src = String(row.Source_Type || '').toLowerCase();
+      const amt = parseFloat(row.Amount) || 0;
+      const dir = String(row.Direction || '').toLowerCase();
+      if (dir === 'expense') {
+        if (src.includes('commission')) totalCommission += amt;
+        else if (src === 'ceo_salary') totalCeoSalary += amt;
+        else if (src.includes('salary')) totalSalaries += amt;
+      }
+    }
+    // Investor balance from summaries
+    totalInvestorBalance = summaries.reduce((s, r) => s + (parseFloat(r.Investor_Balance) || 0), 0);
+  } catch (_) {}
 
   const townPerformance = towns.map(t => {
     const summary = summaries.find((s) => String(s.Town_Name) === String(t.Town_Name));
@@ -595,8 +615,10 @@ async function getDashboardStats() {
     totalReceived: totalIncome,
     totalCommission,
     totalExpenses,
-    cashBalance: money.cashBalance,
+    totalSalaries,
     totalCeoSalary,
+    totalInvestorBalance,
+    cashBalance: money.cashBalance,
     netProfitLoss: money.cashBalance,
     soldPlots, soldShops, totalTowns: towns.length, townPerformance,
     monthlySales: sales.slice(-12)
@@ -942,6 +964,16 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
   );
   if (!item) throw new Error('Sale not found in local database');
   if (!isPropertySale(item)) throw new Error('Only plot/shop sales can receive collection payments');
+
+  // SECURITY: Installment properties MUST use the Installment Tracker — not free-form collection
+  const totalInstallments = parseInt(item.Total_Installments, 10) || 0;
+  if (totalInstallments > 0) {
+    throw new Error(
+      `This property is on an installment plan (${totalInstallments} installments). ` +
+      'Please use the Installments Tracker tab to pay. ' +
+      'Only the exact installment amount can be collected, in sequential order.'
+    );
+  }
 
   const currentReceived = parseFloat(item.Received_Amount || item.Advance_Amount_PKR || 0);
   const total = parseFloat(item.Total_Amount_PKR || 0);

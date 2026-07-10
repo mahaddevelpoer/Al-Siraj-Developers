@@ -32,25 +32,34 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   const isNonToday = userRole === 'accountant' && selectedDate !== todayStr;
   const pendingAppealsKey = `al_siraj_pending_appeals_${townName || 'global'}`;
 
-  const queueLocalPendingAppeal = (payload) => {
+  const queueLocalPendingAppeal = async (payload) => {
     const now = new Date();
     const item = {
       id: `local-${now.getTime()}`,
       townName,
       type: 'daily_entry_date_change',
+      description: `${payload?.type || 'Entry'} for ${payload?.date || 'unknown date'} — PKR ${(payload?.amount || 0).toLocaleString()}`,
       payload,
       status: 'pending',
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
       nextReminderAt: new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
     };
+    // Save to localStorage (fast, same-session)
     const old = JSON.parse(localStorage.getItem(pendingAppealsKey) || '[]');
     localStorage.setItem(pendingAppealsKey, JSON.stringify([item, ...old].slice(0, 100)));
+    // ALSO persist to Excel so it survives device restart / app close
+    try {
+      if (window.api?.saveLocalPendingAppeal) {
+        await window.api.saveLocalPendingAppeal(item);
+      }
+    } catch (_) {}
     window.dispatchEvent(new CustomEvent('al-siraj-business-data-changed', {
       detail: { townName, events: ['appeal:pending-local'] },
     }));
     showToast?.('Offline: entry saved in Pending Appeals. It will not affect balance until CEO approval.', 'warning');
   };
+
 
   useEffect(() => { loadEntries(); }, [selectedDate, townName, refreshKey]);
   useEffect(() => { loadAccountOptions(); }, [townName, refreshKey]);

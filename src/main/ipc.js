@@ -3450,6 +3450,15 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       const rows = filterRowsByScope(await dataLayer.read(() => getAllSales(), () => onlineDb.getAllSales()));
       const installments = filterRowsByScope(await dataLayer.read(() => getInstallments(), () => onlineDb.getAllInstallments()));
       const today = new Date().toISOString().split('T')[0];
+
+      // Fix 3: Build a set of properties that have been resold so we can skip their original Sold entries
+      const resoldKeys = new Set();
+      for (const r of (rows || [])) {
+        if (String(r.Status || '').toLowerCase() === 'resold' || String(r.Sale_Type || '').toLowerCase() === 'resell') {
+          resoldKeys.add(`${String(r.Type || '').toLowerCase()}|${r.Plot_Shop_Number}|${r.Town_Name}`);
+        }
+      }
+
       const data = (rows || [])
         .map((r) => ({
           ...r,
@@ -3458,6 +3467,14 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
           Remaining_Amount: parseFloat(r.Remaining_Amount) || Math.max(0, (parseFloat(r.Total_Amount_PKR) || 0) - (parseFloat(r.Received_Amount || r.Advance_Amount_PKR) || 0)),
         }))
         .filter((r) => ['plot', 'shop'].includes(String(r.Type || '').trim().toLowerCase()))
+        // Skip original Sold rows when a Resold row exists for this property
+        .filter((r) => {
+          const isSold = String(r.Status || '').toLowerCase() === 'sold';
+          const key = `${String(r.Type || '').toLowerCase()}|${r.Plot_Shop_Number}|${r.Town_Name}`;
+          if (isSold && resoldKeys.has(key)) return false; // superseded by resell
+          return true;
+        })
+
         .map((r) => {
           const sameInst = (installments || []).filter(i => {
             if (r.Sale_ID && i.Sale_ID) return String(i.Sale_ID) === String(r.Sale_ID);
@@ -3697,6 +3714,101 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       return { error: e.message };
     }
   });
+
+  // ─── LOCAL PENDING APPEALS PERSISTENCE ─────────────────────────────────────
+  // Persist pending appeals to Excel so they survive app restart / device change
+  ipcMain.handle('save-pending-appeal', async (_, appealData) => {
+    try {
+      const { readExcelFile, appendToExcel, ensureSheetColumns } = require('./db/core');
+      const fp = path.join(require('./db/core').getGlobalsPath(), 'Pending_Appeals.xlsx');
+      await ensureSheetColumns(fp, 'Data', [
+        'Appeal_ID','Town_Name','Type','Description','Data_JSON',
+        'Created_At','Expires_At','Next_Reminder_At','Status'
+      ]);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const nextReminderAt = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
+      const row = {
+        Appeal_ID: appealData.id || require('./db/core').generateId(),
+        Town_Name: appealData.townName || '',
+        Type: appealData.type || 'general',
+        Description: appealData.description || '',
+        Data_JSON: JSON.stringify(appealData),
+        Created_At: now.toISOString(),
+        Expires_At: expiresAt,
+        Next_Reminder_At: nextReminderAt,
+        Status: 'pending',
+      };
+      await appendToExcel(fp, 'Data', row);
+      return { success: true, appeal: row };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('get-local-pending-appeals', async () => {
+    try {
+      const { readExcelFile, updateExcelRow, ensureSheetColumns } = require('./db/core');
+      const fp = path.join(require('./db/core').getGlobalsPath(), 'Pending_Appeals.xlsx');
+      await ensureSheetColumns(fp, 'Data', [
+        'Appeal_ID','Town_Name','Type','Description','Data_JSON',
+        'Created_At','Expires_At','Next_Reminder_At','Status'
+      ]);
+      const rows = await readExcelFile(fp, 'Data');
+      const now = Date.now();
+      const active = [];
+      for (const row of rows) {
+        if (String(row.Status || '').toLowerCase() !== 'pending') continue;
+        const expiresAt = Date.parse(row.Expires_At || 0);
+        if (expiresAt && now > expiresAt) {
+          // Expired — mark as expired
+          if (row._rowNumber) {
+            await updateExcelRow(fp, 'Data', row._rowNumber, { Status: 'expired' });
+          }
+          continue;
+        }
+        // Check if reminder is due — update Next_Reminder_At
+        const nextReminder = Date.parse(row.Next_Reminder_At || 0);
+        if (nextReminder && now >= nextReminder && row._rowNumber) {
+          const newReminder = new Date(now + 2 * 60 * 60 * 1000).toISOString();
+          await updateExcelRow(fp, 'Data', row._rowNumber, { Next_Reminder_At: newReminder });
+          row.Next_Reminder_At = newReminder;
+          row.reminderDue = true;
+        }
+        active.push({
+          id: row.Appeal_ID,
+          townName: row.Town_Name,
+          type: row.Type,
+          description: row.Description,
+          createdAt: row.Created_At,
+          expiresAt: row.Expires_At,
+          nextReminderAt: row.Next_Reminder_At,
+          reminderDue: row.reminderDue || false,
+          data: (() => { try { return JSON.parse(row.Data_JSON || '{}'); } catch { return {}; } })(),
+        });
+      }
+      return { success: true, data: active };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('dismiss-local-pending-appeal', async (_, appealId) => {
+    try {
+      const { readExcelFile, updateExcelRow, ensureSheetColumns } = require('./db/core');
+      const fp = path.join(require('./db/core').getGlobalsPath(), 'Pending_Appeals.xlsx');
+      await ensureSheetColumns(fp, 'Data', ['Appeal_ID','Status']);
+      const rows = await readExcelFile(fp, 'Data');
+      const row = rows.find(r => String(r.Appeal_ID || '') === String(appealId || ''));
+      if (row?._rowNumber) {
+        await updateExcelRow(fp, 'Data', row._rowNumber, { Status: 'dismissed' });
+      }
+      return { success: true };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
 }
 
 module.exports = { registerIpcHandlers };
+

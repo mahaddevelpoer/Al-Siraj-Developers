@@ -955,10 +955,12 @@ async function resellProperty(data) {
 async function getSoldProperties() {
   const { plots, shops } = await getAllProperties();
   return {
-    plots: plots.filter(p => p.Status === 'Sold'),
-    shops: shops.filter(s => s.Status === 'Sold'),
+    // Only show properties that are strictly 'Sold' — 'Resold' ones belong in Resell History
+    plots: plots.filter(p => String(p.Status || '').toLowerCase() === 'sold'),
+    shops: shops.filter(s => String(s.Status || '').toLowerCase() === 'sold'),
   };
 }
+
 
 module.exports = {
   addPlot,

@@ -454,8 +454,10 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
-    const scanLocalPendingAppeals = () => {
+    const scanLocalPendingAppeals = async () => {
       const now = Date.now();
+
+      // ── 1. Read from localStorage (fast, same-session) ──────────────────────
       Object.keys(localStorage)
         .filter((key) => key.startsWith('al_siraj_pending_appeals_'))
         .forEach((key) => {
@@ -481,11 +483,30 @@ function AppInner() {
           });
           if (changed) localStorage.setItem(key, JSON.stringify(next.slice(0, 200)));
         });
+
+      // ── 2. Read from Excel-backed persistent store (survives restart) ───────
+      try {
+        if (window.api?.getLocalPendingAppeals) {
+          const res = await window.api.getLocalPendingAppeals();
+          if (res?.data && Array.isArray(res.data)) {
+            for (const appeal of res.data) {
+              if (appeal.reminderDue) {
+                pushBell(
+                  'Connect Internet — Pending Approval',
+                  `${appeal.townName || 'Town'} has a pending ${appeal.type || 'appeal'} awaiting CEO approval. Expires: ${appeal.expiresAt ? new Date(appeal.expiresAt).toLocaleTimeString() : '24h'}`,
+                  'warning'
+                );
+              }
+            }
+          }
+        }
+      } catch (_) {}
     };
     scanLocalPendingAppeals();
     const timer = setInterval(scanLocalPendingAppeals, 60_000);
     return () => clearInterval(timer);
   }, [pushBell]);
+
 
   useEffect(() => {
     document.body.classList.remove('light-mode', 'dark-mode');
