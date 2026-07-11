@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
+const crypto = require('crypto');
 const {
   getGlobalsPath,
   readExcelFile,
@@ -13,6 +14,12 @@ const {
   syncMirrorsForFile,
 } = require('./core');
 const { parseMoney } = require('./moneyUtils');
+
+function getDeterministicLedgerId(sourceType, sourceId, direction) {
+  const input = `${sourceType}|${sourceId}|${direction}`;
+  const hash = crypto.createHash('md5').update(input).digest('hex');
+  return `LED-${hash}`.slice(0, 50);
+}
 
 const FILE_NAME = 'Money_Ledger.xlsx';
 const SUMMARY_FILE_NAME = 'Town_Financial_Summary.xlsx';
@@ -232,7 +239,7 @@ async function recordMoneyEvent(data) {
   }
 
   const row = {
-    Ledger_ID: data.ledgerId || data.Ledger_ID || generateId(),
+    Ledger_ID: data.ledgerId || data.Ledger_ID || getDeterministicLedgerId(sourceType, sourceId, direction),
     Town_Name: data.townName || data.Town_Name || '',
     Date: data.date || data.Date || today(),
     Source_Type: sourceType,

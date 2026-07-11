@@ -47,20 +47,10 @@ async function writeWorkbookAtomic(targetPath, workbook) {
     `${base}.__tmp_write__${process.pid}__${Date.now()}`
   );
 
-  // Signal file watcher to ignore our own writes
-  let watcherApi = null;
-  try {
-    watcherApi = require('./fileWatcher');
-    watcherApi.signalWriteStart(targetPath);
-  } catch {}
-
   await workbook.xlsx.writeFile(tempPath);
   try {
     if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
     fs.renameSync(tempPath, targetPath);
-    if (watcherApi) {
-      watcherApi.signalWriteDone(targetPath);
-    }
   } catch (e) {
     try { if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true }); } catch (_) {}
     throw e;

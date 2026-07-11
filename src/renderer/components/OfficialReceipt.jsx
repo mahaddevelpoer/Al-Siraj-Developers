@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { CrossIcon } from './Icons';
 
 const fmtPkr = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
@@ -60,7 +61,7 @@ export default function OfficialReceipt({ data, onClose, townName }) {
 
   const fmt = (n) => (parseFloat(n) || 0).toLocaleString();
 
-  return (
+  return createPortal(
     <div className="no-print-overlay" style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2147483647,
@@ -73,8 +74,8 @@ export default function OfficialReceipt({ data, onClose, townName }) {
       }}>
 
         {/* Header / Controls (Hidden in Print) */}
-        <div className="no-print" style={{ padding: '20px', borderBottom: '1px solid #eee', background: '#f8fafc' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div className="no-print" style={{ padding: '12px 16px', borderBottom: '1px solid #eee', background: '#f8fafc' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
             <div style={{ display: 'flex', gap: 10 }}>
               <button
                 className={`btn ${lang === 'en' ? 'btn-primary' : 'btn-ghost'}`}
@@ -85,8 +86,8 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                 onClick={() => setLang('ur')}
               >اردو</button>
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginRight: 8 }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginRight: 8, flexWrap: 'wrap' }}>
                 <button
                   className={`btn ${printSize === 'a4' ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => setPrintSize('a4')}
@@ -111,35 +112,37 @@ export default function OfficialReceipt({ data, onClose, townName }) {
             </div>
           </div>
 
-          <div style={{ background: 'white', padding: 15, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-            <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 13, color: '#64748b' }}>Receipt Header Setup</div>
-            <div style={{ display: 'flex', gap: 20 }}>
-               <div style={{ width: 120 }}>
+          <div style={{ background: 'white', padding: 12, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+            <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 12, color: '#64748b' }}>Receipt Header Setup</div>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+               <div style={{ width: 80 }}>
                   <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: '#94a3b8', marginBottom: 5 }}>LOGO</label>
-                  <div style={{ position: 'relative', width: 80, height: 80, background: '#f1f5f9', borderRadius: 8, overflow: 'hidden', border: '1px dashed #cbd5e1' }}>
+                  <div style={{ position: 'relative', width: 60, height: 60, background: '#f1f5f9', borderRadius: 8, overflow: 'hidden', border: '1px dashed #cbd5e1' }}>
                     {config.logoDataUrl ? (
                       <img src={config.logoDataUrl} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                     ) : (
-                      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>+</div>
+                      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 16 }}>+</div>
                     )}
                     <input type="file" accept="image/*" onChange={handleLogoUpload} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} title="Upload Logo" />
                   </div>
                </div>
-               <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8' }}>PROJECT NAME</label>
+               <div style={{ flex: '1 1 200px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', marginBottom: 4, display: 'block' }}>PROJECT NAME</label>
                     <input
                       placeholder="e.g. Al-Siraj Developers"
                       value={config.projectName || ''}
                       onChange={(e) => saveConfig({ projectName: e.target.value })}
+                      style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
                     />
                   </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8' }}>ADDRESS / CONTACT</label>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', marginBottom: 4, display: 'block' }}>ADDRESS / CONTACT</label>
                     <input
                       placeholder="Main Chowk Iqbal Avenue..."
                       value={config.projectAddress || ''}
                       onChange={(e) => saveConfig({ projectAddress: e.target.value })}
+                      style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
                     />
                   </div>
                </div>
@@ -1022,6 +1025,7 @@ export default function OfficialReceipt({ data, onClose, townName }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

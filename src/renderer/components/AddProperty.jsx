@@ -83,7 +83,12 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
 
   const perMarlaPrice = (() => {
     if (!townPrices) return 0;
-    if (type === 'Shop') return parseFloat(townPrices[selectedRoad]) || parseFloat(townPrices[priceKey]) || 0;
+    if (type === 'Shop') {
+      const isCustom = selectedRoad === 'Custom_Price';
+      const baseKey = isCustom ? 'Custom' : selectedRoad;
+      const roadKey = `${baseKey}_${propertyCategory}`;
+      return parseFloat(townPrices[roadKey]) || parseFloat(townPrices[selectedRoad]) || 0;
+    }
     return parseFloat(townPrices[priceKey]) || parseFloat(townPrices.Plot_Price) || 0;
   })();
 

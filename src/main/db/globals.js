@@ -99,11 +99,17 @@ async function reconcileInstallmentSaleTotals(townName = '') {
       const { getPropertyFile, updatePropertyFile } = require('./properties');
       const prop = await getPropertyFile(sale.Type, sale.Plot_Shop_Number, sale.Town_Name);
       if (prop) {
-        await updatePropertyFile(sale.Type, sale.Plot_Shop_Number, sale.Town_Name, {
-          Received_Amount: received,
-          Remaining_Amount: remaining,
-          Installment_Status: remaining <= 0 ? 'Completed' : 'Active',
-        });
+        const oldPropReceived = parseFloat(prop.Received_Amount) || 0;
+        const oldPropRemaining = parseFloat(prop.Remaining_Amount) || 0;
+        const oldPropStatus = prop.Installment_Status || '';
+        const targetStatus = remaining <= 0 ? 'Completed' : 'Active';
+        if (Math.abs(oldPropReceived - received) > 0.009 || Math.abs(oldPropRemaining - remaining) > 0.009 || oldPropStatus !== targetStatus) {
+          await updatePropertyFile(sale.Type, sale.Plot_Shop_Number, sale.Town_Name, {
+            Received_Amount: received,
+            Remaining_Amount: remaining,
+            Installment_Status: targetStatus,
+          });
+        }
       }
       touched.push({ sale, received, remaining });
     }
@@ -990,11 +996,15 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
   const { getPropertyFile, updatePropertyFile, updateTownFinancials } = require('./properties');
   const prop = await getPropertyFile(type, plotShopNumber, townName);
   if (prop) {
-    await updatePropertyFile(type, plotShopNumber, townName, {
-      Received_Amount: newReceived,
-      Remaining_Amount: newRemaining,
-      Installment_Status: newRemaining <= 0 ? 'Completed' : prop.Installment_Status,
-    });
+    const oldReceived = parseFloat(prop.Received_Amount) || 0;
+    const oldRemaining = parseFloat(prop.Remaining_Amount) || 0;
+    if (Math.abs(oldReceived - newReceived) > 0.009 || Math.abs(oldRemaining - newRemaining) > 0.009) {
+      await updatePropertyFile(type, plotShopNumber, townName, {
+        Received_Amount: newReceived,
+        Remaining_Amount: newRemaining,
+        Installment_Status: newRemaining <= 0 ? 'Completed' : prop.Installment_Status,
+      });
+    }
   }
 
   if (townName) await updateTownFinancials(townName);

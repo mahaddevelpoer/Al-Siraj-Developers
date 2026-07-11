@@ -29,14 +29,26 @@ export function toPaymentAccountPayload(account) {
   };
 }
 
-export default function PaymentAccountSelect({ townName, value, onChange, label = 'Receive / Pay From', compact = false }) {
+export default function PaymentAccountSelect({ townName, value, onChange, label = 'Receive / Pay From', compact = false, paymentMethod = 'All' }) {
   const [accounts, setAccounts] = useState([cashFallback]);
   const [loading, setLoading] = useState(false);
 
   const activeAccounts = useMemo(() => {
     const list = accounts.map(normalizeAccount).filter((row) => String(row.status || 'Active').toLowerCase() !== 'inactive');
-    return list.length ? list : [cashFallback];
-  }, [accounts]);
+    if (!paymentMethod || String(paymentMethod).toLowerCase() === 'all') {
+      return list.length ? list : [cashFallback];
+    }
+    const isCash = String(paymentMethod || 'Cash').toLowerCase() === 'cash';
+    const filteredList = list.filter(acc => {
+      const type = String(acc.account_type || 'cash').toLowerCase();
+      if (isCash) {
+        return type === 'cash';
+      } else {
+        return type === 'bank';
+      }
+    });
+    return filteredList.length ? filteredList : [cashFallback];
+  }, [accounts, paymentMethod]);
 
   const selectedId = value?.paymentAccountId || value?.account_id || activeAccounts[0]?.account_id || cashFallback.account_id;
 

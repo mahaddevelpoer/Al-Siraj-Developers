@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { CrossIcon } from '../../components/Icons';
 
 const fmt = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
@@ -41,7 +42,8 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
   const townIncome = parseFloat(townData?.Total_Income_PKR) || 0;
   const townExpense = parseFloat(townData?.Total_Expenses_PKR) || 0;
   const townNet = townIncome - townExpense;
-  const runningBalance = totalIncome + townNet - totalExpense;
+  const runningBalance = townNet;
+  const startingBalance = townNet - netBalance;
 
   const titleMap = {
     income: 'Daily Income Statement',
@@ -92,7 +94,7 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
     setTimeout(() => window.print(), 50);
   };
 
-  return (
+  return createPortal(
     <div className="no-print-overlay" style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2147483647,
@@ -274,7 +276,7 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
                   Overall Remaining Balance
                 </div>
                 <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>
-                  Today Income ({fmt(totalIncome)}) + Town Balance ({fmt(townNet)}) - Today Expenses ({fmt(totalExpense)})
+                  Starting Balance ({fmt(startingBalance)}) + Today Net ({fmt(netBalance)})
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: runningBalance >= 0 ? '#107c41' : '#c5221f' }}>
                   {fmt(runningBalance)}
@@ -305,7 +307,8 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

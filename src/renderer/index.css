@@ -11785,3 +11785,9 @@ textarea:focus {
   margin-top: 6px;
   margin-left: 2px;
 }
+
+.account-card.active {
+  border: 2.5px solid var(--accent-blue, #2563eb) !important;
+  box-shadow: 0 0 16px rgba(37, 99, 235, 0.3) !important;
+  background: rgba(37, 99, 235, 0.05) !important;
+}

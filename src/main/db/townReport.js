@@ -165,6 +165,34 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
       item.payments += 1;
     },
   );
+
+  try {
+    const EmployeeDB = require('./employees');
+    const { getDbPath } = require('./core');
+    const employeeDB = new EmployeeDB(getDbPath());
+    const allEmployees = await employeeDB.getEmployees(town);
+    if (Array.isArray(allEmployees)) {
+      for (const emp of allEmployees) {
+        if (String(emp.status || '').toLowerCase() === 'deleted') continue;
+        const exists = employeeLedgers.some((item) => String(item.name || '').trim().toLowerCase() === String(emp.name || '').trim().toLowerCase());
+        if (!exists) {
+          employeeLedgers.push({
+            name: emp.name,
+            paid: 0,
+            salaryApplied: 0,
+            cashDisbursed: 0,
+            salaryAmount: parseFloat(emp.baseSalary) || 0,
+            advance: 0,
+            advanceDeducted: 0,
+            remaining: parseFloat(emp.baseSalary) || 0,
+            payments: 0,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[townReport] Failed to append unpaid employees to ledger:', err);
+  }
   const buildSalaryRollup = (rows, keyFn, labelKey = 'group') => groupBy(
     rows,
     keyFn,

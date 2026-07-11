@@ -1375,7 +1375,6 @@ class MoreScreen extends StatefulWidget {
 class _MoreScreenState extends State<MoreScreen> {
   bool _deviceLockEnabled = false;
   bool _loadingLock = true;
-  bool _fileTamperingEnabled = true;
   bool _lockerAuditEnabled = true;
   bool _loadingSettings = true;
 
@@ -1397,7 +1396,6 @@ class _MoreScreenState extends State<MoreScreen> {
       final settings = await widget.repo.loadSystemSettings();
       if (!mounted) return;
       setState(() {
-        _fileTamperingEnabled = settings['file_tampering_check_enabled'] ?? true;
         _lockerAuditEnabled = settings['locker_audit_enabled'] ?? true;
         _loadingSettings = false;
       });
@@ -1410,15 +1408,6 @@ class _MoreScreenState extends State<MoreScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('biometric_enabled', enabled);
     if (mounted) setState(() => _deviceLockEnabled = enabled);
-  }
-
-  Future<void> _toggleFileTampering(bool enabled) async {
-    setState(() => _loadingSettings = true);
-    try {
-      await widget.repo.updateSystemSetting('file_tampering_check_enabled', enabled);
-      if (mounted) setState(() => _fileTamperingEnabled = enabled);
-    } catch (_) {}
-    if (mounted) setState(() => _loadingSettings = false);
   }
 
   Future<void> _toggleLockerAudit(bool enabled) async {
@@ -1474,16 +1463,7 @@ class _MoreScreenState extends State<MoreScreen> {
             contentPadding: EdgeInsets.zero,
           ),
         ),
-        AppCard(
-          child: SwitchListTile(
-            secondary: const Icon(Icons.health_and_safety_rounded, color: kGreen),
-            title: const Text('File Tampering Check'),
-            subtitle: const Text('Lock app if Excel files altered outside'),
-            value: _fileTamperingEnabled,
-            onChanged: _loadingSettings ? null : _toggleFileTampering,
-            contentPadding: EdgeInsets.zero,
-          ),
-        ),
+
         AppCard(
           child: SwitchListTile(
             secondary: const Icon(Icons.fact_check_rounded, color: kBlue),

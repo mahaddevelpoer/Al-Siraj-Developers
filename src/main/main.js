@@ -51,7 +51,6 @@ const supabase = require('./db/supabase');
 const storageSync = require('./db/storage');
 const { showDesktopNotification } = require('./notificationService');
 const buildMeta = require('./buildMeta');
-const { startFileWatcher, stopFileWatcher, signalWriteStart, signalWriteDone } = require('./db/fileWatcher');
 const { setupAutoUpdater } = require('./autoUpdate');
 
 // Allow OpenStreetMap tiles and Nominatim search through CSP
@@ -531,9 +530,6 @@ app.whenReady().then(async () => {
       // Storage is backup/export only. Queue changed files, but do not upload every write.
       // Manual backup / daily background backup / sync-to-cloud can flush this queue.
       storage.queueFile(relPath);
-      // File watcher: signal our own write so we don't alert on our own changes
-      signalWriteStart(filePath);
-      signalWriteDone(filePath);
     });
   } catch (e) {
     console.warn('[startup] Could not attach storage write hook:', e.message);
@@ -683,6 +679,42 @@ app.whenReady().then(async () => {
     } catch (_) {}
   };
 
+  const applyApprovedSalaryIncreaseAppeal = async (appeal) => {
+    if (!appeal || appeal.status !== 'approved') return;
+    if (appeal.appeal_type !== 'salary_increase') return;
+    const rd = appeal.requested_data || {};
+    if (!rd.employeeId || !rd.proposedSalary) return;
+
+    const EmployeeDB = require('./db/employees');
+    const employeeDB = new EmployeeDB(dbPath);
+    await employeeDB.updateEmployee(rd.employeeId, { baseSalary: parseFloat(rd.proposedSalary) });
+
+    try {
+      if (activeWindow && !activeWindow.isDestroyed() && activeWindow.webContents) {
+        activeWindow.webContents.send('sync-warning', `Salary increase approved for employee ${rd.employeeId}. Local salary updated to ${rd.proposedSalary}.`);
+        activeWindow.webContents.send('al-siraj-data-changed', { type: 'salary', townName: rd.townName });
+      }
+    } catch (_) {}
+  };
+
+  const applyApprovedDeleteEmployeeAppeal = async (appeal) => {
+    if (!appeal || appeal.status !== 'approved') return;
+    if (appeal.appeal_type !== 'delete_employee') return;
+    const rd = appeal.requested_data || {};
+    if (!rd.employeeId) return;
+
+    const EmployeeDB = require('./db/employees');
+    const employeeDB = new EmployeeDB(dbPath);
+    await employeeDB.updateEmployee(rd.employeeId, { status: 'Deleted' });
+
+    try {
+      if (activeWindow && !activeWindow.isDestroyed() && activeWindow.webContents) {
+        activeWindow.webContents.send('sync-warning', `Employee deletion approved. Employee ${rd.employeeId} marked as Deleted.`);
+        activeWindow.webContents.send('al-siraj-data-changed', { type: 'employee', townName: rd.townName });
+      }
+    } catch (_) {}
+  };
+
   const appealUpdatesChannel = supabase
     .channel('main-appeal-updates')
     .on('postgres_changes',
@@ -708,13 +740,23 @@ app.whenReady().then(async () => {
             });
           }
         }
-        applyApprovedDailyEntryAppeal(payload.new).catch((e) => {
-          console.error('[appeal-sync] Failed to apply approved daily entry appeal:', e);
-          if (isCurrentCeoContext()) showDesktopNotification({
-            title: 'Daily Entry Approval Sync Failed',
-            body: e.message || 'Approved appeal could not be saved locally.',
+        if (payload.new && payload.new.appeal_type === 'salary_increase') {
+          applyApprovedSalaryIncreaseAppeal(payload.new).catch((e) => {
+            console.error('[appeal-sync] Failed to apply approved salary increase appeal:', e);
           });
-        });
+        } else if (payload.new && payload.new.appeal_type === 'delete_employee') {
+          applyApprovedDeleteEmployeeAppeal(payload.new).catch((e) => {
+            console.error('[appeal-sync] Failed to apply approved delete employee appeal:', e);
+          });
+        } else {
+          applyApprovedDailyEntryAppeal(payload.new).catch((e) => {
+            console.error('[appeal-sync] Failed to apply approved daily entry appeal:', e);
+            if (isCurrentCeoContext()) showDesktopNotification({
+              title: 'Daily Entry Approval Sync Failed',
+              body: e.message || 'Approved appeal could not be saved locally.',
+            });
+          });
+        }
       }
     )
     .subscribe();
@@ -867,60 +909,7 @@ app.whenReady().then(async () => {
     return inputPassword === 'ceo123' || inputPassword === 'admin123';
   });
 
-  ipcMain.handle('resolve-tamper-lock', async (_, params) => {
-    const { action, adminPassword, filePath, relPath } = params;
-    
-    // Verify password
-    let valid = false;
-    // 1. Check CEO password
-    try {
-      const configPath = path.join(app.getPath('userData'), 'ceo_config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        if (config.password && adminPassword === config.password) valid = true;
-      }
-    } catch (e) {}
-    if (adminPassword === 'ceo123' || adminPassword === 'admin123') valid = true;
-    
-    // 2. Check Accountant admin passwords
-    if (!valid) {
-      try {
-        const accountantAuth = require('./db/accountantAuth');
-        const dbPathLocal = dbPath;
-        const loginsFile = path.join(dbPathLocal, 'Global', 'Accountant_Offline_Logins.json');
-        if (fs.existsSync(loginsFile)) {
-          const accs = JSON.parse(fs.readFileSync(loginsFile, 'utf8'));
-          if (Array.isArray(accs)) {
-            for (const acc of accs) {
-              if (acc.admin_password && acc.admin_password === adminPassword) {
-                valid = true;
-                break;
-              }
-            }
-          }
-        }
-      } catch (e) {}
-    }
 
-    if (!valid) {
-      return { success: false, error: 'Invalid administration password' };
-    }
-
-    if (action === 'accept_local') {
-      signalWriteDone(filePath);
-      return { success: true };
-    } else if (action === 'force_sync') {
-      const { syncFromCloud } = require('./db/cloudSync');
-      const dbPathLocal = dbPath;
-      try {
-        await syncFromCloud(dbPathLocal, activeWindow);
-        return { success: true };
-      } catch (e) {
-        return { success: false, error: e.message };
-      }
-    }
-    return { success: false, error: 'Unknown action' };
-  });
 
   try {
     reportSplash(94, 'Starting Application...');
@@ -934,9 +923,6 @@ app.whenReady().then(async () => {
       setTimeout(() => {
         logToFile('starting secondary services');
         const targetWindow = activeWindow || launcherWindow;
-        if (targetWindow && !targetWindow.isDestroyed()) {
-          startFileWatcher(dbPath, targetWindow);
-        }
         // Start daily report scheduler (runs at 8PM)
         startDailyReportScheduler(dbPath, targetWindow);
       }, 2000);

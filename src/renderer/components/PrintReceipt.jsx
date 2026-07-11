@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CrossIcon } from './Icons';
 
 export default function PrintReceipt({ saleData, townName, onClose }) {
@@ -401,6 +402,7 @@ export default function PrintReceipt({ saleData, townName, onClose }) {
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

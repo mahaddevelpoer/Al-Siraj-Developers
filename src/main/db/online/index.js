@@ -1,5 +1,12 @@
 const anonSupabase = require('../supabase');
 const crypto = require('crypto');
+
+function getDeterministicLedgerId(sourceType, sourceId, direction) {
+  const input = `${sourceType}|${sourceId}|${direction}`;
+  const hash = crypto.createHash('md5').update(input).digest('hex');
+  return `LED-${hash}`.slice(0, 50);
+}
+
 const {
   getAdminClient,
   toCloudRow,
@@ -388,7 +395,7 @@ async function recordMoneyEvent(data) {
   });
   const date = data.date || data.Date || new Date().toISOString().split('T')[0];
   const row = {
-    Ledger_ID: data.ledgerId || data.Ledger_ID || `${sourceType}-${sourceId}-${direction}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120),
+    Ledger_ID: data.ledgerId || data.Ledger_ID || getDeterministicLedgerId(sourceType, sourceId, direction),
     Town_Name: data.townName || data.Town_Name || '',
     Date: date,
     Source_Type: sourceType,
@@ -1109,16 +1116,20 @@ async function recordCollectionPayment(saleId, amount, paymentMethod, notes, pay
   const propNum = getRowVal(sale, 'Plot_Shop_Number');
   const { data: prop } = await supabase
     .from('properties')
-    .select('id')
+    .select('id, received_amount, remaining_amount')
     .eq('property_type', propType)
     .eq('property_number', String(propNum))
     .eq('town_name', getRowVal(sale, 'Town_Name'))
     .maybeSingle();
   if (prop) {
-    await supabase.from('properties').update({
-      received_amount: newReceived,
-      remaining_amount: newRemaining,
-    }).eq('id', prop.id);
+    const oldReceived = parseFloat(prop.received_amount) || 0;
+    const oldRemaining = parseFloat(prop.remaining_amount) || 0;
+    if (Math.abs(oldReceived - newReceived) > 0.009 || Math.abs(oldRemaining - newRemaining) > 0.009) {
+      await supabase.from('properties').update({
+        received_amount: newReceived,
+        remaining_amount: newRemaining,
+      }).eq('id', prop.id);
+    }
   }
 
   const localPaymentId = paymentOverride?.Payment_ID || paymentOverride?.payment_id || generateId();

@@ -17,7 +17,6 @@ import CEOProjectsHub from './components/CEOProjectsHub';
 import TownDashboard from './components/TownDashboard';
 import AuthScreen from './components/AuthScreen';
 import AccountantUnlockScreen from './components/AccountantUnlockScreen';
-import TamperLockScreen from './components/TamperLockScreen';
 import LockerAuditBlock from './components/LockerAuditBlock';
 import TermsScreen from './components/TermsScreen';
 import AppealDashboard from './systems/AppealSystem/AppealDashboard';
@@ -339,7 +338,7 @@ function AppInner() {
   const [page, setPage] = useState('dashboard');
   const [toast, setToast] = useState(null);
   const [ready, setReady] = useState(false);
-  const [tamperLock, setTamperLock] = useState(null);
+
   const [auditDue, setAuditDue] = useState(null);
   const [selectedTown, setSelectedTown] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('zameen_theme') || 'light');
@@ -636,14 +635,7 @@ function AppInner() {
     }
   }, [showToast]);
 
-  useEffect(() => {
-    if (window.api?.onFileTamperAlert) {
-      window.api.onFileTamperAlert((data) => {
-        showToast(data?.message || 'SECURITY: Excel file was modified outside the app!', 'error');
-        setTamperLock(data);
-      });
-    }
-  }, [showToast]);
+
 
   useEffect(() => {
     if (!window.api?.onCloudRefreshProgress) return undefined;
@@ -935,37 +927,130 @@ function AppInner() {
           },
           (payload) => {
             const a = payload.new;
-            if (a.appeal_type !== 'backdated_daily_entry' && a.appeal_type !== 'future_daily_entry') return;
+            const type = a.appeal_type || '';
+            const status = a.status;
 
-            if (a?.status === 'approved') {
-              const seenApprovedKey = `daily_entry_approval_notified_${a.id}`;
-              if (localStorage.getItem(seenApprovedKey)) return;
-              localStorage.setItem(seenApprovedKey, '1');
-              const rd = a.requested_data || {};
-              const body = `${rd.type || 'Entry'} ${rd.date || ''} approved by CEO`;
-              showToast(body, 'success');
-              window.api?.showNotification?.('Daily Entry Approved', body);
-              setDataRefreshKey((k) => k + 1);
-              return;
+            if (type === 'backdated_daily_entry' || type === 'future_daily_entry') {
+              if (status === 'approved') {
+                const seenApprovedKey = `daily_entry_approval_notified_${a.id}`;
+                if (localStorage.getItem(seenApprovedKey)) return;
+                localStorage.setItem(seenApprovedKey, '1');
+                const rd = a.requested_data || {};
+                const body = `${rd.type || 'Entry'} ${rd.date || ''} approved by CEO`;
+                showToast(body, 'success');
+                window.api?.showNotification?.('Daily Entry Approved', body);
+                setDataRefreshKey((k) => k + 1);
+                return;
+              }
+
+              if (status === 'rejected') {
+                const seenKey = `daily_entry_rejection_notified_${a.id}`;
+                if (localStorage.getItem(seenKey)) return;
+                localStorage.setItem(seenKey, '1');
+
+                const rd = a.requested_data || {};
+                const body = `${rd.type || 'Entry'} ${rd.date || ''} was rejected by CEO`;
+                window.api?.sendDailyEntryRejectionEmail?.({
+                  accountantEmail: user.email,
+                  accountantName: userProfile?.full_name || user.email || 'Accountant',
+                  townName: rd.townName,
+                  entryDate: rd.date,
+                  entryType: rd.type || 'Entry',
+                  amount: rd.amount,
+                  description: rd.description,
+                  reason: 'Rejected from CEO review',
+                }).catch(() => {});
+                showToast(body, 'error');
+                window.api?.showNotification?.('Daily Entry Rejected', body);
+                setDataRefreshKey((k) => k + 1);
+                return;
+              }
             }
 
-            if (a?.status !== 'rejected') return;
-            const seenKey = `daily_entry_rejection_notified_${a.id}`;
-            if (localStorage.getItem(seenKey)) return;
-            localStorage.setItem(seenKey, '1');
+            if (type === 'salary_increase') {
+              if (status === 'approved') {
+                const seenKey = `salary_increase_approval_notified_${a.id}`;
+                if (localStorage.getItem(seenKey)) return;
+                localStorage.setItem(seenKey, '1');
+                const rd = a.requested_data || {};
+                const body = `Salary increase for ${rd.employeeName || 'Employee'} approved by CEO`;
+                showToast(body, 'success');
+                window.api?.showNotification?.('Salary Increase Approved', body);
+                window.api?.syncFromCloud?.().then(() => {
+                  setDataRefreshKey((k) => k + 1);
+                }).catch(() => {
+                  setDataRefreshKey((k) => k + 1);
+                });
+                return;
+              }
+              if (status === 'rejected') {
+                const seenKey = `salary_increase_rejection_notified_${a.id}`;
+                if (localStorage.getItem(seenKey)) return;
+                localStorage.setItem(seenKey, '1');
+                const rd = a.requested_data || {};
+                const body = `Salary increase for ${rd.employeeName || 'Employee'} was rejected by CEO`;
+                showToast(body, 'error');
+                window.api?.showNotification?.('Salary Increase Rejected', body);
+                setDataRefreshKey((k) => k + 1);
+                return;
+              }
+            }
 
-            const rd = a.requested_data || {};
-            const body = `${rd.type || 'Entry'} ${rd.date || ''} was rejected by CEO`;
-            window.api?.sendDailyEntryRejectionEmail?.({
-              accountantEmail: user.email,
-              accountantName: userProfile?.full_name || user.email || 'Accountant',
-              townName: rd.townName,
-              entryDate: rd.date,
-              entryType: rd.type || 'Entry',
-              amount: rd.amount,
-              description: rd.description,
-              reason: 'Rejected from CEO review',
-            }).catch(() => {});
+            if (type === 'delete_employee') {
+              if (status === 'approved') {
+                const seenKey = `delete_employee_approval_notified_${a.id}`;
+                if (localStorage.getItem(seenKey)) return;
+                localStorage.setItem(seenKey, '1');
+                const rd = a.requested_data || {};
+                const body = `Employee ${rd.employeeName || 'Employee'} deletion approved by CEO`;
+                showToast(body, 'success');
+                window.api?.showNotification?.('Employee Deleted', body);
+                window.api?.syncFromCloud?.().then(() => {
+                  setDataRefreshKey((k) => k + 1);
+                }).catch(() => {
+                  setDataRefreshKey((k) => k + 1);
+                });
+                return;
+              }
+              if (status === 'rejected') {
+                const seenKey = `delete_employee_rejection_notified_${a.id}`;
+                if (localStorage.getItem(seenKey)) return;
+                localStorage.setItem(seenKey, '1');
+                const rd = a.requested_data || {};
+                const body = `Employee ${rd.employeeName || 'Employee'} deletion was rejected by CEO`;
+                showToast(body, 'error');
+                window.api?.showNotification?.('Employee Deletion Rejected', body);
+                setDataRefreshKey((k) => k + 1);
+                return;
+              }
+            }
+
+            if (type === 'delete_daily_entry') {
+              if (status === 'approved') {
+                const seenKey = `delete_daily_entry_approval_notified_${a.id}`;
+                if (localStorage.getItem(seenKey)) return;
+                localStorage.setItem(seenKey, '1');
+                const body = `Daily entry deletion approved by CEO`;
+                showToast(body, 'success');
+                window.api?.showNotification?.('Daily Entry Deleted', body);
+                window.api?.syncFromCloud?.().then(() => {
+                  setDataRefreshKey((k) => k + 1);
+                }).catch(() => {
+                  setDataRefreshKey((k) => k + 1);
+                });
+                return;
+              }
+              if (status === 'rejected') {
+                const seenKey = `delete_daily_entry_rejection_notified_${a.id}`;
+                if (localStorage.getItem(seenKey)) return;
+                localStorage.setItem(seenKey, '1');
+                const body = `Daily entry deletion was rejected by CEO`;
+                showToast(body, 'error');
+                window.api?.showNotification?.('Daily Entry Deletion Rejected', body);
+                setDataRefreshKey((k) => k + 1);
+                return;
+              }
+            }
           }
         )
         .subscribe();
@@ -1014,27 +1099,7 @@ function AppInner() {
     return <StartupSplash />;
   }
 
-  // ─── Security Tamper Lock ────
-  if (tamperLock) {
-    return (
-      <>
-        <ThemeToggle theme={theme} onToggle={toggleTheme} />
-        <TamperLockScreen 
-          userRole={userRole}
-          tamperData={tamperLock} 
-          onResolve={async (action, adminPassword) => {
-            if (window.api?.resolveTamperLock) {
-               const result = await window.api.resolveTamperLock({ action, adminPassword, ...tamperLock });
-               if (!result.success) throw new Error(result.error);
-            }
-            setTamperLock(null);
-          }} 
-        />
-        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-        <CloudRefreshStatus state={cloudRefresh} />
-      </>
-    );
-  }
+
 
   // ─── Security Locker Audit Lock ────
   if (auditDue) {

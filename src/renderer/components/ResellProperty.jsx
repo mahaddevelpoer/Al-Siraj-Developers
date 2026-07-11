@@ -89,6 +89,10 @@ export default function ResellProperty({ showToast, loadNotifications, townName 
   };
 
   const handleResell = async () => {
+    if (property && (parseFloat(property.Remaining_Amount) || 0) > 0) {
+      showToast('This property cannot be resold because it has unpaid receivables/installments remaining.', 'error');
+      return;
+    }
     if (!form.Receipt_Number) { showToast('Receipt Number is MANDATORY', 'error'); return; }
     if (!form.Resell_Amount) { showToast('Resell Amount required', 'error'); return; }
     if (!buyer1.name) { showToast('Buyer 1 Name is required', 'error'); return; }
@@ -312,6 +316,7 @@ export default function ResellProperty({ showToast, loadNotifications, townName 
               value={paymentAccount}
               onChange={setPaymentAccount}
               label="Receive Resell Advance Into / Pay Refund From"
+              paymentMethod={paymentMethod}
             />
 
             {paymentMethod === 'Cheque' && (

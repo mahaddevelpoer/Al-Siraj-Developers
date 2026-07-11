@@ -96,12 +96,37 @@ async function getTownPrices(townName) {
   if (!fs.existsSync(filePath)) return null;
   const rows = await readExcelFile(filePath, 'Data');
   const townRow = rows.find(r => r.Town_Name === townName);
-  return townRow || null;
+  if (!townRow) return null;
+  return {
+    ...townRow,
+    Road_30_Residential: townRow.Road_30_Residential || townRow.Road_30 || '',
+    Road_30_Commercial: townRow.Road_30_Commercial || townRow.Road_30 || '',
+    Road_40_Residential: townRow.Road_40_Residential || townRow.Road_40 || '',
+    Road_40_Commercial: townRow.Road_40_Commercial || townRow.Road_40 || '',
+    Road_50_Residential: townRow.Road_50_Residential || townRow.Road_50 || '',
+    Road_50_Commercial: townRow.Road_50_Commercial || townRow.Road_50 || '',
+    Road_60_Residential: townRow.Road_60_Residential || townRow.Road_60 || '',
+    Road_60_Commercial: townRow.Road_60_Commercial || townRow.Road_60 || '',
+    Road_80_Residential: townRow.Road_80_Residential || townRow.Road_80 || '',
+    Road_80_Commercial: townRow.Road_80_Commercial || townRow.Road_80 || '',
+    Custom_Residential: townRow.Custom_Residential || townRow.Custom_Price || '',
+    Custom_Commercial: townRow.Custom_Commercial || townRow.Custom_Price || '',
+  };
 }
 
 async function setTownPrices(townName, prices) {
   const filePath = path.join(getGlobalsPath(), 'Town_Prices.xlsx');
-  const COLUMNS = ['Town_Name', 'Road_30', 'Road_40', 'Road_50', 'Road_60', 'Road_80', 'Custom_Name', 'Custom_Price', 'Plot_Price', 'Residential_Plot_Price', 'Commercial_Plot_Price', 'Residential_Shop_Price', 'Commercial_Shop_Price'];
+  const COLUMNS = [
+    'Town_Name', 
+    'Road_30_Residential', 'Road_30_Commercial',
+    'Road_40_Residential', 'Road_40_Commercial',
+    'Road_50_Residential', 'Road_50_Commercial',
+    'Road_60_Residential', 'Road_60_Commercial',
+    'Road_80_Residential', 'Road_80_Commercial',
+    'Custom_Name', 'Custom_Residential', 'Custom_Commercial',
+    'Road_30', 'Road_40', 'Road_50', 'Road_60', 'Road_80', 'Custom_Price',
+    'Plot_Price', 'Residential_Plot_Price', 'Commercial_Plot_Price', 'Residential_Shop_Price', 'Commercial_Shop_Price'
+  ];
   
   if (!fs.existsSync(filePath)) {
     const workbook = new ExcelJS.Workbook();
@@ -118,13 +143,25 @@ async function setTownPrices(townName, prices) {
   
   const updatedData = {
     Town_Name: townName,
-    Road_30: prices.Road_30 || '',
-    Road_40: prices.Road_40 || '',
-    Road_50: prices.Road_50 || '',
-    Road_60: prices.Road_60 || '',
-    Road_80: prices.Road_80 || '',
+    Road_30_Residential: prices.Road_30_Residential || '',
+    Road_30_Commercial: prices.Road_30_Commercial || '',
+    Road_40_Residential: prices.Road_40_Residential || '',
+    Road_40_Commercial: prices.Road_40_Commercial || '',
+    Road_50_Residential: prices.Road_50_Residential || '',
+    Road_50_Commercial: prices.Road_50_Commercial || '',
+    Road_60_Residential: prices.Road_60_Residential || '',
+    Road_60_Commercial: prices.Road_60_Commercial || '',
+    Road_80_Residential: prices.Road_80_Residential || '',
+    Road_80_Commercial: prices.Road_80_Commercial || '',
     Custom_Name: prices.Custom_Name || '',
-    Custom_Price: prices.Custom_Price || '',
+    Custom_Residential: prices.Custom_Residential || '',
+    Custom_Commercial: prices.Custom_Commercial || '',
+    Road_30: prices.Road_30_Residential || '',
+    Road_40: prices.Road_40_Residential || '',
+    Road_50: prices.Road_50_Residential || '',
+    Road_60: prices.Road_60_Residential || '',
+    Road_80: prices.Road_80_Residential || '',
+    Custom_Price: prices.Custom_Residential || '',
     Plot_Price: prices.Plot_Price || prices.Residential_Plot_Price || '',
     Residential_Plot_Price: prices.Residential_Plot_Price || prices.Plot_Price || '',
     Commercial_Plot_Price: prices.Commercial_Plot_Price || '',

@@ -556,6 +556,21 @@ export default function TownDashboard({
     if (externalRefreshKey > 0) refreshTownData();
   }, [externalRefreshKey]);
 
+  useEffect(() => {
+    const handleDataChanged = (event) => {
+      const detail = event?.detail || {};
+      const targetTown = detail.townName || detail.town_name || detail.Town_Name;
+      if (targetTown && String(targetTown).trim().toLowerCase() !== String(selectedTown?.Town_Name).trim().toLowerCase()) return;
+      refreshTownData();
+    };
+    window.addEventListener('al-siraj-business-data-changed', handleDataChanged);
+    window.addEventListener('al-siraj-data-refreshed', handleDataChanged);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', handleDataChanged);
+      window.removeEventListener('al-siraj-data-refreshed', handleDataChanged);
+    };
+  }, [selectedTown]);
+
   const refreshTownData = async () => {
     const name = selectedTown?.Town_Name;
     if (!name) return;

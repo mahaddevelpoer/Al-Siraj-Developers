@@ -614,6 +614,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
               value={paymentAccount}
               onChange={setPaymentAccount}
               label="Receive Advance Into"
+              paymentMethod={paymentMethod}
             />
           </div>
 

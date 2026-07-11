@@ -365,6 +365,7 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
               value={paymentAccount}
               onChange={setPaymentAccount}
               label="Receive Into"
+              paymentMethod={payMethod}
             />
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Notes</label>

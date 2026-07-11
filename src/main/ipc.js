@@ -249,7 +249,7 @@ function buildPropertyReceiptArchive(data = {}, mode = 'property_sale') {
     Entity_Name: data.Customer_Name || '',
     Amount: advanceAmount,
     Receipt_Date: date,
-    Payload_JSON: JSON.stringify({
+    Payload_JSON: {
       type: mode,
       townName,
       propertyType: type,
@@ -261,7 +261,7 @@ function buildPropertyReceiptArchive(data = {}, mode = 'property_sale') {
       remainingAmount,
       paymentMethod: data.Payment_Method || 'Cash',
       receiptNumber,
-    }),
+    },
   };
 }
 
@@ -2672,6 +2672,37 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       if (!assignedTown) throw new Error('Please create/select a town before creating accountant');
       const supabase = require('./db/supabase');
       const cleanEmail = String(email || '').trim().toLowerCase();
+
+      const registerAccountantAsEmployee = async (name, town) => {
+        try {
+          const EmployeeDB = require('./db/employees');
+          const empDb = new EmployeeDB(dbPath);
+          const existingEmps = await empDb.getEmployees(town).catch(() => []);
+          const exists = existingEmps.some(e => String(e.name || '').trim().toLowerCase() === String(name).trim().toLowerCase());
+          if (!exists) {
+            await empDb.addEmployee({
+              name,
+              cnic: '',
+              phone: '',
+              townName: town,
+              designation: 'Accountant',
+              baseSalary: 0,
+            });
+            await onlineDb.insert('employees_v2', {
+              Employee_ID: onlineDb.generateId(),
+              Employee_Name: name,
+              CNIC: '',
+              Phone: '',
+              Town_Name: town,
+              Role: 'Accountant',
+              Salary: 0,
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.error('[create-accountant] Failed to register accountant as employee:', e);
+        }
+      };
+
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
@@ -2707,6 +2738,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             password,
             town_name: assignedTown,
           });
+          await registerAccountantAsEmployee(fullName, assignedTown);
           return { success: true, userId: existingProfile.id, townName: assignedTown, existing: true, offlineLogin: true };
         }
         throw authError;
@@ -2732,6 +2764,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         password,
         town_name: assignedTown,
       });
+      await registerAccountantAsEmployee(fullName, assignedTown);
       return { success: true, userId: authData.user.id, townName: assignedTown, offlineLogin: true };
     } catch (e) {
       return { error: e.message };
