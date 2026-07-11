@@ -1979,7 +1979,7 @@ class _AuditScreenState extends State<AuditScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       'Audit Report: ${audit.townName}',
@@ -2111,7 +2111,7 @@ class _AuditScreenState extends State<AuditScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.between,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(color: kMuted, fontWeight: FontWeight.w600)),
           Text(value, style: const TextStyle(fontWeight: FontWeight.bold, color: kText)),
@@ -2198,7 +2198,7 @@ class _AuditScreenState extends State<AuditScreen> {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.between,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Row(
                             children: [

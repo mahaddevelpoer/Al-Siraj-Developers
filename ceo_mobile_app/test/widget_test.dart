@@ -1,4 +1,5 @@
-import 'package:ceo_mobile_app/main.dart';
+import 'package:ceo_mobile_app/rebuilt/app.dart';
+import 'package:ceo_mobile_app/rebuilt/constants.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -8,7 +9,7 @@ void main() {
   });
 
   testWidgets('shows CEO login screen', (tester) async {
-    await tester.pumpWidget(const CeoMobileApp());
+    await tester.pumpWidget(const RebuiltCeoApp());
     await tester.pump();
 
     expect(find.text('AL SIRAJ DEVELOPERS'), findsOneWidget);
