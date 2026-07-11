@@ -1888,69 +1888,6 @@ class _TermsScreenState extends State<TermsScreen> {
                   ),
                 ),
               const SizedBox(height: 14),
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: kBg,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: _scrollController,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Center(child: AppLogo(size: 64)),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Developer Support & Service Agreement',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: kText,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 20,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _termsText,
-                        style: const TextStyle(
-                          color: kText,
-                          fontSize: 13,
-                          height: 1.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              CheckboxListTile(
-                value: _checked,
-                onChanged: (val) {
-                  if (val != null) setState(() => _checked = val);
-                },
-                title: const Text(
-                  'I accept the Developer Terms of Service & Handover Agreement',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                ),
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                activeColor: kBlue,
-              ),
-              if (!_scrolledToBottom)
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    '(Scroll to the bottom to agree)',
-                    style: TextStyle(color: kRed, fontSize: 12),
-                  ),
-                ),
-              const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,
                 height: 52,
