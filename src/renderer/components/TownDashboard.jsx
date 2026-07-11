@@ -19,7 +19,6 @@ import MediaDashboard from './MediaDashboard';
 import CashBanksDashboard from './CashBanksDashboard';
 import PendingAppeals from './PendingAppeals';
 import DailyLedger from '../systems/DailySystem/DailyLedger';
-import TownExpenses from './TownExpenses';
 import { EmployeeSalary } from '../systems/ExpenseSystem';
 import {
   ChartIcon, WalletIcon, PlotIcon, ShopIcon, SoldIcon, ResellIcon,
