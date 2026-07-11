@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-07-11T03:15:05.842Z",
+  "filesChecked": {
+    "ledger": 0,
+    "summaries": 0,
+    "sales": 0,
+    "installments": 0,
+    "salaries": 0,
+    "commissions": 0,
+    "cashBankAccounts": 0,
+    "dailyEntries": 0,
+    "expenses": 0,
+    "collectionPayments": 0,
+    "investorTransactions": 0,
+    "constructionPayments": 0,
+    "commissionReceipts": 0,
+    "receiptArchive": 0,
+    "mediaLibrary": 0,
+    "pendingSync": 0
+  },
+  "pendingSyncCount": 0,
+  "issueCount": 0,
+  "issues": []
+}

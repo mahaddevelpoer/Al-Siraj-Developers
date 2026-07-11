@@ -18,6 +18,7 @@ import TownDashboard from './components/TownDashboard';
 import AuthScreen from './components/AuthScreen';
 import AccountantUnlockScreen from './components/AccountantUnlockScreen';
 import TamperLockScreen from './components/TamperLockScreen';
+import LockerAuditBlock from './components/LockerAuditBlock';
 import TermsScreen from './components/TermsScreen';
 import AppealDashboard from './systems/AppealSystem/AppealDashboard';
 import PendingCollections from './components/PendingCollections';
@@ -339,6 +340,7 @@ function AppInner() {
   const [toast, setToast] = useState(null);
   const [ready, setReady] = useState(false);
   const [tamperLock, setTamperLock] = useState(null);
+  const [auditDue, setAuditDue] = useState(null);
   const [selectedTown, setSelectedTown] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('zameen_theme') || 'light');
   const [dataRefreshKey, setDataRefreshKey] = useState(0);
@@ -602,7 +604,31 @@ function AppInner() {
     if (panel !== 'ceo') setPanel('ceo');
     if (page !== 'townDashboard') setPage('townDashboard');
   }, [loggedIn, userRole, assignedAccountantTown, selectedTown?.Town_Name, panel, page]);
-
+  useEffect(() => {
+    async function checkLockerAudit() {
+      if (userRole !== 'accountant' || !selectedTown?.Town_Name) {
+        setAuditDue(null);
+        return;
+      }
+      try {
+        const settings = await window.api.getSystemSettings();
+        if (settings?.locker_audit_enabled === false || settings?.locker_audit_enabled === 'false') {
+          setAuditDue(null);
+          return;
+        }
+        
+        const schedule = await window.api.getLockerAuditSchedule({ townName: selectedTown.Town_Name });
+        if (schedule && !schedule.error) {
+          setAuditDue(schedule);
+        } else {
+          setAuditDue(null);
+        }
+      } catch (err) {
+        console.error('Error checking locker audit:', err);
+      }
+    }
+    checkLockerAudit();
+  }, [selectedTown?.Town_Name, userRole, cloudRefresh]);
 
   useEffect(() => {
     if (window.api?.onSyncWarning) {
@@ -1003,6 +1029,26 @@ function AppInner() {
             }
             setTamperLock(null);
           }} 
+        />
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <CloudRefreshStatus state={cloudRefresh} />
+      </>
+    );
+  }
+
+  // ─── Security Locker Audit Lock ────
+  if (auditDue) {
+    return (
+      <>
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+        <LockerAuditBlock 
+          townName={selectedTown?.Town_Name}
+          scheduleData={auditDue}
+          onAuditCompleted={() => {
+            setAuditDue(null);
+            setToast({ message: 'Locker audit submitted and verified successfully!', type: 'success' });
+            if (window.api?.triggerSyncUp) window.api.triggerSyncUp();
+          }}
         />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         <CloudRefreshStatus state={cloudRefresh} />

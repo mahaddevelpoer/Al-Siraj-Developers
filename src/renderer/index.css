@@ -11669,3 +11669,119 @@ textarea:focus {
   font-size: 18px;
   font-weight: 800;
 }
+
+/* ─── Locker Audit System Styles ───────────────────────────────── */
+.audit-lock-modal {
+  max-width: 480px !important;
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  box-shadow: 0 30px 70px rgba(15, 23, 42, 0.25) !important;
+}
+
+.audit-icon-wrapper {
+  background: linear-gradient(135deg, #1e3a8a, #2563eb) !important;
+}
+
+.audit-icon-wrapper.active {
+  background: linear-gradient(135deg, #047857, #10b981) !important;
+}
+
+.audit-info-card {
+  background: var(--bg-secondary, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 18px 0;
+}
+
+.audit-info-card .info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 14px;
+}
+
+.audit-info-card .info-row:not(:last-child) {
+  border-bottom: 1px solid var(--border-color, #f1f5f9);
+}
+
+.audit-info-card .info-row span {
+  color: var(--text-secondary, #64748b);
+  font-weight: 500;
+}
+
+.audit-info-card .info-row strong {
+  color: var(--text-primary, #0f172a);
+  font-weight: 700;
+}
+
+.audit-warning-text {
+  color: #ef4444;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-top: 12px;
+}
+
+.audit-question-box {
+  background: #eff6ff;
+  border-left: 4px solid #2563eb;
+  padding: 12px 16px;
+  border-radius: 4px 8px 8px 4px;
+  margin-bottom: 18px;
+}
+
+.question-label {
+  font-weight: 700;
+  font-size: 16px;
+  color: #1e40af;
+  margin: 0 0 4px 0;
+}
+
+.question-subtext {
+  font-size: 13px;
+  color: #3b82f6;
+}
+
+.input-group-pkr {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.pkr-prefix {
+  background: #f1f5f9;
+  padding: 0 16px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  color: #475569;
+  font-weight: 700;
+  border-right: 1px solid var(--border-color, #e2e8f0);
+}
+
+.audit-amount-input {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  flex: 1;
+  height: 48px;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  padding: 0 16px !important;
+}
+
+.formatted-pkr-helper {
+  font-size: 13px;
+  color: #047857;
+  font-weight: 700;
+  margin-top: 6px;
+  margin-left: 2px;
+}

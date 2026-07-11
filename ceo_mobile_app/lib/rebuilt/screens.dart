@@ -238,6 +238,7 @@ class _CeoShellState extends State<CeoShell> {
       ),
       ApprovalsScreen(repo: repo),
       ReportsScreen(repo: repo),
+      AuditScreen(repo: repo),
       MoreScreen(repo: repo),
     ];
     return Scaffold(
@@ -280,10 +281,16 @@ class _CeoShellState extends State<CeoShell> {
                 onTap: () => setState(() => _tab = 2),
               ),
               _NavItem(
-                icon: Icons.grid_view_rounded,
-                label: 'More',
+                icon: Icons.fact_check_rounded,
+                label: 'Audit',
                 selected: _tab == 3,
                 onTap: () => setState(() => _tab = 3),
+              ),
+              _NavItem(
+                icon: Icons.grid_view_rounded,
+                label: 'More',
+                selected: _tab == 4,
+                onTap: () => setState(() => _tab = 4),
               ),
             ],
           ),
@@ -1368,6 +1375,9 @@ class MoreScreen extends StatefulWidget {
 class _MoreScreenState extends State<MoreScreen> {
   bool _deviceLockEnabled = false;
   bool _loadingLock = true;
+  bool _fileTamperingEnabled = true;
+  bool _lockerAuditEnabled = true;
+  bool _loadingSettings = true;
 
   @override
   void initState() {
@@ -1382,12 +1392,42 @@ class _MoreScreenState extends State<MoreScreen> {
       _deviceLockEnabled = prefs.getBool('biometric_enabled') ?? false;
       _loadingLock = false;
     });
+
+    try {
+      final settings = await widget.repo.loadSystemSettings();
+      if (!mounted) return;
+      setState(() {
+        _fileTamperingEnabled = settings['file_tampering_check_enabled'] ?? true;
+        _lockerAuditEnabled = settings['locker_audit_enabled'] ?? true;
+        _loadingSettings = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingSettings = false);
+    }
   }
 
   Future<void> _toggleDeviceLock(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('biometric_enabled', enabled);
     if (mounted) setState(() => _deviceLockEnabled = enabled);
+  }
+
+  Future<void> _toggleFileTampering(bool enabled) async {
+    setState(() => _loadingSettings = true);
+    try {
+      await widget.repo.updateSystemSetting('file_tampering_check_enabled', enabled);
+      if (mounted) setState(() => _fileTamperingEnabled = enabled);
+    } catch (_) {}
+    if (mounted) setState(() => _loadingSettings = false);
+  }
+
+  Future<void> _toggleLockerAudit(bool enabled) async {
+    setState(() => _loadingSettings = true);
+    try {
+      await widget.repo.updateSystemSetting('locker_audit_enabled', enabled);
+      if (mounted) setState(() => _lockerAuditEnabled = enabled);
+    } catch (_) {}
+    if (mounted) setState(() => _loadingSettings = false);
   }
 
   @override
@@ -1431,6 +1471,26 @@ class _MoreScreenState extends State<MoreScreen> {
             ),
             value: _deviceLockEnabled,
             onChanged: _loadingLock ? null : _toggleDeviceLock,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        AppCard(
+          child: SwitchListTile(
+            secondary: const Icon(Icons.health_and_safety_rounded, color: kGreen),
+            title: const Text('File Tampering Check'),
+            subtitle: const Text('Lock app if Excel files altered outside'),
+            value: _fileTamperingEnabled,
+            onChanged: _loadingSettings ? null : _toggleFileTampering,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        AppCard(
+          child: SwitchListTile(
+            secondary: const Icon(Icons.fact_check_rounded, color: kBlue),
+            title: const Text('Enforce Locker Audits'),
+            subtitle: const Text('Require physical cash match on audit day'),
+            value: _lockerAuditEnabled,
+            onChanged: _loadingSettings ? null : _toggleLockerAudit,
             contentPadding: EdgeInsets.zero,
           ),
         ),
@@ -1828,6 +1888,69 @@ class _TermsScreenState extends State<TermsScreen> {
                   ),
                 ),
               const SizedBox(height: 14),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _scrollController,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Center(child: AppLogo(size: 64)),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Developer Support & Service Agreement',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: kText,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 20,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _termsText,
+                        style: const TextStyle(
+                          color: kText,
+                          fontSize: 13,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              CheckboxListTile(
+                value: _checked,
+                onChanged: (val) {
+                  if (val != null) setState(() => _checked = val);
+                },
+                title: const Text(
+                  'I accept the Developer Terms of Service & Handover Agreement',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                activeColor: kBlue,
+              ),
+              if (!_scrolledToBottom)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    '(Scroll to the bottom to agree)',
+                    style: TextStyle(color: kRed, fontSize: 12),
+                  ),
+                ),
+              const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -1846,6 +1969,393 @@ class _TermsScreenState extends State<TermsScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class AuditScreen extends StatefulWidget {
+  const AuditScreen({super.key, required this.repo});
+  final CeoRepository repo;
+
+  @override
+  State<AuditScreen> createState() => _AuditScreenState();
+}
+
+class _AuditScreenState extends State<AuditScreen> {
+  late Future<List<LockerAudit>> _auditsFuture = widget.repo.loadLockerAudits();
+  late Future<List<AuditSchedule>> _schedulesFuture = widget.repo.loadAuditSchedules();
+  late Future<DashboardSummary> _dashboardFuture = widget.repo.loadDashboard();
+  bool _busy = false;
+
+  Future<void> _refresh() async {
+    setState(() {
+      _auditsFuture = widget.repo.loadLockerAudits();
+      _schedulesFuture = widget.repo.loadAuditSchedules();
+      _dashboardFuture = widget.repo.loadDashboard(force: true);
+    });
+    await Future.wait([_auditsFuture, _schedulesFuture, _dashboardFuture]);
+  }
+
+  Future<void> _scheduleNewAudit(String townName) async {
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+      initialDate: DateTime.now(),
+    );
+    if (picked == null) return;
+
+    setState(() => _busy = true);
+    try {
+      await widget.repo.scheduleAudit(townName, picked);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Audit scheduled for $townName on ${picked.toIso8601String().split('T')[0]}!')),
+        );
+      }
+      await _refresh();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to schedule audit: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showReportDetails(LockerAudit audit) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: kSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        final mismatch = audit.discrepancy != 0;
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.between,
+                  children: [
+                    Text(
+                      'Audit Report: ${audit.townName}',
+                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: kText),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Date: ${audit.auditDate} | Audited by: ${audit.auditedBy}',
+                  style: const TextStyle(color: kMuted, fontWeight: FontWeight.bold),
+                ),
+                const Divider(height: 32, color: kLine),
+                
+                // Numbers summary
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: kLine.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('System Cash', style: TextStyle(fontSize: 12, color: kMuted)),
+                            const SizedBox(height: 4),
+                            Text(money.format(audit.systemBalance), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: kLine.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Locker Physical', style: TextStyle(fontSize: 12, color: kMuted)),
+                            const SizedBox(height: 4),
+                            Text(money.format(audit.physicalBalance), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                
+                // Discrepancy indicator
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: mismatch ? kRed.withValues(alpha: 0.1) : kGreen.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: mismatch ? kRed : kGreen, width: 1.5),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        mismatch ? Icons.warning_amber_rounded : Icons.check_circle_outline_rounded,
+                        color: mismatch ? kRed : kGreen,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              mismatch ? 'Locker Discrepancy Detected!' : 'Locker Balances Match Perfectly',
+                              style: TextStyle(fontWeight: FontWeight.w900, color: mismatch ? kRed : kGreen, fontSize: 15),
+                            ),
+                            if (mismatch) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Difference: ${money.format(audit.discrepancy)}',
+                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: kRed),
+                              ),
+                            ]
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                
+                // Detailed sections from report
+                const Text('Audit Breakdown', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                const SizedBox(height: 12),
+                
+                _buildReportRow('Active Sales Count', '${audit.report['activeSalesCount'] ?? 0}'),
+                _buildReportRow('Expected Sales Revenue', money.format(audit.report['expectedRevenue'] ?? 0)),
+                _buildReportRow('Actual Collected Amount', money.format(audit.report['collectedAmount'] ?? 0)),
+                _buildReportRow('Uncollected Balance', money.format(audit.report['remainingRevenue'] ?? 0)),
+                _buildReportRow('Recorded Expenses', money.format(audit.report['recordedExpenses'] ?? 0)),
+                _buildReportRow('Employee Salary Payments', money.format(audit.report['recordedSalaries'] ?? 0)),
+                
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildReportRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.between,
+        children: [
+          Text(label, style: const TextStyle(color: kMuted, fontWeight: FontWeight.w600)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, color: kText)),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScreenScaffold(
+      title: 'Audit command center',
+      onRefresh: _refresh,
+      children: [
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'Locker & System Audit',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Schedule physical cash matching audits and view discrepancy reports.',
+                style: TextStyle(color: kMuted),
+              ),
+            ],
+          ),
+        ),
+
+        // 1. Audit Schedule / Reminders Section
+        const SizedBox(height: 10),
+        const Text(
+          'Schedule Reminders',
+          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+        ),
+        const SizedBox(height: 10),
+        
+        FutureBuilder<DashboardSummary>(
+          future: _dashboardFuture,
+          builder: (context, snap) {
+            final towns = snap.data?.towns ?? const [];
+            if (towns.isEmpty) return const SizedBox.shrink();
+            return AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Select Town to Schedule Audit',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: kMuted),
+                  ),
+                  const Divider(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: towns.map((town) {
+                      return ActionChip(
+                        avatar: const Icon(Icons.add_alarm_rounded, size: 16),
+                        label: Text(town.name),
+                        onPressed: _busy ? null : () => _scheduleNewAudit(town.name),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+
+        // Pending schedules list
+        FutureBuilder<List<AuditSchedule>>(
+          future: _schedulesFuture,
+          builder: (context, snap) {
+            final list = (snap.data ?? const []).where((s) => s.status == 'pending').toList();
+            if (list.isEmpty) return const SizedBox.shrink();
+            return AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Pending Audit Dates', style: TextStyle(fontWeight: FontWeight.w800, color: kMuted)),
+                  const Divider(height: 16),
+                  for (final s in list)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.between,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.today_rounded, size: 16, color: kAmber),
+                              const SizedBox(width: 8),
+                              Text(s.townName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          StatusPill(text: s.scheduledDate, color: kAmber),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+
+        // 2. Audit Reports Section
+        const SizedBox(height: 18),
+        const Text(
+          'Completed Audits & Reports',
+          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+        ),
+        const SizedBox(height: 10),
+        
+        FutureBuilder<List<LockerAudit>>(
+          future: _auditsFuture,
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const LoadingBlock(text: 'Loading audit reports...');
+            }
+            if (snap.hasError) {
+              return ErrorBlock(error: snap.error!, onRetry: _refresh);
+            }
+            final list = snap.data ?? const [];
+            if (list.isEmpty) {
+              return const EmptyBlock(text: 'No completed locker audits found.');
+            }
+            return Column(
+              children: list.map((audit) {
+                final mismatch = audit.discrepancy != 0;
+                return AppCard(
+                  onTap: () => _showReportDetails(audit),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: mismatch ? kRed.withValues(alpha: 0.1) : kGreen.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          mismatch ? Icons.warning_rounded : Icons.check_circle_rounded,
+                          color: mismatch ? kRed : kGreen,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              audit.townName,
+                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Date: ${audit.auditDate} | By: ${audit.auditedBy}',
+                              style: const TextStyle(color: kMuted, fontSize: 12),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              mismatch
+                                  ? 'Discrepancy: ${money.format(audit.discrepancy)}'
+                                  : 'Balances Match',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                                color: mismatch ? kRed : kGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded, color: kMuted),
+                    ],
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ],
     );
   }
 }

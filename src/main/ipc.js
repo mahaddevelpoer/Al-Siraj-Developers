@@ -9,6 +9,7 @@ const { performBackup } = require('./db/backup');
 const { performFullSyncUp } = require('./db/syncUp');
 const { performFullSync } = require('./db/syncDown');
 const { showDesktopNotification } = require('./notificationService');
+const lockerAudits = require('./db/lockerAudits');
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
@@ -2067,6 +2068,70 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         () => deleteDailyEntry(params),
         () => onlineDb.deleteWhere('daily_entries', { Entry_ID: params.Entry_ID }),
         { tableName: 'daily_entries', operation: 'delete', payload: params, clientWriteId: `daily-entry-delete-${params.Entry_ID}` }
+      );
+    } catch(e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('getSystemSettings', async () => {
+    try {
+      const globalsPath = require('./db/core').getGlobalsPath();
+      const settingsPath = path.join(globalsPath, 'System_Settings.json');
+      if (fs.existsSync(settingsPath)) {
+        return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      }
+      return {};
+    } catch(e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('getLockerAuditSchedule', async (_, params) => {
+    try {
+      assertObjectPayload(params, 'getLockerAuditSchedule payload');
+      const townName = params.townName;
+      return await lockerAudits.getLockerAuditSchedule(townName);
+    } catch(e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('submitLockerAudit', async (_, params) => {
+    try {
+      assertObjectPayload(params, 'submitLockerAudit payload');
+      const auditPayload = {
+        id: params.id,
+        townName: params.townName,
+        auditDate: params.auditDate,
+        systemBalance: Number(params.systemBalance) || 0,
+        physicalBalance: Number(params.physicalBalance) || 0,
+        discrepancy: Number(params.discrepancy) || 0,
+        auditedBy: params.auditedBy || 'Accountant',
+        report: params.report || {}
+      };
+
+      return await syncOnline(
+        () => lockerAudits.submitLockerAudit(auditPayload),
+        async (localResult) => {
+          const { error: insertError } = await onlineDb.insert('locker_audits', {
+            id: localResult.auditId,
+            town_name: auditPayload.townName,
+            audit_date: auditPayload.auditDate,
+            system_balance: auditPayload.systemBalance,
+            physical_balance: auditPayload.physicalBalance,
+            discrepancy: auditPayload.discrepancy,
+            audited_by: auditPayload.auditedBy,
+            audit_report: auditPayload.report
+          });
+          if (insertError) throw insertError;
+
+          const { error: updateError } = await onlineDb.updateWhere('audit_schedules', 
+            { town_name: auditPayload.townName, status: 'pending' }, 
+            { status: 'completed', updated_at: new Date().toISOString() }
+          );
+          if (updateError) {
+            await onlineDb.updateWhere('audit_schedules',
+              { town_name: auditPayload.townName, scheduled_date: auditPayload.auditDate },
+              { status: 'completed', updated_at: new Date().toISOString() }
+            );
+          }
+        },
+        { tableName: 'locker_audits', operation: 'insert', payload: auditPayload, clientWriteId: `locker-audit-${auditPayload.townName}-${Date.now()}` }
       );
     } catch(e) { return { error: e.message }; }
   });

@@ -579,4 +579,72 @@ class CeoRepository {
     if (parsed == null) return false;
     return DateTime.now().difference(parsed.toLocal()).inMinutes <= 3;
   }
+
+  Future<Map<String, bool>> loadSystemSettings() async {
+    try {
+      final rows = await _safeRows(
+        () => supabase.from('system_settings').select('key, value'),
+        timeout: const Duration(seconds: 6),
+      );
+      final map = <String, bool>{};
+      for (final row in rows) {
+        final key = row['key']?.toString() ?? '';
+        final val = row['value'];
+        if (key.isNotEmpty) {
+          map[key] = val == true || val?.toString() == 'true';
+        }
+      }
+      return map;
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Future<void> updateSystemSetting(String key, bool value) async {
+    await supabase.from('system_settings').upsert({
+      'key': key,
+      'value': value,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).timeout(const Duration(seconds: 8));
+  }
+
+  Future<void> scheduleAudit(String townName, DateTime date) async {
+    final dateStr = date.toIso8601String().split('T')[0];
+    await supabase.from('audit_schedules').upsert({
+      'town_name': townName,
+      'scheduled_date': dateStr,
+      'status': 'pending',
+      'updated_at': DateTime.now().toIso8601String(),
+    }, onConflict: 'town_name,scheduled_date').timeout(const Duration(seconds: 8));
+  }
+
+  Future<List<AuditSchedule>> loadAuditSchedules() async {
+    final rows = await _safeRows(
+      () => supabase.from('audit_schedules').select('*').order('scheduled_date', ascending: false),
+      timeout: const Duration(seconds: 6),
+    );
+    return rows.map((r) => AuditSchedule(
+      id: r['id']?.toString() ?? '',
+      townName: r['town_name']?.toString() ?? '',
+      scheduledDate: r['scheduled_date']?.toString() ?? '',
+      status: r['status']?.toString() ?? 'pending',
+    )).toList();
+  }
+
+  Future<List<LockerAudit>> loadLockerAudits() async {
+    final rows = await _safeRows(
+      () => supabase.from('locker_audits').select('*').order('audit_date', ascending: false),
+      timeout: const Duration(seconds: 6),
+    );
+    return rows.map((r) => LockerAudit(
+      id: r['id']?.toString() ?? '',
+      townName: r['town_name']?.toString() ?? '',
+      auditDate: r['audit_date']?.toString() ?? '',
+      systemBalance: asNum(r['system_balance']),
+      physicalBalance: asNum(r['physical_balance']),
+      discrepancy: asNum(r['discrepancy']),
+      auditedBy: r['audited_by']?.toString() ?? '',
+      report: mapFromAny(r['audit_report']),
+    )).toList();
+  }
 }

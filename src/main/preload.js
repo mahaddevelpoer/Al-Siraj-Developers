@@ -223,4 +223,8 @@ contextBridge.exposeInMainWorld('api', {
   saveLocalPendingAppeal: (data) => ipcRenderer.invoke('save-pending-appeal', data),
   getLocalPendingAppeals: () => ipcRenderer.invoke('get-local-pending-appeals'),
   dismissLocalPendingAppeal: (id) => ipcRenderer.invoke('dismiss-local-pending-appeal', id),
+  // System Settings and Locker Audits
+  getSystemSettings: () => ipcRenderer.invoke('getSystemSettings'),
+  getLockerAuditSchedule: (params) => ipcRenderer.invoke('getLockerAuditSchedule', params),
+  submitLockerAudit: (params) => ipcRenderer.invoke('submitLockerAudit', params),
 });

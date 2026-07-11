@@ -93,8 +93,28 @@ function sendTamperAlert(filePath, relPath, mainWindow) {
   console.error(`[file-watcher] TAMPER DETECTED: ${relPath}`);
 }
 
+function isFileTamperingCheckEnabled(dbPath) {
+  try {
+    const settingsPath = path.join(dbPath, 'Global', 'System_Settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const config = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (config.file_tampering_check_enabled === false || config.file_tampering_check_enabled === 'false') {
+        return false;
+      }
+    }
+  } catch (e) {
+    console.error('[file-watcher] Error reading system settings:', e.message);
+  }
+  return true; // default to enabled
+}
+
 function startFileWatcher(dbPath, mainWindow) {
   stopFileWatcher();
+  if (!isFileTamperingCheckEnabled(dbPath)) {
+    console.log('[file-watcher] File Tampering Integrity Check is disabled by CEO.');
+    return;
+  }
+
   fileHashes = buildBaseline(dbPath);
 
   const dirs = [

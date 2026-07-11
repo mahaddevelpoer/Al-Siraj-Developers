@@ -3,6 +3,7 @@ const path = require('path');
 const ExcelJS = require('exceljs');
 const onlineDb = require('./online');
 const storage = require('./storage');
+const supabase = require('./supabase');
 const { getGlobalsPath, getTownsPath, getPropertiesPath, withFileWriteLock, writeWorkbookAtomic, getHeaderKeys } = require('./core');
 const { PLOT_COLUMNS, SHOP_COLUMNS } = require('./properties');
 const { TOWN_COLUMNS } = require('./towns');
@@ -143,7 +144,8 @@ async function performFullSync(reportProgress = () => {}) {
       sales, expenses, ceoExpenses, ceoSalary, installments,
       notifications, employees, advanceSalaries, salaryPayments, towns,
       dailyEntries, commissions, resellHistory, townAgents, investors,
-      investorTransactions, constructionProjects, constructionPayments, commissionReceipts, collectionPayments, receiptArchive, mediaLibrary, cashBankAccounts, moneyLedger, townFinancialSummary, townMapShapes
+      investorTransactions, constructionProjects, constructionPayments, commissionReceipts, collectionPayments, receiptArchive, mediaLibrary, cashBankAccounts, moneyLedger, townFinancialSummary, townMapShapes,
+      auditSchedules, lockerAudits
     ] = await Promise.all([
       onlineDb.getAllSales(),
       onlineDb.getAll('expenses'),
@@ -171,6 +173,8 @@ async function performFullSync(reportProgress = () => {}) {
       safeGetAll('money_ledger'),
       safeGetAll('town_financial_summary'),
       safeGetAll('town_map_shapes'),
+      safeGetAll('audit_schedules'),
+      safeGetAll('locker_audits'),
     ]);
 
     const ctx = storage.getSyncContext?.() || {};
@@ -182,6 +186,21 @@ async function performFullSync(reportProgress = () => {}) {
 
     reportProgress(30, 'Writing global files...');
     const globalsPath = getGlobalsPath();
+
+    // Fetch and cache system settings locally
+    let settingsMap = {};
+    try {
+      const { data } = await supabase.from('system_settings').select('key, value');
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          settingsMap[item.key] = item.value;
+        }
+      }
+    } catch (e) {
+      console.warn('[syncDown] Failed to fetch system_settings:', e.message);
+    }
+    const settingsPath = path.join(globalsPath, 'System_Settings.json');
+    fs.writeFileSync(settingsPath, JSON.stringify(settingsMap, null, 2), 'utf8');
 
     const COMM_COLS = ['Commission_ID','Sale_ID','Town_Name','Plot_Shop_Number','Agent_Name','Agent_Email','Commission_Amount','Paid_Amount','Remaining_Amount','Status','Paid_Date','Last_Paid_Date','Created_At'];
     const mappedCommissions = scoped(commissions).map(c => ({
@@ -275,6 +294,26 @@ async function performFullSync(reportProgress = () => {}) {
 
     const MAP_SHAPE_COLS = ['Shape_ID','Town_Name','Property_Type','Property_Number','Shape_Type','Label','Status','Geometry_JSON','Style_JSON','Sort_Order','Updated_At'];
     await overwriteExcelFile(path.join(globalsPath, 'Town_Map_Shapes.xlsx'), 'Data', MAP_SHAPE_COLS, scoped(townMapShapes).map((r) => mapGenericFromCloud(MAP_SHAPE_COLS, r)));
+
+    const AUDIT_SCHED_COLS = ['Schedule_ID','Town_Name','Scheduled_Date','Status'];
+    await overwriteExcelFile(path.join(globalsPath, 'Audit_Schedules.xlsx'), 'Data', AUDIT_SCHED_COLS, scoped(auditSchedules).map(s => ({
+      Schedule_ID: s.id,
+      Town_Name: s.town_name,
+      Scheduled_Date: s.scheduled_date,
+      Status: s.status
+    })));
+
+    const LOCKER_AUDIT_COLS = ['Audit_ID','Town_Name','Audit_Date','System_Balance','Physical_Balance','Discrepancy','Audited_By','Audit_Report_JSON'];
+    await overwriteExcelFile(path.join(globalsPath, 'Locker_Audits.xlsx'), 'Data', LOCKER_AUDIT_COLS, scoped(lockerAudits).map(a => ({
+      Audit_ID: a.id,
+      Town_Name: a.town_name,
+      Audit_Date: a.audit_date,
+      System_Balance: a.system_balance,
+      Physical_Balance: a.physical_balance,
+      Discrepancy: a.discrepancy,
+      Audited_By: a.audited_by,
+      Audit_Report_JSON: JSON.stringify(a.audit_report || {})
+    })));
 
     reportProgress(50, 'Writing towns...');
     const townsPath = getTownsPath();

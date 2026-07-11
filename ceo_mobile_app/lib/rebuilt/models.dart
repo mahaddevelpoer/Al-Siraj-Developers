@@ -119,3 +119,39 @@ class TownDashboardDetail {
   final List<ReviewItem> recentApprovals;
   final LedgerReceiptSummary? receipt;
 }
+
+class AuditSchedule {
+  const AuditSchedule({
+    required this.id,
+    required this.townName,
+    required this.scheduledDate,
+    required this.status,
+  });
+
+  final String id;
+  final String townName;
+  final String scheduledDate;
+  final String status;
+}
+
+class LockerAudit {
+  const LockerAudit({
+    required this.id,
+    required this.townName,
+    required this.auditDate,
+    required this.systemBalance,
+    required this.physicalBalance,
+    required this.discrepancy,
+    required this.auditedBy,
+    required this.report,
+  });
+
+  final String id;
+  final String townName;
+  final String auditDate;
+  final num systemBalance;
+  final num physicalBalance;
+  final num discrepancy;
+  final String auditedBy;
+  final Map<String, dynamic> report;
+}
