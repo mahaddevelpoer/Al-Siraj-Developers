@@ -222,6 +222,21 @@ export default function AppealDashboard() {
         }
       }
 
+      // If accepting a delete_daily_entry appeal, delete the entry now
+      if (newStatus === 'approved' && appeal?.appeal_type === 'delete_daily_entry') {
+        const rd = appeal.requested_data || {};
+        if (rd.entryId && rd.townName && window.api?.deleteDailyEntry) {
+          try {
+            await window.api.deleteDailyEntry({
+              entryId: rd.entryId,
+              townName: rd.townName,
+            });
+          } catch (e) {
+            console.error('Failed to delete approved daily entry:', e);
+          }
+        }
+      }
+
       if (newStatus === 'rejected' &&
         (appeal?.appeal_type === 'backdated_daily_entry' || appeal?.appeal_type === 'future_daily_entry')) {
         const rd = appeal.requested_data || {};
@@ -368,6 +383,7 @@ function requiresTown(appeal) {
     'property_access_request',
     'salary_increase',
     'delete_employee',
+    'delete_daily_entry',
   ].includes(type);
 }
 

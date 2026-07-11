@@ -73,7 +73,8 @@ BEGIN
        'custom_installment_plan',
        'property_access_request',
        'salary_increase',
-       'delete_employee'
+       'delete_employee',
+       'delete_daily_entry'
      )
      AND requested_town = '' THEN
     RAISE EXCEPTION 'Town name is required before approving this appeal';
@@ -92,6 +93,14 @@ BEGIN
     SET is_active = (new_status = 'approved'),
         updated_at = NOW()
     WHERE id = appeal_row.requested_by_user_id;
+  END IF;
+
+  IF new_status = 'approved' AND appeal_row.appeal_type = 'delete_daily_entry' THEN
+    DELETE FROM public.daily_entries
+    WHERE entry_id = appeal_row.entity_id;
+
+    DELETE FROM public.expenses
+    WHERE expense_id = appeal_row.entity_id;
   END IF;
 
   IF new_status = 'approved'

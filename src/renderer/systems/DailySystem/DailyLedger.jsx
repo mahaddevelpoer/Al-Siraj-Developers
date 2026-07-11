@@ -301,6 +301,47 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   };
 
   const handleDeleteEntry = async (entryId) => {
+    const entry = entries.find(e => e.Entry_ID === entryId);
+    if (!entry) return;
+
+    if (userRole === 'accountant') {
+      const ok = window.confirm(`Deleting this daily entry requires CEO approval. Submit a deletion appeal to the CEO's dashboard?`);
+      if (!ok) return;
+
+      const payload = {
+        appeal_type: 'delete_daily_entry',
+        entity_type: 'daily_entry',
+        entity_id: entryId,
+        town_name: townName,
+        reason: 'Daily Entry Deletion Request',
+        requested_data: {
+          entryId,
+          townName,
+          amount: parseFloat(entry.Amount) || 0,
+          type: entry.Type,
+          date: entry.Date,
+          description: entry.Description,
+          accountName: entry.Account_Name
+        }
+      };
+
+      if (!navigator.onLine) {
+        queueLocalPendingAppeal(payload);
+      } else {
+        try {
+          const { data, error } = await createBusinessAppeal(payload);
+          if (error) {
+            showToast?.('Could not create deletion appeal: ' + error.message, 'error');
+            return;
+          }
+          showToast?.('Deletion appeal submitted to CEO dashboard successfully!');
+        } catch (e) {
+          showToast?.('Failed to submit deletion appeal: ' + e.message, 'error');
+        }
+      }
+      return;
+    }
+
     if (!window.confirm('Delete this entry?')) return;
     try {
       const r = await window.api.deleteDailyEntry({ entryId });
