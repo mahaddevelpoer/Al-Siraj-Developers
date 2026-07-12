@@ -128,7 +128,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
           if (p.new.status === 'approved') {
             showToast?.('CEO approved. Saving entry...');
             setModalStep(null);
-            await submitEntryToApi(pendingPayload);
+            await submitEntryToApi({ ...pendingPayload, reviewStatus: 'approved', approvalId: appealId });
           } else if (p.new.status === 'rejected') {
             window.api?.showNotification?.('Daily Entry Rejected', `${pendingPayload?.type || 'Entry'} ${pendingPayload?.date || ''} was rejected by CEO`);
             showToast?.('CEO rejected the appeal', 'error');

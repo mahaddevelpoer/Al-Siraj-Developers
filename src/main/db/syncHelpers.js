@@ -671,7 +671,7 @@ async function upsertAll(admin, table, rows) {
   let skipCols = new Set();
 
   for (let attempt = 0; attempt < 50; attempt++) {
-    const filtered = rows
+    let filtered = rows
       .map((row) => {
         const cloud = toCloudRow(table, row);
         for (const col of skipCols) delete cloud[col];
@@ -680,6 +680,23 @@ async function upsertAll(admin, table, rows) {
       .filter((r) => r && Object.keys(r).length > 0);
 
     if (filtered.length === 0) return;
+
+    if (conflict) {
+      const keys = conflict.split(',').map((k) => k.trim());
+      const seen = new Map();
+      for (const row of filtered) {
+        // Only deduplicate if the conflict keys are actually present
+        const hasKeys = keys.every(k => row[k] !== undefined && row[k] !== null);
+        if (hasKeys) {
+          const keyVal = keys.map((k) => String(row[k])).join('|');
+          seen.set(keyVal, row);
+        } else {
+          // If a row is missing primary key parts, just add it with a unique token so it's not dropped
+          seen.set(`__nomatch__${Math.random()}`, row);
+        }
+      }
+      filtered = Array.from(seen.values());
+    }
 
     try {
       for (let i = 0; i < filtered.length; i += BATCH_SIZE) {

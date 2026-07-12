@@ -9,6 +9,17 @@ export default function CashBanksDashboard({ townName, showToast }) {
   const [form, setForm] = useState({ Account_Name: '', Opening_Balance: '' });
   const [refreshTick, setRefreshTick] = useState(0);
 
+  // Statement Report State
+  const [reportAccount, setReportAccount] = useState(null);
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [toDate, setToDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [statement, setStatement] = useState(null);
+  const [loadingStatement, setLoadingStatement] = useState(false);
+
   const load = async () => {
     if (!townName || !window.api?.getPaymentAccounts) return;
     setLoading(true);
@@ -99,6 +110,37 @@ export default function CashBanksDashboard({ townName, showToast }) {
     }
   };
 
+  const fetchStatement = async (accountId) => {
+    setLoadingStatement(true);
+    setStatement(null);
+    try {
+      const res = await window.api.getBankAccountStatement?.({
+        townName,
+        accountId: accountId || reportAccount?.Account_ID,
+        fromDate,
+        toDate
+      });
+      if (res?.error) throw new Error(res.error);
+      setStatement(res);
+    } catch (error) {
+      showToast?.(`Failed to load statement: ${error.message}`, 'error');
+    } finally {
+      setLoadingStatement(false);
+    }
+  };
+
+  const openReport = (account) => {
+    setReportAccount(account);
+    fetchStatement(account.Account_ID);
+  };
+
+  // Re-fetch when dates change if a report is open
+  useEffect(() => {
+    if (reportAccount) {
+      fetchStatement();
+    }
+  }, [fromDate, toDate]);
+
   return (
     <div className="accounts-workspace">
       <div className="accounts-toolbar">
@@ -129,9 +171,12 @@ export default function CashBanksDashboard({ townName, showToast }) {
               </div>
               <b className={(Number(account.Current_Balance) || 0) >= 0 ? 'positive' : 'negative'}>{money(account.Current_Balance)}</b>
               <small>{account.Status || 'active'} / {account.Sync_Status || 'local'}</small>
-              {account.Account_Type === 'bank' && String(account.Status || 'active').toLowerCase() === 'active' && (
-                <button className="btn btn-ghost" type="button" onClick={() => archiveBank(account)} disabled={saving}>Archive</button>
-              )}
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <button className="btn btn-secondary btn-sm" type="button" onClick={() => openReport(account)}>View Report</button>
+                {account.Account_Type === 'bank' && String(account.Status || 'active').toLowerCase() === 'active' && (
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={() => archiveBank(account)} disabled={saving}>Archive</button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -160,6 +205,100 @@ export default function CashBanksDashboard({ townName, showToast }) {
           </div>
         </aside>
       </div>
+
+      {/* Statement Report Modal */}
+      {reportAccount && (
+        <div className="ui-modal-overlay" onClick={(e) => e.target === e.currentTarget && setReportAccount(null)}>
+          <div className="ui-modal-shell" style={{ maxWidth: 800, width: '90%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border-color)' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Statement - {reportAccount.Account_Name}</h3>
+                <small style={{ color: 'var(--text-muted)' }}>{townName} • {reportAccount.Account_Type}</small>
+              </div>
+              <button className="btn btn-ghost" onClick={() => setReportAccount(null)}>Close</button>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20, background: 'var(--bg-secondary)', padding: 12, borderRadius: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>From:</label>
+                <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>To:</label>
+                <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)' }} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              <div style={{ background: 'var(--bg-card)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Opening Balance</div>
+                <strong style={{ fontSize: 16 }}>{money(statement?.openingBalance || 0)}</strong>
+              </div>
+              <div style={{ background: 'var(--bg-card)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Period Credit (In)</div>
+                <strong style={{ fontSize: 16, color: '#16a34a' }}>
+                  {money(statement?.transactions?.filter(t => t.direction === 'Income').reduce((s, t) => s + t.amount, 0))}
+                </strong>
+              </div>
+              <div style={{ background: 'var(--bg-card)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Period Debit (Out)</div>
+                <strong style={{ fontSize: 16, color: '#dc2626' }}>
+                  {money(statement?.transactions?.filter(t => t.direction === 'Expense').reduce((s, t) => s + t.amount, 0))}
+                </strong>
+              </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
+              {loadingStatement ? (
+                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading statement...</div>
+              ) : statement?.transactions?.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No transactions found in this period.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-secondary)', zIndex: 1 }}>
+                    <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <th style={{ padding: '10px 14px', textAlign: 'left' }}>Date</th>
+                      <th style={{ padding: '10px 14px', textAlign: 'left' }}>Description / Party</th>
+                      <th style={{ padding: '10px 14px', textAlign: 'left' }}>Ref / Type</th>
+                      <th style={{ padding: '10px 14px', textAlign: 'right', color: '#16a34a' }}>Credit (In)</th>
+                      <th style={{ padding: '10px 14px', textAlign: 'right', color: '#dc2626' }}>Debit (Out)</th>
+                      <th style={{ padding: '10px 14px', textAlign: 'right' }}>Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statement?.transactions?.map((tx, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <td style={{ padding: '10px 14px' }}>{tx.date}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ fontWeight: 600 }}>{tx.partyName || '-'}</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{tx.description}</div>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ fontSize: 11 }}>{tx.receiptNumber || '-'}</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>{tx.type}</div>
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', color: '#16a34a', fontWeight: tx.direction === 'Income' ? 600 : 400 }}>
+                          {tx.direction === 'Income' ? money(tx.amount) : '-'}
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', color: '#dc2626', fontWeight: tx.direction === 'Expense' ? 600 : 400 }}>
+                          {tx.direction === 'Expense' ? money(tx.amount) : '-'}
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600 }}>
+                          {money(tx.runningBalance)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            
+            <div style={{ marginTop: 16, textAlign: 'right', fontSize: 14, fontWeight: 700 }}>
+              Closing Balance: <span style={{ color: statement?.closingBalance >= 0 ? '#2563eb' : '#dc2626' }}>{money(statement?.closingBalance)}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

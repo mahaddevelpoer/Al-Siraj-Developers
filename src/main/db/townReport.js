@@ -25,7 +25,7 @@ function clean(value) {
 }
 
 function sameTown(row, townName) {
-  return clean(row.Town_Name || row.town_name) === clean(townName);
+  return clean(row.Town_Name || row.town_name).toLowerCase() === clean(townName).toLowerCase();
 }
 
 function isPropertySale(row) {
@@ -122,7 +122,12 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     .filter((row) => row.direction === 'expense')
     .reduce((sum, row) => sum + row.amount, 0);
 
-  const sales = salesRows.filter((row) => sameTown(row, town)).filter(isPropertySale);
+  const salesAll = salesRows.filter((row) => sameTown(row, town)).filter(isPropertySale);
+  console.log('[DEBUG-TOWN-REPORT] salesAll:', salesAll.map(r => ({ Plot: r.Plot_Shop_Number, Status: r.Status, Remaining: r.Remaining_Amount })));
+  
+  const sales = salesAll.filter((row) => !['cancelled', 'resold'].includes(clean(row.Status).toLowerCase()));
+  console.log('[DEBUG-TOWN-REPORT] sales Filtered:', sales.map(r => ({ Plot: r.Plot_Shop_Number, Status: r.Status, Remaining: r.Remaining_Amount })));
+
   const salesInRange = sales.filter((row) => inRange(rowDate(row, ['Sell_Date', 'Date', 'Created_At']), from, to));
   const pendingReceivable = sales.reduce((sum, row) => sum + money(row.Remaining_Amount), 0);
   const customerLedgers = salesInRange.map((row) => ({
@@ -153,8 +158,8 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
       payments: 0,
     }),
     (item, row) => {
-      const salaryApplied = money(row.Salary_Paid_Amount || row.Amount);
-      const cashDisbursed = money(row.Cash_Disbursed_Amount || row.Amount);
+      const salaryApplied = money(row.Salary_Paid_Amount !== undefined && row.Salary_Paid_Amount !== '' ? row.Salary_Paid_Amount : row.Amount);
+      const cashDisbursed = money(row.Cash_Disbursed_Amount !== undefined && row.Cash_Disbursed_Amount !== '' ? row.Cash_Disbursed_Amount : row.Amount);
       item.paid += salaryApplied;
       item.salaryApplied += salaryApplied;
       item.cashDisbursed += cashDisbursed;
@@ -200,6 +205,7 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
       [labelKey]: label,
       people: new Set(),
       salaryByPerson: new Map(),
+      remainingByPerson: new Map(),
       salaryApplied: 0,
       cashDisbursed: 0,
       salaryAmount: 0,
@@ -211,24 +217,32 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     (item, row) => {
       const person = clean(row.Name);
       if (person) item.people.add(person);
-      const salaryApplied = money(row.Salary_Paid_Amount || row.Amount);
-      const cashDisbursed = money(row.Cash_Disbursed_Amount || row.Amount);
+      const salaryApplied = money(row.Salary_Paid_Amount !== undefined && row.Salary_Paid_Amount !== '' ? row.Salary_Paid_Amount : row.Amount);
+      const cashDisbursed = money(row.Cash_Disbursed_Amount !== undefined && row.Cash_Disbursed_Amount !== '' ? row.Cash_Disbursed_Amount : row.Amount);
       item.salaryApplied += salaryApplied;
       item.cashDisbursed += cashDisbursed;
       const salary = money(row.Salary_Amount);
       if (person && salary > 0) item.salaryByPerson.set(person, Math.max(item.salaryByPerson.get(person) || 0, salary));
       else item.salaryAmount += salary;
+      
+      const remVal = row.Salary_Remaining_After;
+      if (person) {
+        item.remainingByPerson.set(person, money(remVal !== undefined && remVal !== null && remVal !== '' ? remVal : item.remainingByPerson.get(person)));
+      } else {
+        item.remaining = money(remVal !== undefined && remVal !== null && remVal !== '' ? remVal : item.remaining);
+      }
+
       item.advance += money(row.New_Advance_Given || (clean(row.Is_Advance_Salary).toLowerCase() === 'yes' ? row.Amount : 0));
       item.advanceDeducted += money(row.Advance_Deduction);
-      item.remaining += money(row.Salary_Remaining_After);
       item.payments += 1;
     },
   ).map((row) => {
-    const { salaryByPerson, ...publicRow } = row;
+    const { salaryByPerson, remainingByPerson, ...publicRow } = row;
     return {
       ...publicRow,
       people: row.people.size,
       salaryAmount: row.salaryAmount + Array.from(salaryByPerson.values()).reduce((sum, value) => sum + value, 0),
+      remaining: row.remaining + Array.from(remainingByPerson.values()).reduce((sum, value) => sum + value, 0),
     };
   });
   const employeeGroupLedgers = buildSalaryRollup(
@@ -251,19 +265,35 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
   const commissionReceipts = commissionReceiptRows
     .filter((row) => sameTown(row, town))
     .filter((row) => inRange(rowDate(row, ['Paid_Date', 'Date', 'Created_At']), from, to));
-  const agentLedgers = groupBy(
-    commissions,
-    (row) => row.Agent_Name,
-    (name) => ({ name, earned: 0, paid: 0, remaining: 0, receiptsInRange: 0 }),
-    (item, row) => {
-      item.earned += money(row.Commission_Amount);
-      item.paid += money(row.Paid_Amount);
-      item.remaining += money(row.Remaining_Amount || Math.max(0, money(row.Commission_Amount) - money(row.Paid_Amount)));
-    },
-  ).map((agent) => {
-    const receipts = commissionReceipts.filter((row) => clean(row.Agent_Name) === agent.name);
+  
+  // Combine unique agents from both commissions and receipts
+  const agentNames = new Set([
+    ...commissions.map((row) => clean(row.Agent_Name)),
+    ...commissionReceipts.map((row) => clean(row.Agent_Name)),
+  ].filter(Boolean));
+
+  const agentLedgers = Array.from(agentNames).map((name) => {
+    const agentCommissions = commissions.filter((row) => clean(row.Agent_Name) === name);
+    const receipts = commissionReceipts.filter((row) => clean(row.Agent_Name) === name);
+    let earned = 0, paid = 0, remaining = 0;
+    
+    for (const row of agentCommissions) {
+      earned += money(row.Commission_Amount);
+      paid += money(row.Paid_Amount);
+      remaining += money(row.Remaining_Amount || Math.max(0, money(row.Commission_Amount) - money(row.Paid_Amount)));
+    }
+    
+    // If we paid them directly without a commission record yet, subtract from remaining
+    if (agentCommissions.length === 0) {
+      const paidInRange = receipts.reduce((sum, row) => sum + money(row.Amount), 0);
+      remaining -= paidInRange; 
+    }
+
     return {
-      ...agent,
+      name,
+      earned,
+      paid,
+      remaining,
       paidInRange: receipts.reduce((sum, row) => sum + money(row.Amount), 0),
       receiptsInRange: receipts.length,
     };

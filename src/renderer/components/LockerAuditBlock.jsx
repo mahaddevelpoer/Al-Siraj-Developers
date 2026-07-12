@@ -112,8 +112,8 @@ export default function LockerAuditBlock({ townName, scheduleData, onAuditComple
 
             <div className="tamper-details">
               <div className="audit-question-box">
-                <p className="question-label">Locker mein kitne paise hain?</p>
-                <span className="question-subtext">Apne locker me mojood tamam cash gin kar darj karein.</span>
+                <p className="question-label">How much cash is in the locker?</p>
+                <span className="question-subtext">Count and enter all the cash present in your locker.</span>
               </div>
               
               <div className="form-group mt-4">

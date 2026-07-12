@@ -82,7 +82,7 @@ class EmployeeDB {
       const id = row.getCell(1).value;
       if (!id && id !== 0) return; // skip empty rows
       const rowTown = row.getCell(2).value;
-      if (townName && rowTown !== townName) return;
+      if (townName && String(rowTown).toLowerCase() !== String(townName).toLowerCase()) return;
 
       employees.push({
         id:          row.getCell(1).value,

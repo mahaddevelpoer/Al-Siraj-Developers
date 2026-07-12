@@ -209,6 +209,9 @@ export default function AppealDashboard() {
         if (rd.date && rd.townName && window.api?.addDailyEntry) {
           try {
             await window.api.addDailyEntry({
+              ...rd,
+              reviewStatus: 'approved',
+              approvalId: appeal.id,
               date: rd.date,
               time: rd.time || '00:00',
               type: rd.type || 'Expense',

@@ -220,7 +220,7 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
           <div>
             <div className="installment-reminder-kicker">7 Day Reminder Report</div>
             <h3>Upcoming / Overdue Installments</h3>
-            <p>Due date se 7 din pehle local notification, list, PDF aur Excel report.</p>
+            <p>Local notification, list, PDF, and Excel report 7 days before the due date.</p>
           </div>
           <div className="installment-reminder-actions">
             <input type="date" value={reportFrom} max={reportTo} onChange={(e) => setReportFrom(e.target.value)} />

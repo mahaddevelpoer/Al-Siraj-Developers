@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
+const crypto = require('crypto');
 const {
   getGlobalsPath,
   readExcelFile,
@@ -176,7 +177,7 @@ async function investorTransaction(data) {
     Date: data.Date || TODAY(),
     Notes: data.Notes || '',
     Balance_After: next,
-    Receipt_Number: data.Receipt_Number || `INV-${Date.now()}`,
+    Receipt_Number: data.Receipt_Number || `INV-${TODAY().replace(/-/g, '')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`,
     Created_By: data.Created_By || '',
     Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
     Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
@@ -238,7 +239,7 @@ async function addConstructionProject(data) {
   if (!data?.Category) throw new Error('Category is required');
   if (!data?.Constructor_Name) throw new Error('Constructor_Name is required');
   const deal = toMoney(data.Deal_Amount);
-  const receiptNumber = data.Deal_Receipt_Number || `CON-DEAL-${Date.now()}`;
+  const receiptNumber = data.Deal_Receipt_Number || `CON-DEAL-${TODAY().replace(/-/g, '')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
   const row = {
     Project_ID: data.Project_ID || generateId(),
     Town_Name: data.Town_Name,
@@ -317,7 +318,7 @@ async function recordConstructionPayment(data) {
     Material_Quantity: data.Material_Quantity || project.Material_Quantity || '',
     Material_Rate: data.Material_Rate || project.Material_Rate || '',
     Remaining_After: remaining,
-    Receipt_Number: data.Receipt_Number || `CON-${Date.now()}`,
+    Receipt_Number: data.Receipt_Number || `CON-${TODAY().replace(/-/g, '')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`,
     Notes: data.Notes || '',
     Created_By: data.Created_By || '',
     Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
@@ -386,7 +387,7 @@ async function recordCommissionReceipt(data) {
     Plot_Shop_Number: data.Plot_Shop_Number || '',
     Amount: toMoney(data.Amount),
     Paid_Date: data.Paid_Date || TODAY(),
-    Receipt_Number: data.Receipt_Number || `COM-${Date.now()}`,
+    Receipt_Number: data.Receipt_Number || `COM-${TODAY().replace(/-/g, '')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`,
     Paid_By: data.Paid_By || '',
     Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
     Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',

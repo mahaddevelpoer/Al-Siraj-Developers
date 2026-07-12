@@ -37,6 +37,7 @@ export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, ac
   const [showCustom, setShowCustom] = useState(false);
   const [accountKey, setAccountKey] = useState('');
   const [paymentAccount, setPaymentAccount] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   const handleCategorySelect = (cat) => {
     setCategory(cat);
@@ -50,8 +51,11 @@ export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, ac
     setShowCustom(subcat === 'none' || category === 'construction');
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    try {
 
     const categoryLabel = EXPENSE_CATEGORIES[category]?.label || category;
     const subcategoryLabel = subcategory !== 'none'
@@ -78,6 +82,9 @@ export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, ac
     setAmount('');
     setAccountKey('');
     setShowCustom(false);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -278,17 +285,17 @@ export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, ac
 
           <button
             type="submit"
-            disabled={!amount}
+            disabled={!amount || busy}
             className="btn"
             style={{
-              width: '100%', padding: '12px', opacity: !amount ? 0.5 : 1,
+              width: '100%', padding: '12px', opacity: (!amount || busy) ? 0.5 : 1,
               background: isAppealMode ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'var(--accent-red)',
               color: 'white', border: 'none', fontWeight: 700,
               borderRadius: 'var(--radius-md)', fontSize: 14,
-              cursor: !amount ? 'not-allowed' : 'pointer',
+              cursor: (!amount || busy) ? 'not-allowed' : 'pointer',
             }}
           >
-            {isAppealMode ? 'Submit Appeal to CEO' : 'Add Expense'}
+            {busy ? 'Saving...' : (isAppealMode ? 'Submit Appeal to CEO' : 'Add Expense')}
           </button>
         </>
       )}

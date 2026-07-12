@@ -223,7 +223,7 @@ export default function PendingAppeals({ townName, showToast }) {
 
       {cloudError && (
         <div className="pending-appeals-warning">
-          Cloud approvals load nahi hui: {cloudError}
+          Cloud approvals could not load: {cloudError}
         </div>
       )}
 
@@ -231,7 +231,7 @@ export default function PendingAppeals({ townName, showToast }) {
         <div className="pending-appeals-section-head">
           <div>
             <h3>Cloud pending approvals</h3>
-            <p>CEO mobile/desktop approvals table se live data.</p>
+            <p>Live data from CEO mobile/desktop approvals table.</p>
           </div>
           <button className="btn btn-ghost btn-sm" type="button" onClick={loadCloudAppeals} disabled={loadingCloud}>
             {loadingCloud ? 'Loading...' : 'Refresh'}
@@ -267,7 +267,7 @@ export default function PendingAppeals({ townName, showToast }) {
         <div className="pending-appeals-section-head">
           <div>
             <h3>Offline local queue</h3>
-            <p>Internet ke baghair pending rakhi hui requests.</p>
+            <p>Requests kept pending without internet.</p>
           </div>
         </div>
         <div className="pending-appeals-grid">

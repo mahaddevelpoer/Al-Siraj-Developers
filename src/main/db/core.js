@@ -14,6 +14,112 @@ let MIRRORS = {
 const writeChains = new Map(); // filePath -> Promise
 let AFTER_WRITE_HOOK = null;
 
+// --- FAST MEMORY CACHE & WAL ---
+const DB_CACHE = new Map(); // filePath -> ExcelJS.Workbook
+const PENDING_FLUSHES = new Set(); // filePaths
+let flushTimer = null;
+
+function logTransaction(filePath, action, sheetName, rowNumber, rowData) {
+  try {
+    const walPath = filePath + '.wal';
+    const entry = JSON.stringify({ action, sheetName, rowNumber, rowData }) + '\n';
+    fs.appendFileSync(walPath, entry);
+  } catch (e) {
+    console.error('[core] Failed to write WAL', e);
+  }
+}
+
+async function performBackgroundFlush() {
+  const paths = Array.from(PENDING_FLUSHES);
+  PENDING_FLUSHES.clear();
+  
+  for (const filePath of paths) {
+    if (DB_CACHE.has(filePath)) {
+      const workbook = DB_CACHE.get(filePath);
+      try {
+        await writeWorkbookAtomic(filePath, workbook);
+        syncMirrorsForFile(filePath);
+        // Clear WAL after successful write
+        const walPath = filePath + '.wal';
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        console.error('[core] Background flush failed for', filePath, e);
+        PENDING_FLUSHES.add(filePath); // Retry next time
+      }
+    }
+  }
+}
+
+function queueFlush(filePath) {
+  PENDING_FLUSHES.add(filePath);
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(performBackgroundFlush, 1500); // 1.5s debounce
+}
+
+async function getWorkbook(filePath) {
+  if (DB_CACHE.has(filePath)) {
+    return DB_CACHE.get(filePath);
+  }
+  const workbook = new ExcelJS.Workbook();
+  if (fs.existsSync(filePath)) {
+    await workbook.xlsx.readFile(filePath);
+  }
+  
+  // Replay WAL if it exists
+  const walPath = filePath + '.wal';
+  if (fs.existsSync(walPath)) {
+    try {
+      const content = fs.readFileSync(walPath, 'utf-8');
+      const lines = content.split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        const { action, sheetName, rowNumber, rowData } = JSON.parse(line);
+        let sheet = workbook.getWorksheet(sheetName || 'Data');
+        if (!sheet && action === 'append') {
+           sheet = workbook.addWorksheet(sheetName || 'Data');
+           if (sheet.rowCount < 1) {
+             const keys = Object.keys(rowData || {}).filter(k => !k.startsWith('_'));
+             createSheetWithFriendlyHeaders(workbook, sheetName || 'Data', keys);
+             sheet = workbook.getWorksheet(sheetName || 'Data');
+           }
+        }
+        if (!sheet) continue;
+
+        if (action === 'append') {
+           appendMissingColumns(sheet, Object.keys(rowData || {}));
+           const { keys } = getHeaderKeys(sheet);
+           const newRow = [];
+           for (let i = 1; i <= keys.length; i++) {
+             const key = keys[i];
+             newRow.push(rowData[key] !== undefined ? rowData[key] : '');
+           }
+           sheet.addRow(newRow);
+        } else if (action === 'update') {
+           appendMissingColumns(sheet, Object.keys(rowData || {}));
+           const { keys } = getHeaderKeys(sheet);
+           const headers = {};
+           keys.forEach((k, idx) => { if (k) headers[k] = idx; });
+           const row = sheet.getRow(rowNumber);
+           for (const [key, value] of Object.entries(rowData)) {
+             if (headers[key]) {
+               row.getCell(headers[key]).value = value;
+             }
+           }
+        } else if (action === 'delete') {
+           sheet.spliceRows(rowNumber, 1);
+        }
+      }
+      PENDING_FLUSHES.add(filePath);
+      if (!flushTimer) flushTimer = setTimeout(performBackgroundFlush, 1500);
+    } catch(e) {
+      console.error('[core] Failed to replay WAL for', filePath, e);
+    }
+  }
+  
+  DB_CACHE.set(filePath, workbook);
+  return workbook;
+}
+// --- END FAST MEMORY CACHE ---
+
 function setDbPath(p) { DB_PATH = p; }
 function getDbPath() { return DB_PATH; }
 function setAfterWriteHook(fn) { AFTER_WRITE_HOOK = typeof fn === 'function' ? fn : null; }
@@ -278,9 +384,8 @@ async function initializeDatabase(dbPath) {
 }
 
 async function readExcelFile(filePath, sheetName) {
-  if (!fs.existsSync(filePath)) return [];
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(filePath);
+  if (!fs.existsSync(filePath) && !DB_CACHE.has(filePath)) return [];
+  const workbook = await getWorkbook(filePath);
   const sheet = workbook.getWorksheet(sheetName || 1);
   if (!sheet) return [];
   
@@ -306,17 +411,14 @@ async function readExcelFile(filePath, sheetName) {
 }
 
 async function appendToExcel(filePath, sheetName, rowData) {
-  return withFileWriteLock(filePath, async () => {
-    const workbook = new ExcelJS.Workbook();
-    if (fs.existsSync(filePath)) {
-      await workbook.xlsx.readFile(filePath);
-    }
+  await withFileWriteLock(filePath, async () => {
+    const workbook = await getWorkbook(filePath);
+    logTransaction(filePath, 'append', sheetName, null, rowData);
     let sheet = workbook.getWorksheet(sheetName || 'Data');
     if (!sheet) {
       sheet = workbook.addWorksheet(sheetName || 'Data');
     }
     
-    // If sheet is empty (shouldn't happen), create keys from rowData
     if (sheet.rowCount < 1) {
       const keys = Object.keys(rowData).filter(k => !k.startsWith('_'));
       createSheetWithFriendlyHeaders(workbook, sheetName || 'Data', keys);
@@ -326,26 +428,21 @@ async function appendToExcel(filePath, sheetName, rowData) {
     appendMissingColumns(sheet, Object.keys(rowData || {}));
 
     const { keys, keyRowNumber } = getHeaderKeys(sheet);
-    if (keyRowNumber === 1 && sheet.rowCount === 1) {
-      // Legacy sheet with only a single header row; still ok.
-    }
 
-    // Add row
     const newRow = [];
     for (let i = 1; i <= keys.length; i++) {
       const key = keys[i];
       newRow.push(rowData[key] !== undefined ? rowData[key] : '');
     }
     sheet.addRow(newRow);
-    await writeWorkbookAtomic(filePath, workbook);
-    syncMirrorsForFile(filePath);
+    queueFlush(filePath);
   });
 }
 
 async function updateExcelRow(filePath, sheetName, rowNumber, updates) {
-  return withFileWriteLock(filePath, async () => {
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
+  await withFileWriteLock(filePath, async () => {
+    const workbook = await getWorkbook(filePath);
+    logTransaction(filePath, 'update', sheetName, rowNumber, updates);
     const sheet = workbook.getWorksheet(sheetName || 'Data');
     if (!sheet) return;
 
@@ -362,37 +459,34 @@ async function updateExcelRow(filePath, sheetName, rowNumber, updates) {
         row.getCell(headers[key]).value = value;
       }
     }
-    await writeWorkbookAtomic(filePath, workbook);
-    syncMirrorsForFile(filePath);
+    queueFlush(filePath);
   });
 }
 
 async function deleteExcelRow(filePath, sheetName, rowNumber) {
-  return withFileWriteLock(filePath, async () => {
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
+  await withFileWriteLock(filePath, async () => {
+    const workbook = await getWorkbook(filePath);
+    logTransaction(filePath, 'delete', sheetName, rowNumber, null);
     const sheet = workbook.getWorksheet(sheetName || 'Data');
     if (!sheet) return;
     sheet.spliceRows(rowNumber, 1);
-    await writeWorkbookAtomic(filePath, workbook);
-    syncMirrorsForFile(filePath);
+    queueFlush(filePath);
   });
 }
 
 async function ensureSheetColumns(filePath, sheetName, columns) {
-  return withFileWriteLock(filePath, async () => {
-    if (!fs.existsSync(filePath)) return;
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
+  withFileWriteLock(filePath, async () => {
+    if (!fs.existsSync(filePath) && !DB_CACHE.has(filePath)) return;
+    const workbook = await getWorkbook(filePath);
     const sheet = workbook.getWorksheet(sheetName || 'Data');
     if (!sheet) return;
 
     const changed = appendMissingColumns(sheet, columns);
     if (!changed) return;
 
-    await writeWorkbookAtomic(filePath, workbook);
-    syncMirrorsForFile(filePath);
+    queueFlush(filePath);
   });
+  return Promise.resolve();
 }
 
 function generateId() {
@@ -420,6 +514,8 @@ module.exports = {
   deleteExcelRow,
   generateId,
   ensureSheetColumns,
+  getWorkbook,
+  queueFlush,
   // File integrity
   hashExcelFile,
   verifyAllFileHashes,

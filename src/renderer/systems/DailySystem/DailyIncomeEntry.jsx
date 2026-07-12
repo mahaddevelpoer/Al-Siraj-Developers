@@ -14,6 +14,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
   const [installmentDetails, setInstallmentDetails] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [paymentAccount, setPaymentAccount] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   const toMoney = (value) => Number(value) || 0;
 
@@ -129,9 +130,12 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
     setDescription(`${selectedProperty.propertyType} #${selectedProperty.propertyNumber} - Installment #${installment.installmentNumber} of ${installment.totalInstallments}`);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const account = generalAccountOptions.find((item) => item.key === accountKey);
+    if (busy) return;
+    setBusy(true);
+    try {
+      const account = generalAccountOptions.find((item) => item.key === accountKey);
     const installmentAccountName = selectedProperty
       ? `${selectedProperty.buyerName || 'Customer'} - ${selectedProperty.propertyNumber || selectedProperty.id || ''}`.trim()
       : '';
@@ -185,6 +189,9 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
     setSelectedProperty(null);
     setSelectedInstallment(null);
     setInstallmentDetails(null);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -452,13 +459,13 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
 
       <button
         type="submit"
-        disabled={incomeType === 'installment' && !selectedInstallment}
+        disabled={busy || (incomeType === 'installment' && !selectedInstallment)}
         className="btn"
         style={{
           width: '100%',
           padding: '12px',
-          opacity: incomeType === 'installment' && !selectedInstallment ? 0.5 : 1,
-          cursor: incomeType === 'installment' && !selectedInstallment ? 'not-allowed' : 'pointer',
+          opacity: (busy || (incomeType === 'installment' && !selectedInstallment)) ? 0.5 : 1,
+          cursor: (busy || (incomeType === 'installment' && !selectedInstallment)) ? 'not-allowed' : 'pointer',
           background: isAppealMode ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'var(--accent-green)',
           color: 'white',
           border: 'none',
@@ -467,7 +474,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
           fontSize: 14,
         }}
       >
-        {isAppealMode ? <><span style={{display:'inline-flex',alignItems:'center',gap:4}}>Submit Appeal to CEO</span></> : 'Add Income'}
+        {busy ? 'Saving...' : (isAppealMode ? <><span style={{display:'inline-flex',alignItems:'center',gap:4}}>Submit Appeal to CEO</span></> : 'Add Income')}
       </button>
     </form>
   );

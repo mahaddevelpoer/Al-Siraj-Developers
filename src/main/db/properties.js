@@ -547,13 +547,15 @@ async function updateFileStatus(params) {
   );
   if (match) {
     await withFileWriteLock(salesPath, async () => {
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(salesPath);
+      const { getWorkbook, queueFlush, getHeaderKeys } = require('./core');
+      const workbook = await getWorkbook(salesPath);
       const sheet = workbook.getWorksheet('Data');
       if (sheet) {
-        const { keyRowNumber } = getHeaderKeys(sheet);
+        const { keys, keyRowNumber } = getHeaderKeys(sheet);
         const headers = {};
-        sheet.getRow(keyRowNumber).eachCell((cell, colNumber) => { headers[cell.value] = colNumber; });
+        for (let i = 1; i <= keys.length; i++) {
+          if (keys[i]) headers[keys[i]] = i;
+        }
 
         for (const [field, value] of Object.entries(updates)) {
           if (headers[field]) {
@@ -564,11 +566,10 @@ async function updateFileStatus(params) {
             sheet.getCell(keyRowNumber - 1, nextCol).value = field.replace(/_/g, ' ');
             sheet.getRow(match._rowNumber).getCell(nextCol).value = value;
             headers[field] = nextCol;
+            keys[nextCol] = field;
           }
         }
-
-        await writeWorkbookAtomic(salesPath, workbook);
-        syncMirrorsForFile(salesPath);
+        queueFlush(salesPath);
       }
     });
   }
@@ -838,9 +839,38 @@ async function resellProperty(data) {
     });
   }
 
+  // Update the original sale in All_Sales.xlsx to 'Resold' so we don't double count receivables
+  const salesPath = path.join(getGlobalsPath(), 'All_Sales.xlsx');
+  const allSales = await readExcelFile(salesPath, 'Data');
+  const match = allSales
+    .filter(s => 
+      String(s.Type) === String(type) &&
+      String(s.Plot_Shop_Number) === String(number) &&
+      String(s.Town_Name) === String(townName) &&
+      String(s.Status).toLowerCase() === 'sold'
+    )
+    .sort((a, b) => (b._rowNumber || 0) - (a._rowNumber || 0));
+    
+  if (match.length > 0) {
+    await withFileWriteLock(salesPath, async () => {
+      const { getWorkbook, queueFlush } = require('./core');
+      const workbook = await getWorkbook(salesPath);
+      const sheet = workbook.getWorksheet('Data');
+      if (sheet) {
+        const { getHeaderKeys } = require('./core');
+        const { keys, keyRowNumber } = getHeaderKeys(sheet);
+        const statusCol = keys.indexOf('Status');
+        if (statusCol !== -1) {
+          sheet.getRow(match[0]._rowNumber).getCell(statusCol).value = 'Cancelled';
+        }
+        queueFlush(salesPath);
+      }
+    });
+  }
+
   const saleId = resellId;
-  await ensureSheetColumns(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', ['Sale_ID', 'Received_Amount','Remaining_Amount','Payment_Method','Cheque_Number','Cheque_Bank','Transaction_ID','Transfer_Bank', 'Sale_Type','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type']);
-  await appendToExcel(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data', {
+  await ensureSheetColumns(salesPath, 'Data', ['Sale_ID', 'Received_Amount','Remaining_Amount','Payment_Method','Cheque_Number','Cheque_Bank','Transaction_ID','Transfer_Bank', 'Sale_Type','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type']);
+  await appendToExcel(salesPath, 'Data', {
     Sale_ID: saleId,
     Plot_Shop_Number: number,
     Type: type,

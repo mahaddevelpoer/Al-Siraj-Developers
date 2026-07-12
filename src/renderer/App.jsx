@@ -81,7 +81,7 @@ class ErrorBoundary extends React.Component {
           <div style={{ width: 'min(560px, 100%)', background: '#fff', border: '1px solid #dbeafe', boxShadow: '0 24px 70px rgba(15,23,42,.12)', padding: 26, borderRadius: 18, fontFamily: 'Inter, Segoe UI, Arial, sans-serif' }}>
             <div style={{ width: 48, height: 48, borderRadius: 14, background: '#1455d9', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 900, marginBottom: 14 }}>AS</div>
             <h2 style={{ color: '#0f172a', margin: '0 0 8px', fontSize: 20 }}>Screen Recovered</h2>
-            <p style={{ color: '#475569', fontSize: 13, lineHeight: 1.6, margin: '0 0 16px' }}>Is screen mein error aaya tha. App ko reload ya saved screen reset karke continue kar sakte hain.</p>
+            <p style={{ color: '#475569', fontSize: 13, lineHeight: 1.6, margin: '0 0 16px' }}>An error occurred on this screen. You can continue by reloading the app or resetting the saved screen.</p>
             <details style={{ marginBottom: 16 }}>
               <summary style={{ cursor: 'pointer', color: '#2563eb', fontWeight: 700, fontSize: 13 }}>Technical error</summary>
               <pre style={{ background: '#fef2f2', padding: 14, borderRadius: 10, border: '1px solid #fecaca', whiteSpace: 'pre-wrap', fontSize: 12, maxHeight: 220, overflow: 'auto' }}>
@@ -508,6 +508,65 @@ function AppInner() {
     return () => clearInterval(timer);
   }, [pushBell]);
 
+  useEffect(() => {
+    if (!loggedIn || !navigator.onLine) return;
+    const uploadLocalAppeals = async () => {
+      try {
+        const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: null }));
+        // Let it proceed even if not authenticated via Supabase because we use the admin password logic
+        if (!window.api?.getLocalPendingAppeals) return;
+        
+        const res = await window.api.getLocalPendingAppeals();
+        if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+          for (const appeal of res.data) {
+            // Add fallback parameters
+            const localSession = JSON.parse(localStorage.getItem('al_siraj_local_accountant_session') || '{}');
+            const fallbackUserId = localSession?.profile?.id || '00000000-0000-0000-0000-000000000000';
+            const fallbackRole = localSession?.profile?.role || 'accountant';
+
+            const payloadParams = {
+              p_requested_by_user_id: authData?.user?.id || fallbackUserId,
+              p_requested_by_role: authData?.user?.user_metadata?.role || fallbackRole,
+              p_appeal_type: appeal.payload?.appeal_type || appeal.type || 'general',
+              p_entity_type: appeal.payload?.entity_type || 'system',
+              p_entity_id: String(appeal.payload?.entity_id || ''),
+              p_town_name: appeal.payload?.town_name || appeal.townName || '',
+              p_requested_data: appeal.payload?.requested_data || {},
+              p_reason: appeal.payload?.reason || appeal.description || 'Offline appeal synced'
+            };
+            const { error } = await supabase.rpc('create_business_appeal', payloadParams);
+            
+            if (!error || error.message.toLowerCase().includes('duplicate') || error.message.toLowerCase().includes('already exists')) {
+              if (window.api.dismissLocalPendingAppeal) {
+                await window.api.dismissLocalPendingAppeal(appeal.id);
+              }
+              Object.keys(localStorage).filter(k => k.startsWith('al_siraj_pending_appeals_')).forEach(k => {
+                try {
+                  const items = JSON.parse(localStorage.getItem(k) || '[]');
+                  const filtered = items.filter(i => i.id !== appeal.id);
+                  localStorage.setItem(k, JSON.stringify(filtered));
+                } catch (_) {}
+              });
+              pushBell('Offline Appeal Synced', `${appeal.townName || 'Town'} appeal has been uploaded to the online database.`, 'success');
+              
+              // Trigger local UI refresh
+              window.dispatchEvent(new CustomEvent('al-siraj-business-data-changed', {
+                detail: { townName: appeal.townName, events: ['appeal:synced'] },
+              }));
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to sync local appeals:', e);
+      }
+    };
+    
+    uploadLocalAppeals();
+    const timer = setInterval(uploadLocalAppeals, 30_000);
+    return () => clearInterval(timer);
+  }, [loggedIn, pushBell]);
+
+
 
   useEffect(() => {
     document.body.classList.remove('light-mode', 'dark-mode');
@@ -739,7 +798,7 @@ function AppInner() {
       try {
         const before = await refreshPendingStatus();
         if (before?.count > 0) {
-          showToast(`${before.count} offline change(s) database me sync ho rahi hain...`, 'warning');
+          showToast(`${before.count} offline change(s) are syncing to the database...`, 'warning');
         }
         const res = await window.api.syncToCloud();
         if (!mounted) return;
@@ -750,7 +809,7 @@ function AppInner() {
         const after = await refreshPendingStatus();
         if (before?.count > 0 || reason === 'online') {
           const left = Number(after?.count || 0);
-          showToast(left > 0 ? `${left} change(s) abhi pending hain.` : 'Offline changes database me save ho gayi hain.', left > 0 ? 'warning' : 'success');
+          showToast(left > 0 ? `${left} change(s) are still pending.` : 'Offline changes have been saved to the database.', left > 0 ? 'warning' : 'success');
         }
       } finally {
         busy = false;
@@ -758,7 +817,7 @@ function AppInner() {
     };
 
     const onOnline = () => uploadPending('online');
-    const onOffline = () => showToast('Offline mode active. Changes Excel me save hon gi aur internet aate hi sync hon gi.', 'warning');
+    const onOffline = () => showToast('Offline mode active. Changes will be saved to Excel and synced when internet is available.', 'warning');
 
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);

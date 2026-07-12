@@ -570,7 +570,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
     }
     if (numericPaymentAmount > remainingSalary) {
       const ok = window.confirm(
-        `${employee.name} ki ${month} salary me sirf PKR ${remainingSalary.toLocaleString()} remaining hai. Extra PKR ${advanceFromOverpay.toLocaleString()} advance salary ke tor par save karna hai?`
+        `Only PKR ${remainingSalary.toLocaleString()} is remaining for ${employee.name}'s ${month} salary. Save the extra PKR ${advanceFromOverpay.toLocaleString()} as an advance salary?`
       );
       if (!ok) return;
     }

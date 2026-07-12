@@ -349,9 +349,21 @@ function debitCreditFor({ direction, sourceType, debitAccount, creditAccount }) 
 }
 
 function stableLedgerReceiptNumber({ sourceType, sourceId, direction, date }) {
-  const raw = `${sourceType}-${sourceId}-${direction}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  const day = String(date || new Date().toISOString().split('T')[0]).replace(/-/g, '');
-  return `LED-${day}-${raw.slice(0, 48) || uuid()}`;
+  const dStr = String(date || new Date().toISOString().split('T')[0]).replace(/-/g, '');
+  const hash = crypto.createHash('md5').update(String(sourceId)).digest('hex').slice(0, 6).toUpperCase();
+
+  if (sourceType === 'installment_payment') {
+    return `INS-${dStr}-${hash}`;
+  }
+  if (sourceType === 'collection_payment') {
+    return `COL-${dStr}-${hash}`;
+  }
+  if (sourceType === 'salary_payment' || sourceType === 'salary_advance') {
+    return `SAL-${dStr}-${hash}`;
+  }
+  
+  const rawType = String(sourceType).replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase();
+  return `LED-${rawType}-${dStr}-${hash}`;
 }
 
 function receiptArchivePayload(row) {

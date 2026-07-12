@@ -134,8 +134,21 @@ function sourceKey(row) {
 }
 
 function stableReceiptNumber({ sourceType, sourceId, direction, date }) {
-  const raw = `${sourceType}-${sourceId}-${direction}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  return `LED-${String(date || today()).replace(/-/g, '')}-${raw.slice(0, 48) || generateId()}`;
+  const dStr = String(date || today()).replace(/-/g, '');
+  const hash = crypto.createHash('md5').update(String(sourceId)).digest('hex').slice(0, 6).toUpperCase();
+
+  if (sourceType === 'installment_payment') {
+    return `INS-${dStr}-${hash}`;
+  }
+  if (sourceType === 'collection_payment') {
+    return `COL-${dStr}-${hash}`;
+  }
+  if (sourceType === 'salary_payment' || sourceType === 'salary_advance') {
+    return `SAL-${dStr}-${hash}`;
+  }
+  
+  const rawType = String(sourceType).replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase();
+  return `LED-${rawType}-${dStr}-${hash}`;
 }
 
 async function archiveLedgerReceipt(row, receiptType) {
@@ -545,10 +558,10 @@ async function backfillMoneyLedger() {
   }
 
   for (const s of salaries || []) {
-    const cashDisbursed = toMoney(s.Cash_Disbursed_Amount || s.Amount);
-    const salaryApplied = toMoney(s.Salary_Paid_Amount || s.Amount);
+    const cashDisbursed = toMoney(s.Cash_Disbursed_Amount !== undefined && s.Cash_Disbursed_Amount !== '' ? s.Cash_Disbursed_Amount : s.Amount);
+    const salaryApplied = toMoney(s.Salary_Paid_Amount !== undefined && s.Salary_Paid_Amount !== '' ? s.Salary_Paid_Amount : s.Amount);
     const advanceGiven = toMoney(s.New_Advance_Given);
-    const salaryPart = Math.max(0, Math.min(cashDisbursed, salaryApplied || cashDisbursed - advanceGiven));
+    const salaryPart = Math.max(0, Math.min(cashDisbursed, salaryApplied));
     if (salaryPart > 0) {
       await recordMoneyEvent({
         sourceType: 'salary_payment',
@@ -624,6 +637,97 @@ async function backfillMoneyLedger() {
   return await getMoneySummary();
 }
 
+async function getBankAccountTransactions({ townName, accountId, fromDate, toDate }) {
+  const account_id = String(accountId || 'cash-in-hand').trim().toLowerCase();
+  const allLedger = await getMoneyLedger({ townName });
+  
+  // Filter for approved transactions
+  const approved = allLedger.filter(r => String(r.Status || 'approved').toLowerCase() === 'approved');
+  
+  // Filter for this specific account
+  const accountTx = approved.filter(r => {
+    const rId = String(r.Payment_Account_ID || 'cash-in-hand').trim().toLowerCase();
+    // For legacy rows missing payment account ID, default to cash-in-hand
+    return rId === account_id;
+  });
+
+  // Sort chronologically (oldest first) to compute running balance
+  accountTx.sort((a, b) => {
+    const d1 = new Date(a.Date || a.Created_At || 0).getTime();
+    const d2 = new Date(b.Date || b.Created_At || 0).getTime();
+    if (d1 === d2) return (a._rowNumber || 0) - (b._rowNumber || 0);
+    return d1 - d2;
+  });
+
+  // Calculate opening balance up to fromDate
+  let runningBalance = 0;
+  let openingBalance = 0;
+  
+  // Include initial Bank/Cash opening balance if any?
+  // We can get it from Payment_Accounts config if needed, or assume it's calculated from the sum.
+  // Actually Payment_Accounts has Opening_Balance. Let's fetch it.
+  try {
+    const accounts = await getPaymentAccounts(townName);
+    const acc = accounts.find(a => String(a.Account_ID).toLowerCase() === account_id);
+    if (acc && acc.Opening_Balance) {
+      runningBalance = Number(acc.Opening_Balance);
+    }
+  } catch(e) {}
+
+  const fromTime = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : 0;
+  const toTime = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Infinity;
+
+  const result = [];
+
+  for (const tx of accountTx) {
+    const txTime = new Date(`${tx.Date || tx.Created_At}T00:00:00`).getTime();
+    const amount = Number(tx.Amount) || 0;
+    const isIncome = String(tx.Direction || '').toLowerCase() === 'income';
+    
+    if (isIncome) {
+      runningBalance += amount;
+    } else {
+      runningBalance -= amount;
+    }
+
+    if (txTime < fromTime) {
+      openingBalance = runningBalance;
+    } else if (txTime <= toTime) {
+      result.push({
+        id: tx.Ledger_ID,
+        date: tx.Date,
+        type: tx.Source_Type,
+        direction: tx.Direction,
+        amount: amount,
+        partyName: tx.Party_Name,
+        description: tx.Description,
+        receiptNumber: tx.Receipt_Number,
+        runningBalance: runningBalance
+      });
+    }
+  }
+
+  // If no fromDate, openingBalance is just the initial account opening balance
+  if (!fromDate) {
+    try {
+      const accounts = await getPaymentAccounts(townName);
+      const acc = accounts.find(a => String(a.Account_ID).toLowerCase() === account_id);
+      if (acc && acc.Opening_Balance) openingBalance = Number(acc.Opening_Balance);
+      else openingBalance = 0;
+    } catch(e) {}
+  }
+
+  // For display, usually we want newest first, so reverse the result
+  result.reverse();
+
+  return {
+    accountId: account_id,
+    openingBalance,
+    closingBalance: runningBalance,
+    transactions: result
+  };
+}
+
 module.exports = {
   COLUMNS,
   SUMMARY_COLUMNS,
@@ -640,4 +744,5 @@ module.exports = {
   computeLedgerSummary,
   backfillLedgerReceipts,
   backfillMoneyLedger,
+  getBankAccountTransactions,
 };

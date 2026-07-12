@@ -280,6 +280,36 @@ function scheduleQueuedCloudSync(delayMs = 1500) {
     _cloudSyncInFlight = true;
     try {
       sendCloudUploadProgress(2, 'Checking pending local Excel changes...');
+      
+      // Process offline deletes first so they aren't ignored
+      try {
+        const rows = await pendingSync.getPendingSyncRows();
+        const deletes = rows.filter(r => String(r.Operation || '').toLowerCase() === 'delete');
+        if (deletes.length > 0) {
+          sendCloudUploadProgress(3, `Processing ${deletes.length} offline deletions...`);
+          for (const row of deletes) {
+            try {
+              const payload = JSON.parse(row.Payload_JSON || '{}');
+              const table = row.Table_Name;
+              if (table && Object.keys(payload).length > 0) {
+                if (table === 'towns' && payload.Town_Name) {
+                  await purgeCloudTownBusinessData(payload.Town_Name);
+                  try {
+                    const supabase = require('./db/supabase');
+                    await supabase.from('users').update({ is_active: false }).eq('town_id', payload.Town_Name).eq('role', 'accountant');
+                  } catch(e) {}
+                }
+                await onlineDb.deleteWhere(table, payload);
+              }
+            } catch (delErr) {
+              console.error(`Failed to process offline delete for ${row.Table_Name}:`, delErr);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error processing offline deletes before syncUp:', e);
+      }
+
       await performFullSyncUp((percent, msg) => sendCloudUploadProgress(percent, msg));
       await pendingSync.markAllPendingSynced();
       sendBusinessDataChanged({
@@ -622,22 +652,26 @@ async function syncOnline(localFn, supabaseFn, options = {}) {
       sendBusinessDataChanged({ ...baseChange, status: 'sync-queue-failed', error: e.message || 'Unknown' });
     }
 
-    try {
-      await withTimeout(supabaseFn(localResult), 4000, 'Cloud quick sync');
-      await pendingSync.markPendingSynced(clientWriteId);
-      sendBusinessDataChanged({ ...baseChange, status: 'cloud-saved', events: [...baseChange.events, 'sync:success'] });
-      sendCloudDataRefreshed({
-        source: 'quick-write',
-        tableName,
-        operation,
-        clientWriteId,
-      });
-      scheduleCloudDownload(900);
-    } catch (e) {
-      syncWarning = 'Cloud quick sync failed: ' + (e.message || 'Unknown');
-      sendSyncWarning(syncWarning);
-      sendBusinessDataChanged({ ...baseChange, status: 'sync-queued', events: [...baseChange.events, 'sync:queued'], error: e.message || 'Unknown' });
-    }
+    // FIRE AND FORGET THE CLOUD SYNC SO UI RESPONDS IN 0 MILLISECONDS
+    (async () => {
+      try {
+        await withTimeout(supabaseFn(localResult), 4000, 'Cloud quick sync');
+        await pendingSync.markPendingSynced(clientWriteId);
+        sendBusinessDataChanged({ ...baseChange, status: 'cloud-saved', events: [...baseChange.events, 'sync:success'] });
+        sendCloudDataRefreshed({
+          source: 'quick-write',
+          tableName,
+          operation,
+          clientWriteId,
+        });
+        scheduleCloudDownload(900);
+      } catch (e) {
+        const warning = 'Cloud quick sync failed: ' + (e.message || 'Unknown');
+        sendSyncWarning(warning);
+        sendBusinessDataChanged({ ...baseChange, status: 'sync-queued', events: [...baseChange.events, 'sync:queued'], error: e.message || 'Unknown' });
+        await pendingSync.markPendingAttemptFailed(e).catch(() => {});
+      }
+    })();
   }
 
   scheduleQueuedFileUpload();
@@ -832,41 +866,64 @@ function buildConstructionPaymentReceiptPayload(payment) {
 async function purgeLocalTownBusinessData(townName) {
   const town = String(townName || '').trim();
   if (!town) return;
-  const { readExcelFile, deleteExcelRow, getGlobalsPath } = require('./db/core');
+  const { getGlobalsPath, getTownsPath, withFileWriteLock, writeWorkbookAtomic } = require('./db/core');
+  const ExcelJS = require('exceljs');
   const files = [
-    'All_Sales.xlsx',
-    'All_Expenses.xlsx',
-    'Installments_Tracker.xlsx',
-    'Collection_Payments.xlsx',
-    'Resell_History.xlsx',
-    'CEO_Expenses.xlsx',
-    'CEO_Salary.xlsx',
-    'Salary_Records.xlsx',
-    'Daily_Entries.xlsx',
-    'Notifications_Log.xlsx',
-    'Commissions.xlsx',
-    'Commission_Receipts.xlsx',
-    'Town_Agents.xlsx',
-    'Investors.xlsx',
-    'Investor_Transactions.xlsx',
-    'Construction_Projects.xlsx',
-    'Construction_Payments.xlsx',
-    'Receipt_Archive.xlsx',
-    'Money_Ledger.xlsx',
-    'Town_Financial_Summary.xlsx',
-    'Town_Map_Shapes.xlsx',
+    'All_Sales.xlsx', 'All_Expenses.xlsx', 'Installments_Tracker.xlsx',
+    'Collection_Payments.xlsx', 'Resell_History.xlsx', 'CEO_Expenses.xlsx',
+    'CEO_Salary.xlsx', 'Salary_Records.xlsx', 'Daily_Entries.xlsx',
+    'Notifications_Log.xlsx', 'Commissions.xlsx', 'Commission_Receipts.xlsx',
+    'Town_Agents.xlsx', 'Investors.xlsx', 'Investor_Transactions.xlsx',
+    'Construction_Projects.xlsx', 'Construction_Payments.xlsx',
+    'Receipt_Archive.xlsx', 'Money_Ledger.xlsx', 'Town_Financial_Summary.xlsx',
+    'Town_Map_Shapes.xlsx', 'Employees_V2.xlsx', 'Advance_Salaries.xlsx', 'Salary_Payments.xlsx'
   ];
   for (const file of files) {
     const fp = path.join(getGlobalsPath(), file);
     if (!fs.existsSync(fp)) continue;
-    let rows = [];
-    try { rows = await readExcelFile(fp, 'Data'); } catch (_) { continue; }
-    const targets = rows
-      .filter((row) => String(row.Town_Name || row.town_name || '') === town && row._rowNumber)
-      .map((row) => row._rowNumber)
-      .sort((a, b) => b - a);
-    for (const rowNumber of targets) await deleteExcelRow(fp, 'Data', rowNumber);
+    try {
+      await withFileWriteLock(fp, async () => {
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(fp);
+        const sheet = workbook.getWorksheet('Data');
+        if (!sheet) return;
+        
+        let townColIdx = -1;
+        const headerRow = sheet.getRow(1);
+        headerRow.eachCell((cell, colNumber) => {
+          const v = String(cell.value || '').trim().toLowerCase().replace(/_/g, ' ');
+          if (v === 'town name') townColIdx = colNumber;
+        });
+        
+        if (townColIdx === -1) return;
+        
+        let rowsToDelete = [];
+        sheet.eachRow((row, rowNumber) => {
+          if (rowNumber <= 1) return;
+          const cellValue = String(row.getCell(townColIdx).value || '').trim();
+          if (cellValue.toLowerCase() === town.toLowerCase()) {
+            rowsToDelete.push(rowNumber);
+          }
+        });
+        
+        if (rowsToDelete.length > 0) {
+          rowsToDelete.sort((a, b) => b - a);
+          for (const r of rowsToDelete) {
+            sheet.spliceRows(r, 1);
+          }
+          await writeWorkbookAtomic(fp, workbook);
+        }
+      });
+    } catch (_) {}
   }
+  
+  // Delete the town's properties file entirely
+  try {
+    const propsFile = path.join(getTownsPath(), `${town}_Properties.xlsx`);
+    if (fs.existsSync(propsFile)) {
+      fs.rmSync(propsFile, { force: true });
+    }
+  } catch (_) {}
 }
 
 async function purgeCloudTownBusinessData(townName) {
@@ -1679,6 +1736,17 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       const town = scopedTown(townName, isAccountantScoped());
       return await cashBanks.getPaymentAccounts(town);
+    } catch(e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('get-bank-account-statement', async (_, params) => {
+    try {
+      if (isAccountantScoped()) params.townName = scopedTown(params.townName, true);
+      assertTownAccess(params.townName);
+      const { getBankAccountTransactions } = require('./db/moneyLedger');
+      return await dataLayer.read(() => getBankAccountTransactions(params), async () => {
+        return { transactions: [] }; // Fallback
+      });
     } catch(e) { return { error: e.message }; }
   });
 

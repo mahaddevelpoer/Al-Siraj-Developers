@@ -170,7 +170,7 @@ export default function AccountingReports({ townName, showToast }) {
         <div>
           <div className="acct-kicker">Accounts Reports</div>
           <h2>{townName}</h2>
-          <p>Old accounting screens ka kaam yahan consolidated hai: ledgers, recovery, trial balance, scheme summary aur exports.</p>
+          <p>The old accounting screens are consolidated here: ledgers, recovery, trial balance, scheme summary, and exports.</p>
         </div>
         <div className="acct-datebar">
           <input type="date" value={fromDate} max={toDate} onChange={(e) => setFromDate(e.target.value)} />
@@ -346,7 +346,7 @@ export default function AccountingReports({ townName, showToast }) {
 
       <div className="acct-note">
         <BookIcon size={15} />
-        <span>Cash Receipt Voucher aur Cash Payment Voucher ka kaam Daily Entries me already hota hai; yahan reports unhi approved cash rows se banti hain.</span>
+        <span>Cash Receipt Vouchers and Cash Payment Vouchers are handled in Daily Entries; reports here are generated from those approved cash rows.</span>
       </div>
     </div>
   );

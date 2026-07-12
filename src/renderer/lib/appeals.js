@@ -12,13 +12,49 @@ function repairError(error) {
 }
 
 export async function createBusinessAppeal(payload) {
-  const { data: authData, error: authError } = await supabase.auth.getUser();
+  const { data: authData, error: authError } = await supabase.auth.getUser().catch(() => ({ data: null, error: new Error('Network error') }));
   if (authError || !authData?.user?.id) {
+    const localId = 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    const now = new Date();
+    const localAppeal = {
+      id: localId,
+      townName: payload.town_name || payload.townName || payload.requested_data?.townName || payload.requested_data?.town || '',
+      type: payload.appeal_type || 'general',
+      description: payload.reason || '',
+      payload: payload,
+      status: 'pending',
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      nextReminderAt: new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    };
+    const tName = String(localAppeal.townName || '').trim();
+    const key = `al_siraj_pending_appeals_${tName || 'global'}`;
+    let old = [];
+    try {
+      old = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch (_) {}
+    localStorage.setItem(key, JSON.stringify([localAppeal, ...old].slice(0, 100)));
+    try {
+      if (window.api?.saveLocalPendingAppeal) {
+        await window.api.saveLocalPendingAppeal(localAppeal);
+      }
+    } catch (_) {}
+    window.dispatchEvent(new CustomEvent('al-siraj-business-data-changed', {
+      detail: { townName: tName, events: ['appeal:pending-local'] },
+    }));
     return {
-      data: null,
-      error: {
-        message: 'Online accountant login is required before creating an appeal.',
+      data: {
+        id: localId,
+        status: 'pending',
+        appeal_type: payload.appeal_type,
+        entity_type: payload.entity_type,
+        entity_id: payload.entity_id,
+        town_name: tName,
+        requested_data: payload.requested_data,
+        reason: payload.reason,
+        is_local: true,
       },
+      error: null,
     };
   }
 

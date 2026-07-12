@@ -156,6 +156,7 @@ contextBridge.exposeInMainWorld('api', {
   runBusinessAudit: () => ipcRenderer.invoke('run-business-audit'),
   runHandoverAudit: () => ipcRenderer.invoke('run-handover-audit'),
   getPaymentAccounts: (townName) => ipcRenderer.invoke('get-payment-accounts', townName),
+  getBankAccountStatement: (params) => ipcRenderer.invoke('get-bank-account-statement', params),
   addBankAccount: (data) => ipcRenderer.invoke('add-bank-account', data),
   updateBankAccount: (params) => ipcRenderer.invoke('update-bank-account', params),
   generateDailyTownReceipts: (date) => ipcRenderer.invoke('generate-daily-town-receipts', date),

@@ -296,17 +296,17 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
               onClick={() => onTownSelect(town)}
             >
               <div className="ui-card-header">
-                <div>
-                  <div className="ui-card-title">
+                <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+                  <div className="ui-card-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {town.Town_Name}
                   </div>
                   {town.Location_Text && (
-                    <div className="ui-card-subtitle">
+                    <div className="ui-card-subtitle" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {town.Location_Text}
                     </div>
                   )}
                 </div>
-                <div className="ui-badge-row">
+                <div className="ui-badge-row" style={{ flexShrink: 0 }}>
                   <span className={`ui-badge ${parseFloat(town.Commission_Rate) > 0 ? 'ui-badge-primary' : ''}`}>
                     {town.Commission_Rate || 0}%
                   </span>

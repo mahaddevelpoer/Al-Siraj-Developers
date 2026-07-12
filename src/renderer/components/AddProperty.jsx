@@ -103,16 +103,16 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedTown) { showToast('Town select karein', 'error'); return; }
-    if (!form.number.trim()) { showToast(`${type} number required hai`, 'error'); return; }
+    if (!selectedTown) { showToast('Please select a town', 'error'); return; }
+    if (!form.number.trim()) { showToast(`${type} number is required`, 'error'); return; }
 
     if (type === 'Shop') {
-      if (!selectedRoad) { showToast('Road type select karein', 'error'); return; }
+      if (!selectedRoad) { showToast('Please select a road type', 'error'); return; }
       const mv = marlaMode === 'preset' ? parseFloat(marlaPreset) : parseFloat(marlaCustom);
-      if (!mv || mv <= 0) { showToast('Size (marla) enter karein', 'error'); return; }
+      if (!mv || mv <= 0) { showToast('Please enter size (marla)', 'error'); return; }
     } else {
       const pm = plotMarlaMode === 'preset' ? parseFloat(plotMarlaPreset) : parseFloat(plotMarlaCustom);
-      if (!pm || pm <= 0) { showToast('Plot size (marla) enter karein', 'error'); return; }
+      if (!pm || pm <= 0) { showToast('Please enter plot size (marla)', 'error'); return; }
     }
 
     setLoading(true);
@@ -159,13 +159,13 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
 
       if (result?.error) showToast(result.error, 'error');
       else {
-        showToast(`${type} "${form.number}" ${selectedTown} mein add ho gaya!`);
+        showToast(`${type} "${form.number}" added successfully in ${selectedTown}!`);
         setForm({ number: '', ownerName: '' });
         setSelectedRoad(''); setMarlaMode('preset'); setMarlaPreset(''); setMarlaCustom('');
         setPlotMarlaMode('preset'); setPlotMarlaPreset(''); setPlotMarlaCustom('');
         loadProperties();
       }
-    } catch { showToast('Property add karne mein error aya', 'error'); }
+    } catch { showToast('Error adding property', 'error'); }
     setLoading(false);
   };
 
@@ -304,7 +304,7 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 13 }}>{label}</div>
                         <div style={{ fontSize: 11, color: pm > 0 ? 'var(--accent-blue)' : 'var(--text-muted)', marginTop: 2 }}>
-                          {pm > 0 ? `PKR ${pm.toLocaleString()} / marla` : 'Price set nahi'}
+                          {pm > 0 ? `PKR ${pm.toLocaleString()} / marla` : 'Price not set'}
                         </div>
                       </div>
                     </label>
