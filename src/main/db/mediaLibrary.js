@@ -22,6 +22,9 @@ const COLUMNS = [
   'Pdf_Path',
   'Excel_Path',
   'Html_Path',
+  'Pdf_Base64',
+  'Html_Content',
+  'Report_Data_JSON',
   'Account_Name',
   'Property_Number',
   'Receipt_Number',
@@ -84,9 +87,10 @@ async function recordMediaItem(data = {}) {
   const htmlPath = data.Html_Path || data.htmlPath || '';
   const filePath = data.File_Path || data.filePath || pdfPath || excelPath || htmlPath || '';
   const existing = (await readExcelFile(fp, 'Data')).find((row) =>
-    String(row.File_Path || row.Pdf_Path || row.Excel_Path || row.Html_Path || '') === String(filePath || '')
+    String(row.File_Path || row.Pdf_Path || row.Excel_Path || row.Html_Path || '') === String(filePath || '') &&
+    String(row.Town_Name || '') === String(data.Town_Name || data.townName || '')
   );
-  if (existing) return existing;
+  if (existing && !data.Pdf_Base64 && !data.pdfBase64) return existing;
   const row = {
     Media_ID: data.Media_ID || generateId(),
     Town_Name: data.Town_Name || data.townName || '',
@@ -96,6 +100,9 @@ async function recordMediaItem(data = {}) {
     Pdf_Path: pdfPath,
     Excel_Path: excelPath,
     Html_Path: htmlPath,
+    Pdf_Base64: data.Pdf_Base64 || data.pdfBase64 || data.pdf_base64 || '',
+    Html_Content: data.Html_Content || data.htmlContent || data.html_content || '',
+    Report_Data_JSON: data.Report_Data_JSON || data.reportDataJson || data.report_data_json || (data.report ? JSON.stringify(data.report) : ''),
     Account_Name: data.Account_Name || data.accountName || '',
     Property_Number: data.Property_Number || data.propertyNumber || '',
     Receipt_Number: data.Receipt_Number || data.receiptNumber || '',

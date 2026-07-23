@@ -38,6 +38,10 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
   const [portfolioStats, setPortfolioStats] = useState(null);
   const [pendingAppealsCount, setPendingAppealsCount] = useState(0);
 
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [promptModal, setPromptModal] = useState(null);
+  const [promptValue, setPromptValue] = useState('');
+
   useEffect(() => {
     loadTowns();
   }, []);
@@ -104,20 +108,26 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
   };
 
   const handleDeleteTown = async (town) => {
-    if (!window.confirm(`Delete "${town.Town_Name}"? This will permanently remove the town and all its data. This cannot be undone.`)) return;
-    try {
-      const result = await window.api.deleteTown(town.Town_Name);
-      if (result?.error) {
-        showToast(result.error, 'error');
-      } else {
-        localStorage.removeItem(`al_siraj_pending_appeals_${town.Town_Name}`);
-        showToast(`${town.Town_Name} deleted!`);
-        loadTowns();
-      }
-    } catch (e) {
-      console.error('Delete town error:', e);
-      showToast('Failed to delete town: ' + (e.message || e), 'error');
-    }
+    setConfirmModal({
+      message: `Delete "${town.Town_Name}"? This will permanently remove the town and all its data. This cannot be undone.`,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          const result = await window.api.deleteTown(town.Town_Name);
+          if (result?.error) {
+            showToast(result.error, 'error');
+          } else {
+            localStorage.removeItem(`al_siraj_pending_appeals_${town.Town_Name}`);
+            showToast(`${town.Town_Name} deleted!`);
+            loadTowns();
+          }
+        } catch (e) {
+          console.error('Delete town error:', e);
+          showToast('Failed to delete town: ' + (e.message || e), 'error');
+        }
+      },
+      onCancel: () => setConfirmModal(null),
+    });
   };
 
   const filteredTowns = towns.filter((t) =>
@@ -483,19 +493,53 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
               )}
               {userRole === 'ceo' && (
                 <button
-                  onClick={async () => {
-                    if (!window.confirm('Permanently delete old agent commissions and agent-linked sales from local handover data?')) return;
-                    const result = await window.api.cleanupLegacyAgentData?.();
-                    if (result?.error) showToast(result.error, 'error');
-                    else {
-                      showToast('Legacy agent data cleanup complete', 'success');
-                      loadTowns();
-                    }
+                  onClick={() => {
+                    setConfirmModal({
+                      message: 'Permanently delete old agent commissions and agent-linked sales from local handover data?',
+                      onConfirm: async () => {
+                        setConfirmModal(null);
+                        const result = await window.api.cleanupLegacyAgentData?.();
+                        if (result?.error) showToast(result.error, 'error');
+                        else {
+                          showToast('Legacy agent data cleanup complete', 'success');
+                          loadTowns();
+                        }
+                      },
+                      onCancel: () => setConfirmModal(null)
+                    });
                   }}
                   className="btn btn-ghost btn-sm"
                   style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                 >
                   Cleanup Agent Data
+                </button>
+              )}
+              {userRole === 'ceo' && (
+                <button
+                  onClick={() => {
+                    setPromptModal({
+                      title: 'Delete All Data',
+                      message: 'WARNING: This will permanently delete ALL data from Local Storage, Cloud (Supabase), and Mobile apps.\n\nType "DELETE ALL" to confirm:',
+                      placeholder: 'DELETE ALL',
+                      onSubmit: async (input) => {
+                        if (input === 'DELETE ALL') {
+                          const result = await window.api.nukeAllData?.();
+                          if (result?.error) showToast(result.error, 'error');
+                          else {
+                            localStorage.clear();
+                            showToast('All Data Wiped Successfully!', 'success');
+                            onLogout();
+                          }
+                        } else if (input !== null && input !== '') {
+                          showToast('Confirmation text did not match. Aborting delete.', 'error');
+                        }
+                      }
+                    });
+                  }}
+                  className="btn btn-ghost btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ef4444', borderColor: '#ef4444' }}
+                >
+                  <TrashIcon size={13}/> Delete All Data
                 </button>
               )}
             </>
@@ -614,6 +658,33 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
                 </button>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {confirmModal && (
+        <div className="modal-overlay" onClick={() => setConfirmModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Confirm Action</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>{confirmModal.message}</p>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn btn-secondary" onClick={confirmModal.onCancel}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmModal.onConfirm}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {promptModal && (
+        <div className="modal-overlay" onClick={() => { setPromptModal(null); setPromptValue(''); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>{promptModal.title || 'Input Required'}</h3>
+            <p style={{margin:'0 0 12px',color:'var(--text-secondary)',fontSize:14,whiteSpace:'pre-wrap'}}>{promptModal.message}</p>
+            <input className="form-input" value={promptValue} onChange={e => setPromptValue(e.target.value)} placeholder={promptModal.placeholder || ''} autoFocus style={{width:'100%',padding:'8px 12px',border:'1px solid var(--border-color)',borderRadius:6,background:'var(--bg-input)',color:'var(--text-primary)'}} />
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:16}}>
+              <button className="btn btn-secondary" onClick={() => { setPromptModal(null); setPromptValue(''); }}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => { promptModal.onSubmit(promptValue); setPromptModal(null); setPromptValue(''); }}>Confirm</button>
+            </div>
           </div>
         </div>
       )}

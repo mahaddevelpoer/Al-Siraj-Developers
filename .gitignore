@@ -12,4 +12,11 @@ Towns/
 .env
 developer_config.json
 firebase-service-account*.json
-supabase/.temp/
+Properties/
+Reports/
+*.xlsx
+audit_calc.js
+dump_ledger*.js
+fix_*.js
+money_ledger_dump.json
+test_*.js

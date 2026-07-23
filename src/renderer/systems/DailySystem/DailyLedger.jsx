@@ -27,6 +27,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   const [otpInput, setOtpInput] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const isNonToday = userRole === 'accountant' && selectedDate !== todayStr;
@@ -67,11 +68,9 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   useEffect(() => {
     const refresh = (event) => {
       const detail = event?.detail || {};
-      const events = Array.isArray(detail.events) ? detail.events : [detail.type].filter(Boolean);
       const targetTown = detail.townName || detail.town_name || detail.Town_Name;
       const sameTown = !targetTown || !townName || String(targetTown).trim().toLowerCase() === String(townName).trim().toLowerCase();
-      if (!sameTown) return;
-      if (events.some((name) => ['daily-entry:changed', 'ledger:changed', 'collection:changed', 'installment:changed', 'remaining:changed', 'receipt:created', 'data:changed'].includes(String(name).toLowerCase()))) {
+      if (sameTown) {
         loadEntries();
         loadAccountOptions();
       }
@@ -305,49 +304,59 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
     if (!entry) return;
 
     if (userRole === 'accountant') {
-      const ok = window.confirm(`Deleting this daily entry requires CEO approval. Submit a deletion appeal to the CEO's dashboard?`);
-      if (!ok) return;
+      setConfirmModal({
+        message: `Deleting this daily entry requires CEO approval. Submit a deletion appeal to the CEO's dashboard?`,
+        onConfirm: async () => {
+          setConfirmModal(null);
+          const payload = {
+            appeal_type: 'delete_daily_entry',
+            entity_type: 'daily_entry',
+            entity_id: entryId,
+            town_name: townName,
+            reason: 'Daily Entry Deletion Request',
+            requested_data: {
+              entryId,
+              townName,
+              amount: parseFloat(entry.Amount) || 0,
+              type: entry.Type,
+              date: entry.Date,
+              description: entry.Description,
+              accountName: entry.Account_Name
+            }
+          };
 
-      const payload = {
-        appeal_type: 'delete_daily_entry',
-        entity_type: 'daily_entry',
-        entity_id: entryId,
-        town_name: townName,
-        reason: 'Daily Entry Deletion Request',
-        requested_data: {
-          entryId,
-          townName,
-          amount: parseFloat(entry.Amount) || 0,
-          type: entry.Type,
-          date: entry.Date,
-          description: entry.Description,
-          accountName: entry.Account_Name
-        }
-      };
-
-      if (!navigator.onLine) {
-        queueLocalPendingAppeal(payload);
-      } else {
-        try {
-          const { data, error } = await createBusinessAppeal(payload);
-          if (error) {
-            showToast?.('Could not create deletion appeal: ' + error.message, 'error');
-            return;
+          if (!navigator.onLine) {
+            queueLocalPendingAppeal(payload);
+          } else {
+            try {
+              const { data, error } = await createBusinessAppeal(payload);
+              if (error) {
+                showToast?.('Could not create deletion appeal: ' + error.message, 'error');
+                return;
+              }
+              showToast?.('Deletion appeal submitted to CEO dashboard successfully!');
+            } catch (e) {
+              showToast?.('Failed to submit deletion appeal: ' + e.message, 'error');
+            }
           }
-          showToast?.('Deletion appeal submitted to CEO dashboard successfully!');
-        } catch (e) {
-          showToast?.('Failed to submit deletion appeal: ' + e.message, 'error');
-        }
-      }
+        },
+        onCancel: () => setConfirmModal(null)
+      });
       return;
     }
 
-    if (!window.confirm('Delete this entry?')) return;
-    try {
-      const r = await window.api.deleteDailyEntry({ entryId });
-      if (r?.error) showToast?.(r.error, 'error');
-      else { showToast?.('Deleted!'); await loadEntries(); }
-    } catch { showToast?.('Failed to delete', 'error'); }
+    setConfirmModal({
+      message: 'Delete this entry?',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          const r = await window.api.deleteDailyEntry({ entryId });
+          if (r?.error) showToast?.(r.error, 'error');
+          else { showToast?.('Deleted!'); await loadEntries(); }
+        } catch { showToast?.('Failed to delete', 'error'); }
+      },
+      onCancel: () => setConfirmModal(null)
+    });
   };
 
   const closeModal = () => { setModalStep(null); setPendingPayload(null); };
@@ -644,6 +653,19 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
             <button className="btn btn-ghost" onClick={closeModal} style={{ width: '100%' }}>
               Close (appeal stays active)
             </button>
+          </div>
+        </div>
+      )}
+
+      {confirmModal && (
+        <div className="modal-overlay" onClick={() => setConfirmModal(null)} style={{zIndex: 9999}}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Confirm Action</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>{confirmModal.message}</p>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn btn-secondary" onClick={confirmModal.onCancel}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmModal.onConfirm}>Confirm</button>
+            </div>
           </div>
         </div>
       )}

@@ -13,6 +13,7 @@ export default function EditTownWizard({ town, onSuccess, onClose, showToast }) 
     Total_Shops: String(town.Total_Shops || ''),
   });
   const [submitting, setSubmitting] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null);
 
   const u = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -51,21 +52,27 @@ export default function EditTownWizard({ town, onSuccess, onClose, showToast }) 
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Are you sure you want to delete "${town.Town_Name}"? This will permanently remove the town and cannot be undone.`)) return;
-    setSubmitting(true);
-    try {
-      const result = await window.api.deleteTown(town.Town_Name);
-      if (result?.error) {
-        showToast(result.error, 'error');
-      } else {
-        localStorage.removeItem(`al_siraj_pending_appeals_${town.Town_Name}`);
-        showToast(`${town.Town_Name} deleted successfully!`);
-        onSuccess();
-      }
-    } catch (e) {
-      showToast('Failed to delete town', 'error');
-    }
-    setSubmitting(false);
+    setConfirmModal({
+      message: `Are you sure you want to delete "${town.Town_Name}"? This will permanently remove the town and cannot be undone.`,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setSubmitting(true);
+        try {
+          const result = await window.api.deleteTown(town.Town_Name);
+          if (result?.error) {
+            showToast(result.error, 'error');
+          } else {
+            localStorage.removeItem(`al_siraj_pending_appeals_${town.Town_Name}`);
+            showToast(`${town.Town_Name} deleted successfully!`);
+            onSuccess();
+          }
+        } catch (e) {
+          showToast('Failed to delete town', 'error');
+        }
+        setSubmitting(false);
+      },
+      onCancel: () => setConfirmModal(null)
+    });
   };
 
   return (
@@ -154,6 +161,19 @@ export default function EditTownWizard({ town, onSuccess, onClose, showToast }) 
           </div>
         </div>
       </div>
+
+      {confirmModal && (
+        <div className="modal-overlay" onClick={() => setConfirmModal(null)} style={{zIndex: 9999}}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Confirm Action</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>{confirmModal.message}</p>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn btn-secondary" onClick={confirmModal.onCancel}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmModal.onConfirm}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

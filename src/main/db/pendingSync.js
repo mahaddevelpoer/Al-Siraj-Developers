@@ -114,13 +114,16 @@ async function markPendingSynced(clientWriteId) {
   }
 }
 
-async function markPendingAttemptFailed(error) {
+async function markPendingAttemptFailed(error, clientWriteId = null) {
   const fp = await ensurePendingSyncFile();
   const rows = await readExcelFile(fp, 'Data');
   const now = new Date().toISOString();
   const message = error && error.message ? error.message : String(error || 'Sync failed');
   for (const row of rows) {
     if (String(row.Status || '').toLowerCase() === 'pending' && row._rowNumber) {
+      if (clientWriteId && String(row.Client_Write_ID || '') !== String(clientWriteId)) {
+        continue;
+      }
       const retryCount = (parseInt(row.Retry_Count, 10) || 0) + 1;
       if (retryCount >= MAX_RETRY_COUNT) {
         // Mark as permanently failed after max retries

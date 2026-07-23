@@ -109,7 +109,17 @@ function revealWindow(win) {
     win.setAlwaysOnTop(true);
     win.focus();
     win.show();
-    win.setAlwaysOnTop(false);
+    // Delay removing alwaysOnTop — doing it synchronously causes Electron
+    // to lose internal input focus on Windows, making input fields unclickable.
+    setTimeout(() => { 
+      try { 
+        if (!win.isDestroyed()) {
+          win.setAlwaysOnTop(false);
+          // Phase 5: Input Focus Recovery
+          win.webContents?.focus();
+        }
+      } catch(_){} 
+    }, 200);
     return true;
   } catch (e) {
     console.error('[window] reveal failed:', e);
@@ -595,6 +605,38 @@ app.whenReady().then(async () => {
     try {
       const created = await upsertDueInstallmentNotifications({ leadDays: 7 });
       if (!Array.isArray(created) || created.length === 0) return;
+
+      // Dual-write newly created background notifications to Supabase
+      try {
+        const pendingSync = require('./db/pendingSync');
+        const onlineDb = require('./db/online');
+        for (const notif of created) {
+          const cloudNotif = {
+            Notification_ID: notif.Notification_ID,
+            Type: notif.Type,
+            Message: notif.Message,
+            Town_Name: notif.Town_Name,
+            Due_Date: notif.Due_Date,
+            Status: 'Active',
+            Dismissed: 'No'
+          };
+          try {
+            await onlineDb.insert('notifications', cloudNotif);
+          } catch (err) {
+            console.warn('[Sync] Background notification offline-queued:', err.message);
+            await pendingSync.addPendingSync({
+              operation: 'upsert',
+              tableName: 'notifications',
+              clientWriteId: cloudNotif.Notification_ID,
+              payload: cloudNotif,
+              error: err.message || '',
+            }).catch(() => {});
+          }
+        }
+      } catch (syncErr) {
+        console.error('[NotificationSync] Failed to sync background notifications:', syncErr.message);
+      }
+
       const accountantTown = getCurrentAccountantTown();
       const scoped = accountantTown
         ? created.filter((row) => String(row.Town_Name || '') === accountantTown)

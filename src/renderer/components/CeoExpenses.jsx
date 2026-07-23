@@ -3,6 +3,7 @@ import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 import { WalletIcon, BankIcon, NeighborhoodIcon, RulerIcon, CheckIcon, CrossIcon, WarnIcon, SaveIcon, EditIcon, TrashIcon, ChartIcon, SoldIcon, ClockIcon, PlusIcon } from './Icons';
+import PaymentMethodSelector from './shared/PaymentMethodSelector';
 
 const CEO_SALARY_RATE = 150000; // Fixed monthly salary per town
 
@@ -19,6 +20,7 @@ export default function CeoExpenses({ showToast, panel }) {
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [confirmModal, setConfirmModal] = useState(null);
 
   function getCurrentMonthYear() {
     const now = new Date();
@@ -41,12 +43,18 @@ export default function CeoExpenses({ showToast, panel }) {
     if (!form.Expense_Name || !form.Amount_PKR) { showToast('Expense name and Amount are required', 'error'); return; }
     setLoading(true);
     try {
-      const result = await window.api.addCeoExpense({ ...form, Town_Name: selectedTown });
+      const result = await window.api.addCeoExpense({ 
+        ...form, 
+        Town_Name: selectedTown,
+        paymentAccountId: form.paymentAccount?.paymentAccountId,
+        paymentAccountName: form.paymentAccount?.paymentAccountName,
+        paymentAccountType: form.paymentAccount?.paymentAccountType,
+      });
       if (result?.error) { showToast(result.error, 'error'); }
       else {
         if (result.isOverLimit) showToast(`Limit exceeded! Total: PKR ${result.totalCeoExpenses?.toLocaleString()}, Limit: PKR ${result.expenseLimit?.toLocaleString()}`, 'warning');
         else showToast('Expense added successfully');
-        setForm({ Expense_Name: '', Amount_PKR: '', Description: '', Category: 'General' });
+        setForm({ Expense_Name: '', Amount_PKR: '', Description: '', Category: 'General', paymentAccount: null });
         loadExpenses(); loadTownData();
       }
     } catch (e) { showToast('Failed to add expense', 'error'); }
@@ -55,10 +63,16 @@ export default function CeoExpenses({ showToast, panel }) {
 
   const handleDelete = async (expenseId) => {
     if (!isCeo) { showToast('Only CEO can delete expenses', 'error'); return; }
-    if (!window.confirm('Are you sure you want to delete this expense?')) return;
-    const result = await window.api.deleteCeoExpense(expenseId);
-    if (result?.error) showToast(result.error, 'error');
-    else { showToast('Expense deleted successfully'); loadExpenses(); loadTownData(); }
+    setConfirmModal({
+      message: 'Are you sure you want to delete this expense?',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        const result = await window.api.deleteCeoExpense(expenseId);
+        if (result?.error) showToast(result.error, 'error');
+        else { showToast('Expense deleted successfully'); loadExpenses(); loadTownData(); }
+      },
+      onCancel: () => setConfirmModal(null)
+    });
   };
 
   const startEdit = (exp) => {
@@ -83,11 +97,17 @@ export default function CeoExpenses({ showToast, panel }) {
     if (duplicate) { showToast(`Salary for ${salaryForm.Town_Name} in ${salaryForm.Month_Year} is already recorded`, 'warning'); return; }
     setLoading(true);
     try {
-      const result = await window.api.addCeoSalary({ ...salaryForm, Amount_PKR: parseFloat(salaryForm.Amount_PKR) || CEO_SALARY_RATE });
+      const result = await window.api.addCeoSalary({ 
+        ...salaryForm, 
+        Amount_PKR: parseFloat(salaryForm.Amount_PKR) || CEO_SALARY_RATE,
+        paymentAccountId: salaryForm.paymentAccount?.paymentAccountId,
+        paymentAccountName: salaryForm.paymentAccount?.paymentAccountName,
+        paymentAccountType: salaryForm.paymentAccount?.paymentAccountType,
+      });
       if (result?.error) { showToast(result.error, 'error'); }
       else {
         showToast(`PKR ${(parseFloat(salaryForm.Amount_PKR)||CEO_SALARY_RATE).toLocaleString()} salary recorded for ${salaryForm.Month_Year}`);
-        setSalaryForm({ Town_Name: '', Month_Year: getCurrentMonthYear(), Amount_PKR: CEO_SALARY_RATE, Notes: '' });
+        setSalaryForm({ Town_Name: '', Month_Year: getCurrentMonthYear(), Amount_PKR: CEO_SALARY_RATE, Notes: '', paymentAccount: null });
         loadSalaries();
       }
     } catch (e) { showToast('Failed to record salary', 'error'); }
@@ -96,10 +116,16 @@ export default function CeoExpenses({ showToast, panel }) {
 
   const handleSalaryDelete = async (salaryId) => {
     if (!isCeo) { showToast('Only CEO can delete salary records', 'error'); return; }
-    if (!window.confirm('Are you sure you want to delete this salary record?')) return;
-    const result = await window.api.deleteCeoSalary(salaryId);
-    if (result?.error) showToast(result.error, 'error');
-    else { showToast('Salary record deleted successfully'); loadSalaries(); }
+    setConfirmModal({
+      message: 'Are you sure you want to delete this salary record?',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        const result = await window.api.deleteCeoSalary(salaryId);
+        if (result?.error) showToast(result.error, 'error');
+        else { showToast('Salary record deleted successfully'); loadSalaries(); }
+      },
+      onCancel: () => setConfirmModal(null)
+    });
   };
 
   // ─── Computed values ──────────────────────────────────────────
@@ -117,7 +143,20 @@ export default function CeoExpenses({ showToast, panel }) {
 
   const chartData = {
     labels: ['Expense Limit (10%)', 'CEO Expenses Used'],
-    datasets: [{ label: 'PKR', data: [expenseLimit, townCeoTotal], backgroundColor: [isOverLimit ? 'rgba(239,68,68,0.3)' : 'rgba(37,211,102,0.4)', isOverLimit ? 'rgba(239,68,68,0.8)' : 'rgba(37,211,102,0.8)'], borderRadius: 8 }],
+    datasets: [{ 
+      label: 'PKR', 
+      data: [expenseLimit, townCeoTotal], 
+      backgroundColor: [
+        'rgba(37, 99, 235, 0.15)', 
+        isOverLimit ? 'rgba(225, 29, 72, 0.8)' : 'rgba(13, 148, 136, 0.8)'
+      ], 
+      borderColor: [
+        'var(--accent-blue)', 
+        isOverLimit ? 'var(--accent-red)' : 'var(--accent-green)'
+      ],
+      borderWidth: 1.5,
+      borderRadius: 8 
+    }],
   };
 
   const fmt = (n) => `PKR ${(n || 0).toLocaleString()}`;
@@ -182,6 +221,14 @@ export default function CeoExpenses({ showToast, panel }) {
                       </select>
                     </div>
                     <div className="form-group full"><label>Description</label><input placeholder="Description" value={form.Description} onChange={e => setForm({ ...form, Description: e.target.value })} /></div>
+                    <div className="form-group full" style={{ marginTop: '4px' }}>
+                      <PaymentMethodSelector
+                        townName={selectedTown || 'all'}
+                        value={form.paymentAccount || null}
+                        onChange={(acc) => setForm({ ...form, paymentAccount: acc })}
+                        label="Payment Account *"
+                      />
+                    </div>
                   </div>
                   <button type="submit" className="btn btn-primary btn-lg mt-6" disabled={loading}
                     style={{ display:'flex', alignItems:'center', gap:5 }}>
@@ -208,7 +255,41 @@ export default function CeoExpenses({ showToast, panel }) {
             <div className="chart-card">
               <h3 style={{display:'flex',alignItems:'center',gap:5}}><ChartIcon size={13}/> Expense Limit vs Used {selectedTown && `(${selectedTown})`}</h3>
               <div style={{ height: 260 }}>
-                {selectedTown ? <Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#66bb6a' } }, y: { ticks: { color: '#66bb6a' } } } }} /> : <div className="empty-state"><p>Select a town to view the chart</p></div>}
+                {selectedTown ? (
+                  <Bar 
+                    data={chartData} 
+                    options={{ 
+                      responsive: true, 
+                      maintainAspectRatio: false, 
+                      plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                          backgroundColor: 'var(--bg-card)',
+                          titleColor: 'var(--text-primary)',
+                          bodyColor: 'var(--text-secondary)',
+                          borderColor: 'var(--border-color)',
+                          borderWidth: 1,
+                          padding: 12,
+                          cornerRadius: 10,
+                          titleFont: { family: 'Plus Jakarta Sans', weight: '700' },
+                          bodyFont: { family: 'Plus Jakarta Sans' }
+                        }
+                      }, 
+                      scales: { 
+                        x: { 
+                          ticks: { color: 'var(--text-muted)', font: { family: 'Plus Jakarta Sans', size: 11, weight: '600' } },
+                          grid: { display: false }
+                        }, 
+                        y: { 
+                          ticks: { color: 'var(--text-muted)', font: { family: 'Plus Jakarta Sans', size: 11 } },
+                          grid: { color: 'var(--border-color)', drawBorder: false }
+                        } 
+                      } 
+                    }} 
+                  />
+                ) : (
+                  <div className="empty-state"><p>Select a town to view the chart</p></div>
+                )}
               </div>
             </div>
           </div>
@@ -325,6 +406,14 @@ export default function CeoExpenses({ showToast, panel }) {
                       <label>Notes</label>
                       <input placeholder="Optional notes..." value={salaryForm.Notes} onChange={e => setSalaryForm({ ...salaryForm, Notes: e.target.value })} />
                     </div>
+                    <div className="form-group full" style={{ marginTop: '4px' }}>
+                      <PaymentMethodSelector
+                        townName={salaryForm.Town_Name || 'all'}
+                        value={salaryForm.paymentAccount || null}
+                        onChange={(acc) => setSalaryForm({ ...salaryForm, paymentAccount: acc })}
+                        label="Payment Account *"
+                      />
+                    </div>
                   </div>
                   <button type="submit" className="btn btn-primary btn-lg mt-6" disabled={loading}
                     style={{ display:'flex', alignItems:'center', gap:5 }}>
@@ -389,6 +478,19 @@ export default function CeoExpenses({ showToast, panel }) {
                   ))}</tbody>
                 </table>
               )}
+          </div>
+        </div>
+      )}
+
+      {confirmModal && (
+        <div className="modal-overlay" onClick={() => setConfirmModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Confirm Action</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>{confirmModal.message}</p>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn btn-secondary" onClick={confirmModal.onCancel}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmModal.onConfirm}>Confirm</button>
+            </div>
           </div>
         </div>
       )}

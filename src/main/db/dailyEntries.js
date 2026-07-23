@@ -95,12 +95,8 @@ async function addDailyEntry(data) {
   
   await appendToExcel(filePath, 'Data', newEntry);
   const review = String(newEntry.Review_Status || 'approved').toLowerCase();
-  const normalizedCategory = String(newEntry.Category || '').toLowerCase();
-  const moduleBacked = normalizedCategory.includes('investor') ||
-    normalizedCategory.includes('construction') ||
-    normalizedCategory.includes('commission');
   const skipLedgerWrite = String(newEntry.Skip_Ledger || '').toLowerCase() === 'yes';
-  if (!skipLedgerWrite && !moduleBacked && review !== 'pending' && review !== 'rejected' && newEntry.Amount > 0) {
+  if (!skipLedgerWrite && review !== 'pending' && review !== 'rejected' && newEntry.Amount > 0) {
     await recordMoneyEvent({
       sourceType: 'daily_entry',
       sourceId: newEntry.Entry_ID,
@@ -119,7 +115,33 @@ async function addDailyEntry(data) {
     });
   }
 
-  // Also update town financials: record income in All_Sales, expense in All_Expenses
+  // Phase 3: Atomic writes for Employee & Constructor Balance
+  if (String(newEntry.Type || '').toLowerCase() === 'expense' && newEntry.Account_Name && newEntry.Town_Name && !skipLedgerWrite && review !== 'pending' && review !== 'rejected') {
+    try {
+      const { updateEmployeePaidAmount, updateConstructorPaidAmount } = require('./businessExtras');
+      const cat = String(newEntry.Category || '').toLowerCase();
+      const acctType = String(newEntry.Account_Type || '').toLowerCase();
+      
+      const paymentAccount = {
+        paymentAccountId: newEntry.Payment_Account_ID,
+        paymentAccountName: newEntry.Payment_Account_Name,
+        paymentAccountType: newEntry.Payment_Account_Type,
+      };
+      
+      if (acctType === 'employee' || cat.includes('salary') || cat.includes('employee') || cat.includes('labour')) {
+        await updateEmployeePaidAmount(newEntry.Town_Name, newEntry.Account_Name, newEntry.Amount, paymentAccount);
+      } else if (acctType === 'constructor' || cat.includes('construction') || cat.includes('builder')) {
+        await updateConstructorPaidAmount(newEntry.Town_Name, newEntry.Account_Name, newEntry.Amount, paymentAccount);
+      }
+    } catch (e) {
+      console.error('Failed to update balance from daily entry:', e);
+    }
+  }
+
+  // FIX: Only mirror EXPENSE entries into All_Expenses (for backfill compatibility).
+  // NEVER mirror Income entries into All_Sales — that caused double-counting bugs:
+  // backfillMoneyLedger would re-process All_Sales and create a 2nd ledger entry
+  // with sourceType=sale_advance (different key from daily_entry), bypassing deduplication.
   if (!skipLedgerWrite && townName && amount && parseFloat(amount) > 0) {
     try {
       const globalsPath = getGlobalsPath();
@@ -137,52 +159,17 @@ async function addDailyEntry(data) {
           Date: date || new Date().toISOString().split('T')[0],
           Added_By: 'Employee',
         };
-        console.log('Adding daily expense to All_Expenses:', expData);
         await appendToExcel(expensesPath, 'Data', expData);
-      } else if (type === 'Income') {
-        const salesPath = path.join(globalsPath, 'All_Sales.xlsx');
-        await ensureSheetColumns(salesPath, 'Data', ['Daily_Entry_ID']);
-        const saleData = {
-          Sale_ID: newEntry.Entry_ID,
-          Daily_Entry_ID: newEntry.Entry_ID,
-          Plot_Shop_Number: '',
-          Type: 'Daily Income',
-          Town_Name: townName,
-          Customer_Name: newEntry.Account_Name || description || 'Daily Income',
-          CNIC: '',
-          Phone_Number: '',
-          Sell_Date: date || new Date().toISOString().split('T')[0],
-          Total_Amount_PKR: parseFloat(amount),
-          Advance_Amount_PKR: 0,
-          Total_Installments: 0,
-          Total_Period_Months: 0,
-          Gap_Days: 0,
-          Gap_Label: '',
-          Monthly_Installment: 0,
-          Received_Amount: parseFloat(amount),
-          Remaining_Amount: 0,
-          Agent_Name: '',
-          Commission_Rate: 0,
-          Commission_Amount: 0,
-          Company_Income: parseFloat(amount),
-          Expense_Total: 0,
-          Profit_Loss: parseFloat(amount),
-          Receipt_Number: '',
-          File_Status: '',
-          Status: 'Sold',
-        };
-        console.log('Adding daily income to All_Sales:', saleData);
-        await appendToExcel(salesPath, 'Data', saleData);
       }
-      // Update town financials
-      console.log('Updating town financials for:', townName);
+      // Income entries are already recorded in Money_Ledger via recordMoneyEvent above.
+      // DO NOT add them to All_Sales — backfillMoneyLedger scans All_Sales and would
+      // create a duplicate ledger entry with sourceType=sale_advance.
+
+      // Update town financials (refresh from Money_Ledger — source of truth)
       await updateTownFinancials(townName);
-      console.log('Town financials updated successfully');
     } catch (e) {
       console.error('Failed to update town financials from daily entry:', e);
     }
-  } else {
-    console.log('Skipping financial update - condition not met:', { townName, amount, type });
   }
 
   return newEntry;
@@ -241,6 +228,29 @@ async function deleteDailyEntry({ entryId }) {
           (parseFloat(s.Total_Amount_PKR) || 0) === amount &&
           (!description || String(s.Customer_Name || '') === description || String(s.Customer_Name || '') === 'Daily Income');
         return linked || legacyMatch;
+      });
+    }
+
+    const skipLedgerWrite = String(match.Skip_Ledger || '').toLowerCase() === 'yes';
+    const reviewStatus = String(match.Review_Status || '').toLowerCase();
+    
+    // Reverse the ledger entry if it was recorded
+    if (!skipLedgerWrite && reviewStatus !== 'rejected' && amount > 0) {
+      const { recordMoneyEvent } = require('./moneyLedger');
+      await recordMoneyEvent({
+        sourceType: 'daily_entry',
+        sourceId: `REVERSE-${entryId}`,
+        direction: normalizedType === 'income' ? 'expense' : 'income',
+        amount: amount,
+        townName: town,
+        date: new Date().toISOString().split('T')[0],
+        partyName: match.Account_Name || 'System',
+        description: `Daily Entry Deleted (Reversal): ${description || 'Entry ' + entryId}`,
+        receiptNumber: match.Reference || '',
+        paymentAccountId: match.Payment_Account_ID || 'cash-in-hand',
+        paymentAccountName: match.Payment_Account_Name || 'Cash in Hand',
+        paymentAccountType: match.Payment_Account_Type || 'cash',
+        skipLedger: 'no'
       });
     }
 

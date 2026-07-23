@@ -120,6 +120,9 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
       let data, result;
       if (type === 'Plot') {
         const pm = plotMarlaMode === 'preset' ? plotMarlaPreset : plotMarlaCustom;
+        const roadLabel = selectedRoad === 'Custom_Price'
+          ? (customRoadName || 'Custom Road')
+          : ROAD_OPTIONS.find(r => r.key === selectedRoad)?.label || selectedRoad;
         data = {
           Plot_Number: form.number,
           Town_Name: selectedTown,
@@ -128,6 +131,8 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
           Length_Ft: '',
           Width_Ft: '',
           Area_Sqft: effectivePlotMarla ? +(effectivePlotMarla * 272.25).toFixed(2) : '',
+          Road_Type: selectedRoad ? roadLabel : '',
+          Road_Key: selectedRoad || '',
           Per_Marla_Price: parseFloat(townPrices?.[priceKey]) || parseFloat(townPrices?.Plot_Price) || 0,
           Total_Price: totalPlotPrice || 0,
           Owner_Name: form.ownerName,
@@ -453,6 +458,31 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
           {/* ── PLOT SPECIFIC: Per Marla Price Display + Marla Size ── */}
           {type === 'Plot' && selectedTown && (
             <div style={{ marginTop: 24 }}>
+              {/* Plot Road Type Optional */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, display:'flex', alignItems:'center', gap:5 }}>
+                  <RulerIcon size={12}/> Road Type (Optional)
+                </div>
+                <select 
+                  className="form-control" 
+                  value={selectedRoad} 
+                  onChange={e => setSelectedRoad(e.target.value)}
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1.5px solid var(--border-color)', background: 'var(--bg-card)' }}
+                >
+                  <option value="">-- No Road Type --</option>
+                  {ROAD_OPTIONS.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+                </select>
+                {selectedRoad === 'Custom_Price' && (
+                  <input
+                    type="text"
+                    placeholder="Enter custom road name"
+                    value={customRoadName}
+                    onChange={e => setCustomRoadName(e.target.value)}
+                    style={{ marginTop: 8, width: '100%', padding: '10px 14px', borderRadius: 8, border: '1.5px solid var(--border-color)' }}
+                  />
+                )}
+              </div>
+
               {/* Plot per marla price info */}
               {perMarlaPrice > 0 && (
                 <div style={{
@@ -596,7 +626,7 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
               <tr>
                 <th>{t.propertyNo}</th>
                 <th>{t.size}</th>
-                {type === 'Shop' && <th>{t.roadType}</th>}
+                <th>{t.roadType}</th>
                 <th>{t.perMarlaPrice}</th>
                 <th>Total Price</th>
                 <th>Owner</th>
@@ -609,7 +639,7 @@ export default function AddProperty({ showToast, townName, type: typeProp }) {
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{p.Plot_Number || p.Shop_Number}</td>
                   <td>{p.Plot_Size || p.Shop_Size || '-'}</td>
-                  {type === 'Shop' && <td>{p.Road_Type || '-'}</td>}
+                  <td>{p.Road_Type || '-'}</td>
                   <td style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>
                     {p.Per_Marla_Price > 0 ? `PKR ${Number(p.Per_Marla_Price).toLocaleString()}` : '-'}
                   </td>

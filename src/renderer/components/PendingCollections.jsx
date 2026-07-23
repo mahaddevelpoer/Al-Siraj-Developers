@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import PaymentAccountSelect from './PaymentAccountSelect';
+import PaymentMethodSelector from './shared/PaymentMethodSelector'; // PaymentAccountSelect
 
 export default function PendingCollections({ roleView, townName, onChanged, onNavigate }) {
   const { userProfile, user } = useAuth();
@@ -346,27 +346,16 @@ export default function PendingCollections({ roleView, townName, onChanged, onNa
               />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Payment Method</label>
-              <select
-                value={payMethod}
-                onChange={e => setPayMethod(e.target.value)}
-                style={{
-                  width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-md)', fontSize: 13, boxSizing: 'border-box',
+              <PaymentMethodSelector
+                townName={payModal?.Town_Name || townName}
+                value={paymentAccount}
+                onChange={(val) => {
+                  setPaymentAccount(val);
+                  setPayMethod(val.paymentMethod === 'bank' ? 'Bank Transfer' : 'Cash');
                 }}
-              >
-                <option>Cash</option>
-                <option>Cheque</option>
-                <option>Bank Transfer</option>
-              </select>
+                label="Receive Into *"
+              />
             </div>
-            <PaymentAccountSelect
-              townName={payModal?.Town_Name || townName}
-              value={paymentAccount}
-              onChange={setPaymentAccount}
-              label="Receive Into"
-              paymentMethod={payMethod}
-            />
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Notes</label>
               <textarea

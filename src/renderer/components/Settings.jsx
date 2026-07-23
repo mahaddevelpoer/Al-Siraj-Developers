@@ -13,6 +13,7 @@ export default function Settings({ onClose }) {
   const [dailyGenerating, setDailyGenerating] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
   const [soundSettings, setSoundSettings] = useState(() => getSoundSettings());
+  const [confirmModal, setConfirmModal] = useState(null);
 
   useEffect(() => {
     if (window.api?.onSyncProgress) {
@@ -33,12 +34,17 @@ export default function Settings({ onClose }) {
     };
   }, []);
 
+  const [systemSettings, setSystemSettings] = useState({ salary_disbursement_day: '1' });
+  const [savingSalaryDay, setSavingSalaryDay] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     const loadSettings = async () => {
       try {
         const result = await window.api?.getDailyReportSettings?.();
         if (!cancelled && result && !result.error) setDailySettings(result);
+        const sysRes = await window.api?.getSystemSettings?.();
+        if (!cancelled && sysRes && !sysRes.error) setSystemSettings(sysRes);
       } catch (_) {}
     };
     loadSettings();
@@ -132,29 +138,39 @@ export default function Settings({ onClose }) {
   };
 
   const handleFactoryReset = async () => {
-    if (!window.confirm("WARNING: This will permanently wipe ALL test data (towns, properties, sales, expenses) from both local storage and the cloud. The CEO account will remain. Are you absolutely sure?")) {
-      return;
-    }
-    if (!window.confirm("FINAL WARNING: All your entered data will be gone forever. Type OK to continue.")) {
-      return;
-    }
-    try {
-      setResetBusy(true);
-      const result = await window.api?.factoryReset?.();
-      if (result?.error) throw new Error(result.error);
-      toast.success("All test data has been wiped successfully!");
-      playSuccess();
-      localStorage.clear();
-      sessionStorage.clear();
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
-    } catch (e) {
-      toast.error("Factory reset failed: " + e.message);
-      playFailed();
-    } finally {
-      setResetBusy(false);
-    }
+    setConfirmModal({
+      message: "WARNING: This will permanently wipe ALL test data (towns, properties, sales, expenses) from both local storage and the cloud. The CEO account will remain. Are you absolutely sure?",
+      onConfirm: () => {
+        setConfirmModal(null);
+        setTimeout(() => {
+          setConfirmModal({
+            message: "FINAL WARNING: All your entered data will be gone forever. Click Confirm to continue.",
+            onConfirm: async () => {
+              setConfirmModal(null);
+              try {
+                setResetBusy(true);
+                const result = await window.api?.factoryReset?.();
+                if (result?.error) throw new Error(result.error);
+                toast.success("All test data has been wiped successfully!");
+                playSuccess();
+                localStorage.clear();
+                sessionStorage.clear();
+                setTimeout(() => {
+                  window.location.reload();
+                }, 1500);
+              } catch (e) {
+                toast.error("Factory reset failed: " + e.message);
+                playFailed();
+              } finally {
+                setResetBusy(false);
+              }
+            },
+            onCancel: () => setConfirmModal(null)
+          });
+        }, 100);
+      },
+      onCancel: () => setConfirmModal(null)
+    });
   };
 
   const patchDailySettings = (patch) => {
@@ -296,6 +312,50 @@ export default function Settings({ onClose }) {
         </div>
 
         <div style={{
+          padding: 16, borderRadius: 12, background: 'rgba(124,58,237,0.08)',
+          border: '1px solid rgba(124,58,237,0.28)', marginBottom: 24,
+        }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color: '#6d28d9', marginBottom: 6 }}>
+            Monthly Salary Disbursement Day
+          </div>
+          <div style={{ fontSize: 12, color: '#5b21b6', lineHeight: 1.55, marginBottom: 12 }}>
+            Set the day of the month when employee salaries are paid. Unpaid base salaries will automatically populate in Payable exposure <strong>2 days prior</strong> to this date.
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 13, fontWeight: 700, color: '#4c1d95' }}>Disbursement Day:</label>
+            <select
+              value={systemSettings?.salary_disbursement_day || '1'}
+              onChange={(e) => setSystemSettings(prev => ({ ...prev, salary_disbursement_day: e.target.value }))}
+              style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #c4b5fd', background: '#fff', fontSize: 13, fontWeight: 700, color: '#1e1b4b' }}
+            >
+              {Array.from({ length: 28 }, (_, i) => i + 1).map(day => (
+                <option key={day} value={String(day)}>Day {day} of month</option>
+              ))}
+            </select>
+            <button
+              onClick={async () => {
+                try {
+                  setSavingSalaryDay(true);
+                  const res = await window.api?.updateSystemSettings?.({ salary_disbursement_day: String(systemSettings.salary_disbursement_day || '1') });
+                  if (res?.error) throw new Error(res.error);
+                  toast.success('Salary disbursement date saved');
+                  playSuccess();
+                } catch(e) {
+                  toast.error('Failed to save salary date: ' + e.message);
+                  playFailed();
+                } finally {
+                  setSavingSalaryDay(false);
+                }
+              }}
+              className="btn btn-primary"
+              disabled={savingSalaryDay}
+            >
+              {savingSalaryDay ? 'Saving...' : 'Save Salary Date'}
+            </button>
+          </div>
+        </div>
+
+        <div style={{
           padding: 16, borderRadius: 12, background: 'rgba(15,23,42,0.04)',
           border: '1px solid rgba(15,23,42,0.12)', marginBottom: 24,
         }}>
@@ -377,6 +437,19 @@ export default function Settings({ onClose }) {
           <button onClick={onClose} className="btn btn-ghost" disabled={isSyncing}>Close</button>
         </div>
       </div>
+
+      {confirmModal && (
+        <div className="modal-overlay" onClick={() => setConfirmModal(null)} style={{zIndex: 9999}}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Confirm Action</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>{confirmModal.message}</p>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn btn-secondary" onClick={confirmModal.onCancel}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmModal.onConfirm}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

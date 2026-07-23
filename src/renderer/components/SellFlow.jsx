@@ -5,7 +5,7 @@ import OfficialReceipt from './OfficialReceipt';
 import { supabase } from '../lib/supabase';
 import { createBusinessAppeal, setBusinessAppealOtp, verifyBusinessAppealOtp } from '../lib/appeals';
 import { useAuth } from '../contexts/AuthContext';
-import PaymentAccountSelect from './PaymentAccountSelect';
+import PaymentMethodSelector from './shared/PaymentMethodSelector'; // PaymentAccountSelect
 
 
 export default function SellFlow({ showToast, loadNotifications, panel, lockedTownName = '' }) {
@@ -42,6 +42,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
   const [otpError, setOtpError] = useState('');
   const [receiptMode, setReceiptMode] = useState('auto');
   const [autoReceiptNumber, setAutoReceiptNumber] = useState('');
+  const [installmentTab, setInstallmentTab] = useState('otp');
 
   // Date change appeal state
   const [showDateChangeModal, setShowDateChangeModal] = useState(false);
@@ -574,49 +575,40 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
 
           {/* â”€â”€ Payment Method â”€â”€ */}
           <div className="form-group full" style={{ marginTop: 16 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', marginBottom: 10, display:'flex', alignItems:'center', gap:6 }}>
-              Payment Method
-            </div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {[
-                { value: 'Cash', label: 'Cash' },
-                { value: 'Cheque', label: 'Cheque' },
-                { value: 'Bank Transfer', label: 'Bank Transfer' },
-              ].map(opt => (
-                <label
-                  key={opt.value}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '12px 20px', borderRadius: 10, cursor: 'pointer',
-                    border: paymentMethod === opt.value ? '2px solid var(--accent-blue)' : '1.5px solid var(--border-color)',
-                    background: paymentMethod === opt.value ? 'rgba(0,102,204,0.08)' : 'transparent',
-                    fontWeight: 700, fontSize: 13, transition: 'all 0.15s',
-                    userSelect: 'none',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value={opt.value}
-                    checked={paymentMethod === opt.value}
-                    onChange={() => setPaymentMethod(opt.value)}
-                    style={{ accentColor: 'var(--accent-blue)', width: 15, height: 15 }}
-                  />
-                  {opt.icon} {opt.label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="form-group full">
-            <PaymentAccountSelect
+            <PaymentMethodSelector
               townName={form.townName || lockedTownName}
               value={paymentAccount}
-              onChange={setPaymentAccount}
+              onChange={(val) => {
+                setPaymentAccount(val);
+                if (val.paymentMethod === 'bank') {
+                  if (paymentMethod === 'Cash') setPaymentMethod('Bank Transfer');
+                } else {
+                  setPaymentMethod('Cash');
+                }
+              }}
               label="Receive Advance Into"
-              paymentMethod={paymentMethod}
             />
           </div>
+
+          {paymentAccount?.paymentMethod === 'bank' && (
+            <div className="form-group full" style={{ marginTop: 10 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>Bank Sub-Type</label>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {['Bank Transfer', 'Cheque'].map(m => (
+                  <label key={m} style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
+                    border: paymentMethod === m ? '2px solid var(--accent-blue)' : '1.5px solid var(--border-color)',
+                    background: paymentMethod === m ? 'rgba(0,102,204,0.08)' : 'transparent',
+                    fontWeight: 700, fontSize: 12
+                  }}>
+                    <input type="radio" checked={paymentMethod === m} onChange={() => setPaymentMethod(m)} style={{ accentColor: 'var(--accent-blue)' }} />
+                    {m}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {paymentMethod === 'Cheque' && (
             <div className="form-group full" style={{
@@ -748,6 +740,8 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         Transfer_Bank: transferBankName || '',
         Transfer_Image: transferImageDataUrl || '',
         ...paymentAccount,
+        isApprovedAppeal: Boolean(dateAppealData || localStorage.getItem(approvedDateKey()) || form.isApprovedAppeal || form.appealApproved),
+        appealId: dateAppealData?.id || JSON.parse(localStorage.getItem(approvedDateKey()) || '{}')?.appealId || '',
       };
       
       const r = await window.api.sellProperty(data);
@@ -1084,7 +1078,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         />
       )}
 
-      {/* â”€â”€â”€ Installment Plan OTP Verification â”€â”€â”€ */}
+      {/* ── Installment Plan OTP Verification ── */}
       {installmentAppeal && (
         <div style={{
           background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
@@ -1092,49 +1086,99 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
           marginBottom: 24, boxShadow: '0 4px 16px rgba(245,158,11,0.2)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <span style={{ fontSize: 24 }}>â³</span>
+            <span style={{ fontSize: 24 }}>⏳</span>
             <div>
               <div style={{ fontWeight: 800, fontSize: 16, color: '#92400e' }}>
-                Custom Installment Plan â€” Pending Approval
+                Custom Installment Plan — Pending Approval
               </div>
               <div style={{ fontSize: 12, color: '#a16207', marginTop: 2 }}>
-                OTP has been sent to CEO's email. Enter it below to approve the installment plan.
+                OTP has been sent to CEO's email. Enter it below or wait for remote approval.
               </div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#92400e', display: 'block', marginBottom: 4 }}>
-                Enter OTP
-              </label>
-              <input
-                type="text"
-                placeholder="6-digit OTP"
-                maxLength={6}
-                value={otpInput}
-                onChange={e => { setOtpInput(e.target.value); setOtpError(''); }}
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            {[
+              { key: 'otp', label: 'Quick OTP' },
+              { key: 'appeal', label: 'Remote Verification' },
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setInstallmentTab(tab.key)}
                 style={{
-                  width: '100%', padding: '10px 12px', borderRadius: 8,
-                  border: otpError ? '2px solid #ef4444' : '2px solid #f59e0b',
-                  background: '#fff', fontSize: 18, fontFamily: 'monospace',
-                  textAlign: 'center', letterSpacing: 4, fontWeight: 700,
-                  outline: 'none',
+                  flex: 1, padding: '10px 16px', border: 'none', borderRadius: 'var(--radius-md)',
+                  fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                  background: installmentTab === tab.key ? 'var(--accent-blue)' : 'var(--border-color)',
+                  color: installmentTab === tab.key ? 'white' : 'var(--text-primary)',
+                  transition: 'all 0.15s',
                 }}
-              />
-              {otpError && (
-                <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, fontWeight: 600 }}>
-                  âŒ {otpError}
-                </div>
-              )}
-            </div>
-            <button
-              onClick={handleVerifyOtp}
-              className="btn btn-warning"
-              style={{ height: 42, whiteSpace: 'nowrap', fontWeight: 700 }}
-            >
-              âœ… Verify OTP
-            </button>
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
+
+          {installmentTab === 'otp' ? (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#92400e', display: 'block', marginBottom: 4 }}>
+                  Enter OTP
+                </label>
+                <input
+                  type="text"
+                  placeholder="6-digit OTP"
+                  maxLength={6}
+                  value={otpInput}
+                  onChange={e => { setOtpInput(e.target.value); setOtpError(''); }}
+                  style={{
+                    width: '100%', padding: '10px 12px', borderRadius: 8,
+                    border: otpError ? '2px solid #ef4444' : '2px solid #f59e0b',
+                    background: '#fff', fontSize: 18, fontFamily: 'monospace',
+                    textAlign: 'center', letterSpacing: 4, fontWeight: 700,
+                    outline: 'none',
+                  }}
+                />
+                {otpError && (
+                  <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, fontWeight: 600 }}>
+                    ❌ {otpError}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={handleVerifyOtp}
+                className="btn btn-warning"
+                style={{ height: 42, whiteSpace: 'nowrap', fontWeight: 700 }}
+              >
+                ✅ Verify OTP
+              </button>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              <p style={{ fontSize: 13, color: '#a16207', marginBottom: 16, fontWeight: 600 }}>
+                The request is currently pending in the CEO Panel / Mobile App. Please ask the CEO to approve it remotely.
+              </p>
+              <button
+                onClick={async () => {
+                  try {
+                    const { data } = await supabase.from('appeals').select('status').eq('id', installmentAppeal.id).single();
+                    if (data?.status === 'approved') {
+                      showToast('Custom Installment Plan approved by CEO!');
+                      setInstallmentAppeal(null);
+                    } else if (data?.status === 'rejected') {
+                      showToast('Appeal was rejected by CEO.', 'error');
+                      setInstallmentAppeal(null);
+                    } else {
+                      showToast('Still pending...');
+                    }
+                  } catch (e) {}
+                }}
+                className="btn btn-primary"
+                style={{ fontWeight: 700, width: '100%', padding: 12, height: 'auto' }}
+              >
+                🔄 Check Remote Approval Status
+              </button>
+            </div>
+          )}
         </div>
       )}
 

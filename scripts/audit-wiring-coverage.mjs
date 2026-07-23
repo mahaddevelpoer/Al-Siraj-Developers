@@ -89,7 +89,6 @@ const paymentForms = [
   ['src/renderer/components/InvestorDashboard.jsx', 'Investor Dashboard'],
   ['src/renderer/components/ConstructionDashboard.jsx', 'Construction Dashboard'],
   ['src/renderer/systems/ExpenseSystem/EmployeeSalary.jsx', 'Employee Salary'],
-  ['src/renderer/components/TownExpenses.jsx', 'Town Expenses Salary'],
 ];
 
 for (const [file, area] of paymentForms) {

@@ -157,10 +157,16 @@ async function writeWorkbookAtomic(targetPath, workbook) {
   try {
     if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
     fs.renameSync(tempPath, targetPath);
+    // CRITICAL: Update memory cache with the newly written workbook
+    DB_CACHE.set(targetPath, workbook);
   } catch (e) {
     try { if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true }); } catch (_) {}
     throw e;
   }
+}
+
+function clearDbCache() {
+  DB_CACHE.clear();
 }
 
 function relFromDb(filePath) {
@@ -247,7 +253,12 @@ function getHeaderKeys(sheet) {
   const keys = [];
   const keyRowNumber = sheetUsesKeyRow2(sheet) ? 2 : 1;
   sheet.getRow(keyRowNumber).eachCell((cell, colNumber) => {
-    keys[colNumber] = cell.value;
+    let val = cell.value;
+    if (keyRowNumber === 1 && typeof val === 'string') {
+      // Map friendly names like "Town Name" back to "Town_Name" for backward compatibility
+      val = val.replace(/\s+/g, '_');
+    }
+    keys[colNumber] = val;
   });
   return { keys, keyRowNumber, firstDataRowNumber: keyRowNumber + 1 };
 }
@@ -261,7 +272,12 @@ function styleHeaderRow(sheet, rowNumber) {
 }
 
 function createSheetWithFriendlyHeaders(workbook, sheetName, keys) {
-  const sheet = workbook.addWorksheet(sheetName || 'Data');
+  let sheet = workbook.getWorksheet(sheetName || 'Data');
+  if (sheet) {
+    sheet.spliceRows(1, sheet.rowCount);
+  } else {
+    sheet = workbook.addWorksheet(sheetName || 'Data');
+  }
   // Row 1: Friendly headers (visible)
   sheet.addRow(keys.map(toFriendlyHeader));
   // Row 2: Internal keys (hidden) used by code
@@ -489,6 +505,14 @@ async function ensureSheetColumns(filePath, sheetName, columns) {
   return Promise.resolve();
 }
 
+async function writeExcelRow(filePath, sheetName, rowData, keyColumn, targetRowNumber) {
+  if (targetRowNumber && targetRowNumber > 0) {
+    await updateExcelRow(filePath, sheetName, targetRowNumber, rowData);
+  } else {
+    await appendToExcel(filePath, sheetName, rowData);
+  }
+}
+
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
 }
@@ -507,6 +531,7 @@ module.exports = {
   initializeDatabase,
   readExcelFile,
   appendToExcel,
+  writeExcelRow,
   // Used by other DB modules for read-modify-write safety.
   withFileWriteLock,
   writeWorkbookAtomic,
@@ -516,10 +541,12 @@ module.exports = {
   ensureSheetColumns,
   getWorkbook,
   queueFlush,
+  clearDbCache,
   // File integrity
   hashExcelFile,
   verifyAllFileHashes,
   updateAllFileHashes,
+  nukeAllData,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -580,4 +607,51 @@ async function updateAllFileHashes() {
   const hashPath = path.join(DB_PATH, 'Global', 'File_Integrity_Hashes.json');
   fs.writeFileSync(hashPath, JSON.stringify(hashes, null, 2));
   return hashes;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GLOBAL WIPE
+// ═══════════════════════════════════════════════════════════════
+
+async function nukeAllData() {
+  if (!DB_PATH) return { error: 'No local DB path found' };
+  
+  // Clear caches
+  DB_CACHE.clear();
+  PENDING_FLUSHES.clear();
+  if (flushTimer) clearTimeout(flushTimer);
+
+  // Wipe cloud data
+  try {
+    const onlineDb = require('./online');
+    if (onlineDb && onlineDb.nukeCloudData) {
+      await onlineDb.nukeCloudData();
+    }
+  } catch (e) {
+    console.error('[core] Failed to nuke cloud data:', e);
+  }
+
+  // Wipe local directories
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      fs.rmSync(DB_PATH, { recursive: true, force: true });
+    }
+  } catch (e) {
+    console.error('[core] Failed to remove local DB dir:', e);
+  }
+
+  // Wipe specific accountant JSON cache
+  try {
+    const { app } = require('electron');
+    const uPath = app.getPath('userData');
+    const accountsPath = path.join(uPath, 'Accountant_Offline_Logins.json');
+    if (fs.existsSync(accountsPath)) fs.unlinkSync(accountsPath);
+  } catch (e) {
+    console.error('[core] Failed to remove accountant cache:', e);
+  }
+
+  // Re-initialize to a fresh, empty local state
+  await initializeDatabase(DB_PATH);
+
+  return { success: true };
 }

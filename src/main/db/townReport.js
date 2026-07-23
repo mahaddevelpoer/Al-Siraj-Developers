@@ -340,8 +340,21 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     status: row.Status || '',
   }));
 
+  let salaryDisbursementDay = 1;
+  try {
+    const settingsRows = await safeRead('System_Settings.xlsx');
+    const salarySetting = (settingsRows || []).find(r => clean(r.Key || r.key).toLowerCase() === 'salary_disbursement_day');
+    if (salarySetting && salarySetting.Value) {
+      salaryDisbursementDay = parseInt(salarySetting.Value, 10) || 1;
+    }
+  } catch (_) {}
+
+  const nowObj = new Date();
+  const curDay = nowObj.getDate();
+  const isSalaryPayableDueWindow = (salaryDisbursementDay - curDay <= 2) || (curDay >= salaryDisbursementDay);
+
   const payable = agentLedgers.reduce((sum, row) => sum + row.remaining, 0)
-    + employeeLedgers.reduce((sum, row) => sum + Math.max(0, row.remaining), 0)
+    + employeeLedgers.reduce((sum, row) => sum + (isSalaryPayableDueWindow ? Math.max(0, row.remaining) : 0), 0)
     + constructionLedgers.reduce((sum, row) => sum + row.remaining, 0);
 
   const accountLedgers = groupBy(
@@ -407,7 +420,7 @@ function pkr(value) {
 }
 
 function htmlTable(headers, rows) {
-  const cells = (row) => headers.map((h) => `<td>${escapeHtml(row[h.key] ?? '')}</td>`).join('');
+  const cells = (row) => headers.map((h) => `<td>${h.html ? (row[h.key] ?? '') : escapeHtml(row[h.key] ?? '')}</td>`).join('');
   return `<table><thead><tr>${headers.map((h) => `<th>${escapeHtml(h.label)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${cells(r)}</tr>`).join('') || `<tr><td colspan="${headers.length}">No records</td></tr>`}</tbody></table>`;
 }
 
@@ -581,13 +594,282 @@ async function exportDueInstallmentsReport(params = {}) {
   addSheet('Overall', [report.summary]);
   await workbook.xlsx.writeFile(excelPath);
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Due Installments</title><style>
-body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h1{margin:0 0 4px;font-size:24px}.meta{color:#64748b;margin-bottom:18px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px}.card span{display:block;font-size:11px;color:#64748b;text-transform:uppercase}.card strong{font-size:18px}table{width:100%;border-collapse:collapse;background:#fff;margin-top:14px}th,td{border:1px solid #e5e7eb;padding:8px;text-align:left;font-size:12px}th{background:#eef2ff}.bad{color:#dc2626;font-weight:bold}.soon{color:#b45309;font-weight:bold}@media print{body{background:#fff;margin:12mm}.cards{grid-template-columns:repeat(2,1fr)}}
-</style></head><body><h1>AL SIRAJ DEVELOPERS - Due Installments Report</h1><div class="meta">${escapeHtml(report.townName)} | ${report.fromDate} to ${report.toDate} | Generated ${new Date(report.generatedAt).toLocaleString()}</div>
-<div class="cards"><div class="card"><span>Total Due Rows</span><strong>${report.summary.count}</strong></div><div class="card"><span>Total Amount</span><strong>${pkr(report.summary.amount)}</strong></div><div class="card"><span>Overdue</span><strong>${report.summary.overdue}</strong></div><div class="card"><span>Due Soon</span><strong>${report.summary.dueSoon}</strong></div></div>
-<h2>Town Summary</h2>${htmlTable([{key:'townName',label:'Town'},{key:'count',label:'Rows'},{key:'amount',label:'Amount'},{key:'overdue',label:'Overdue'},{key:'dueSoon',label:'Due Soon'}], report.byTown.map((r)=>({...r,amount:pkr(r.amount)})))}
-<h2>Due Properties</h2>${htmlTable([{key:'townName',label:'Town'},{key:'property',label:'Property'},{key:'customer',label:'Customer'},{key:'phone',label:'Phone'},{key:'month',label:'Installment'},{key:'dueDate',label:'Due Date'},{key:'amount',label:'Amount'},{key:'status',label:'Status'}], report.rows.map((r)=>({...r,amount:pkr(r.amount),status:r.status})))}
-</body></html>`;
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Due Installments Recovery Report</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+    body {
+      font-family: 'Outfit', sans-serif;
+      color: #0f172a;
+      margin: 32px;
+      background: #fafafa;
+      line-height: 1.5;
+    }
+    .header-container {
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      color: #ffffff;
+      padding: 30px;
+      border-radius: 16px;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+      border-bottom: 4px solid #d97706;
+    }
+    .header-container::after {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 300px;
+      height: 300px;
+      background: rgba(217, 119, 6, 0.05);
+      border-radius: 50%;
+    }
+    .brand-title {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      margin: 0;
+      text-transform: uppercase;
+      color: #f8fafc;
+    }
+    .brand-subtitle {
+      font-size: 14px;
+      color: #fbbf24;
+      font-weight: 600;
+      margin: 4px 0 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .meta-line {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 16px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1e293b;
+      margin: 32px 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title::before {
+      content: '';
+      display: inline-block;
+      width: 4px;
+      height: 18px;
+      background: #d97706;
+      border-radius: 2px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    .card span {
+      display: block;
+      font-size: 11px;
+      color: #64748b;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .card strong {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .card.highlight {
+      border-left: 4px solid #d97706;
+    }
+    .card.danger {
+      border-left: 4px solid #ef4444;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e2e8f0;
+    }
+    th, td {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 13px;
+    }
+    th {
+      background: #f1f5f9;
+      color: #475569;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    td {
+      border-bottom: 1px solid #f1f5f9;
+      color: #334155;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .status-overdue {
+      background: #fee2e2;
+      color: #ef4444;
+    }
+    .status-duesoon {
+      background: #fffbeb;
+      color: #d97706;
+    }
+    .signatures-block {
+      margin-top: 60px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 40px;
+      page-break-inside: avoid;
+    }
+    .sig-line {
+      border-top: 1px dashed #cbd5e1;
+      padding-top: 10px;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .sig-line strong {
+      display: block;
+      color: #0f172a;
+      margin-bottom: 2px;
+    }
+    @media print {
+      body {
+        background: #ffffff;
+        margin: 0;
+      }
+      .header-container {
+        border-radius: 0;
+      }
+      .card {
+        box-shadow: none;
+        border: 1px solid #cbd5e1;
+      }
+      table {
+        box-shadow: none;
+      }
+      .cards {
+        grid-template-columns: repeat(4, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header-container">
+    <div class="brand-title">Al Siraj Developers</div>
+    <div class="brand-subtitle">Installment Recovery &amp; Collection Report</div>
+    <div class="meta-line">
+      <span>Town Focus: <strong>${escapeHtml(report.townName)}</strong></span>
+      <span>Date Period: <strong>${report.fromDate} to ${report.toDate}</strong></span>
+      <span>Generated: <strong>${new Date(report.generatedAt).toLocaleString()}</strong></span>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card highlight">
+      <span>Total Accounts Due</span>
+      <strong>${report.summary.count}</strong>
+    </div>
+    <div class="card highlight">
+      <span>Collectible Dues</span>
+      <strong>${pkr(report.summary.amount)}</strong>
+    </div>
+    <div class="card danger">
+      <span>Overdue Accounts</span>
+      <strong>${report.summary.overdue}</strong>
+    </div>
+    <div class="card highlight">
+      <span>Due Soon (&le; 7 Days)</span>
+      <strong>${report.summary.dueSoon}</strong>
+    </div>
+  </div>
+
+  <div class="section-title">Summary By Town</div>
+  ${htmlTable(
+    [
+      {key:'townName',label:'Town'},
+      {key:'count',label:'Defaulters / Due Count'},
+      {key:'amount',label:'Total Amount Due'},
+      {key:'overdue',label:'Overdue'},
+      {key:'dueSoon',label:'Due Soon'}
+    ],
+    report.byTown.map((r)=>({
+      ...r,
+      amount: pkr(r.amount)
+    }))
+  )}
+
+  <div style="page-break-before: auto;"></div>
+
+  <div class="section-title">Defaulter &amp; Upcoming Collections List</div>
+  ${htmlTable(
+    [
+      {key:'townName',label:'Town'},
+      {key:'property',label:'Property'},
+      {key:'customer',label:'Buyer / Customer'},
+      {key:'phone',label:'Contact Phone'},
+      {key:'month',label:'Installment'},
+      {key:'dueDate',label:'Due Date'},
+      {key:'amount',label:'Amount'},
+      {key:'statusBadge',label:'Recovery Status',html:true}
+    ],
+    report.rows.map((r)=>({
+      ...r,
+      amount: pkr(r.amount),
+      statusBadge: `<span class="status-badge status-\${r.status.toLowerCase().replace(/\\s+/g, '')}">\${r.status}</span>`
+    }))
+  )}
+
+  <div class="signatures-block">
+    <div class="sig-line">
+      <strong>______________________</strong>
+      Recovery Officer
+    </div>
+    <div class="sig-line">
+      <strong>______________________</strong>
+      Accountant Verified
+    </div>
+    <div class="sig-line">
+      <strong>______________________</strong>
+      CEO Verification Seal
+    </div>
+  </div>
+</body>
+</html>`;
   fs.writeFileSync(htmlPath, html, 'utf8');
   return { success: true, report, excelPath, htmlPath };
 }

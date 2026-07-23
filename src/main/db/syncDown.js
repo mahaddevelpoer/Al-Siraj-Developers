@@ -4,7 +4,8 @@ const ExcelJS = require('exceljs');
 const onlineDb = require('./online');
 const storage = require('./storage');
 const supabase = require('./supabase');
-const { getGlobalsPath, getTownsPath, getPropertiesPath, withFileWriteLock, writeWorkbookAtomic, getHeaderKeys } = require('./core');
+const { getGlobalsPath, getTownsPath, getPropertiesPath, withFileWriteLock, writeWorkbookAtomic, getHeaderKeys, clearDbCache } = require('./core');
+
 const { PLOT_COLUMNS, SHOP_COLUMNS } = require('./properties');
 const { TOWN_COLUMNS } = require('./towns');
 const {
@@ -343,7 +344,7 @@ async function performFullSync(reportProgress = () => {}) {
 
     reportProgress(85, 'Writing properties...');
     const writeProperty = async (prop, type) => {
-      const mappedProp = mapPropertyFromCloud(prop, type);
+      const mappedProp = mapPropertyFromCloud(prop, type, sales, resellHistory);
       const townName = mappedProp.Town_Name;
       if (!townName) return;
       const townDir = path.join(propsPath, safeFolderName(townName));
@@ -363,6 +364,7 @@ async function performFullSync(reportProgress = () => {}) {
       await Promise.all(allProps.slice(i, i + 50));
     }
 
+    clearDbCache();
     reportProgress(100, 'Sync Complete!');
     return { success: true };
   } catch (err) {

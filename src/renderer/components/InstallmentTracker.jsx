@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CalendarIcon, PlotIcon, ShopIcon, UsersIcon, BellIcon } from './Icons';
 import { useAuth } from '../contexts/AuthContext';
-import PaymentAccountSelect from './PaymentAccountSelect';
+import PaymentMethodSelector from './shared/PaymentMethodSelector'; // PaymentAccountSelect
+import OfficialReceipt from './OfficialReceipt';
 
 export default function InstallmentTracker({ showToast, townName, panel, refreshKey = 0 }) {
   const { userProfile } = useAuth();
@@ -20,10 +21,34 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
   const [extendModal, setExtendModal] = useState(null); // item being extended
   const [extendDate, setExtendDate] = useState('');
   const [paymentAccount, setPaymentAccount] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [receiptData, setReceiptData] = useState(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [pendingPaymentItem, setPendingPaymentItem] = useState(null);
   const notifiedRef = useRef('');
 
   useEffect(() => { loadData(); }, [townName, refreshKey]);
   useEffect(() => { loadDueReport(); }, [townName, reportFrom, reportTo, refreshKey]);
+
+  // Auto-refresh when installment/collection data changes from other tabs
+  useEffect(() => {
+    const handler = (e) => {
+      const events = Array.isArray(e.detail?.events) ? e.detail.events : [];
+      if (events.some(ev =>
+        ev.includes('installment:') || ev.includes('collection:') ||
+        ev.includes('remaining:') || ev.includes('sale:')
+      )) {
+        loadData();
+        loadDueReport();
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', handler);
+    window.addEventListener('al-siraj-data-refreshed', handler);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', handler);
+      window.removeEventListener('al-siraj-data-refreshed', handler);
+    };
+  }, [townName, reportFrom, reportTo]);
   const loadData = async () => {
     if (!window.api) { setLoading(false); return; }
     try { const d = await window.api.getInstallments(); if (Array.isArray(d)) setInstallments(d); } catch(e) {}
@@ -67,12 +92,63 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
     }
   };
 
-  const handlePay = async (item) => {
+  const generateRecoveryPdf = async () => {
+    if (!window.api?.exportDueInstallmentsReport) return;
+    setReportBusy(true);
     try {
-      const r = await window.api.markInstallmentPaid({ Tracker_ID: item.Tracker_ID, ...paymentAccount });
-      if (r?.error) showToast(r.error, 'error');
-      else { showToast('Installment marked as paid!'); loadData(); }
-    } catch(e) { showToast('Failed', 'error'); }
+      const todayStr = new Date().toISOString().split('T')[0];
+      const lead = new Date();
+      lead.setDate(lead.getDate() + 7);
+      const leadStr = lead.toISOString().split('T')[0];
+
+      const res = await window.api.exportDueInstallmentsReport({
+        townName,
+        fromDate: todayStr,
+        toDate: leadStr,
+        leadDays: 7
+      });
+      if (res?.error) throw new Error(res.error);
+
+      await window.api.openReportFile?.(res.pdfPath || res.htmlPath);
+      showToast?.("Recovery Report PDF generated successfully!");
+      loadDueReport();
+    } catch (e) {
+      showToast?.(e.message || "Failed to generate Recovery Report PDF", "error");
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
+  const handlePay = (item) => {
+    setPendingPaymentItem(item);
+    setPaymentAccount(null);
+    setShowPaymentModal(true);
+  };
+
+  const confirmPayment = async () => {
+    if (!pendingPaymentItem) return;
+    try {
+      const r = await window.api.markInstallmentPaid({
+        Tracker_ID: pendingPaymentItem.Tracker_ID,
+        ...paymentAccount
+      });
+      if (r?.error) {
+        showToast(r.error, 'error');
+      } else {
+        showToast('Installment marked as paid!');
+        setShowPaymentModal(false);
+        setPendingPaymentItem(null);
+        if (r.receipt) {
+          setReceiptData({
+            ...r.receipt,
+            type: 'installment_payment',
+          });
+        }
+        loadData();
+      }
+    } catch(e) {
+      showToast('Failed to mark installment paid', 'error');
+    }
   };
 
   const handleExtend = (item) => {
@@ -146,12 +222,21 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
 
   const allGroups = Array.from(groups.values());
 
-  // Filter groups based on filter
-  const filteredGroups = filter === 'all' ? allGroups : allGroups.filter(g => {
+  // Filter groups based on filter and search term
+  const filteredGroups = (filter === 'all' ? allGroups : allGroups.filter(g => {
     if (filter === 'paid') return g.paidCount === g.totalMonths;
     if (filter === 'due') return g.dueCount > 0;
     if (filter === 'overdue') return g.items.some(x => (x.Status || '').toLowerCase() === 'overdue');
     return true;
+  })).filter(g => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase().trim();
+    return (
+      String(g.number || '').toLowerCase().includes(term) ||
+      String(g.customer || '').toLowerCase().includes(term) ||
+      String(g.phone || '').toLowerCase().includes(term) ||
+      String(g.town || '').toLowerCase().includes(term)
+    );
   });
 
   const paidCount = display.filter(i => (i.Status||'').toLowerCase() === 'paid').length;
@@ -205,15 +290,6 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
         <div className="stat-card purple"><div className="card-label">Properties</div><div className="card-value">{allGroups.length}</div></div>
       </div>
 
-      <div style={{ maxWidth: 360, marginBottom: 16 }}>
-        <PaymentAccountSelect
-          townName={townName}
-          value={paymentAccount}
-          onChange={setPaymentAccount}
-          label="Receive Paid Installments Into"
-          compact
-        />
-      </div>
 
       <div className="installment-reminder-panel">
         <div className="installment-reminder-head">
@@ -223,6 +299,25 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
             <p>Local notification, list, PDF, and Excel report 7 days before the due date.</p>
           </div>
           <div className="installment-reminder-actions">
+            <button
+              className="btn btn-primary"
+              disabled={reportBusy}
+              onClick={generateRecoveryPdf}
+              style={{
+                background: 'linear-gradient(135deg, #d97706, #b45309)',
+                border: 'none',
+                color: '#fff',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '10px 16px',
+                boxShadow: '0 4px 12px rgba(217, 119, 6, 0.2)'
+              }}
+            >
+              <BellIcon size={14} /> 📄 Recovery Officer PDF
+            </button>
+            <div style={{ width: 1, height: 28, background: 'var(--border-color)', margin: '0 6px' }} />
             <input type="date" value={reportFrom} max={reportTo} onChange={(e) => setReportFrom(e.target.value)} />
             <span>to</span>
             <input type="date" value={reportTo} min={reportFrom} onChange={(e) => setReportTo(e.target.value)} />
@@ -254,11 +349,44 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <button className={`btn ${filter === 'all' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilter('all')}>All</button>
-        <button className={`btn ${filter === 'due' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilter('due')}>Due</button>
-        <button className={`btn ${filter === 'overdue' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilter('overdue')}>Overdue</button>
-        <button className={`btn ${filter === 'paid' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilter('paid')}>Paid</button>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className={`btn ${filter === 'all' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilter('all')}>All</button>
+          <button className={`btn ${filter === 'due' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilter('due')}>Due</button>
+          <button className={`btn ${filter === 'overdue' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilter('overdue')}>Overdue</button>
+          <button className={`btn ${filter === 'paid' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilter('paid')}>Paid</button>
+        </div>
+        <div style={{ flex: 1, minWidth: 260, position: 'relative' }}>
+          <input
+            type="text"
+            placeholder="🔍 Search Plot #, Buyer Name, Phone..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '10px 14px 10px 38px',
+              borderRadius: '10px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-input)',
+              color: 'var(--text-primary)',
+              fontSize: '14px',
+              outline: 'none',
+              transition: 'border-color 0.15s',
+            }}
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm('')}
+              style={{
+                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer',
+                fontSize: 18, padding: 0, lineHieght: 1
+              }}
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="table-container">
@@ -270,6 +398,17 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
               const hasOverdue = g.items.some(x => (x.Status || '').toLowerCase() === 'overdue');
               const allPaid = g.paidCount === g.totalMonths;
               const progressPct = g.totalMonths > 0 ? Math.round((g.paidCount / g.totalMonths) * 100) : 0;
+
+              const todayStr = new Date().toISOString().split('T')[0];
+              const lead = new Date();
+              lead.setDate(lead.getDate() + 7);
+              const leadStr = lead.toISOString().split('T')[0];
+              const hasDueSoon7Days = g.items.some(x => {
+                const s = (x.Status || '').toLowerCase();
+                if (s === 'paid') return false;
+                if (!x.Due_Date) return false;
+                return x.Due_Date <= leadStr;
+              });
 
               return (
                 <div key={g.key} style={{
@@ -306,9 +445,25 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
                       </div>
 
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
-                          {g.type} {g.number}
-                          <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>{g.town}</span>
+                        <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span>{g.type} {g.number}</span>
+                          <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)' }}>{g.town}</span>
+                          {hasOverdue && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#ef4444',
+                              padding: '2px 8px', borderRadius: 10, textTransform: 'uppercase', letterSpacing: '0.5px'
+                            }}>
+                              Overdue
+                            </span>
+                          )}
+                          {!hasOverdue && hasDueSoon7Days && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, background: '#fffbeb', color: '#d97706',
+                              padding: '2px 8px', borderRadius: 10, textTransform: 'uppercase', letterSpacing: '0.5px'
+                            }}>
+                              Due Soon (7d)
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2, display:'flex', alignItems:'center', gap:4 }}>
                           <UsersIcon size={12}/> {g.customer} {g.phone ? `\u2022 ${g.phone}` : ''}
@@ -355,7 +510,7 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
                           <thead>
                             <tr>
                               <th>Month</th>
-                              <th>Amount</th>
+                              <th className="num-col">Amount</th>
                               <th>Due Date</th>
                               <th>Paid Date</th>
                               <th>Status</th>
@@ -368,7 +523,7 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
                               return (
                                 <tr key={idx}>
                                   <td style={{ fontWeight: 600 }}>{item.Month_Number}/{item.Total_Months}</td>
-                                  <td>{fmt(parseFloat(item.Monthly_Amount) || 0)}</td>
+                                  <td className="num-col">{fmt(parseFloat(item.Monthly_Amount) || 0)}</td>
                                   <td>{item.Due_Date || '-'}</td>
                                   <td>{item.Paid_Date || '-'}</td>
                                   <td><span className={`status-badge status-${status}`}>{item.Status}</span></td>
@@ -404,6 +559,59 @@ export default function InstallmentTracker({ showToast, townName, panel, refresh
           </div>
         )}
       </div>
+
+      {/* ─── Payment Confirmation Modal ─── */}
+      {showPaymentModal && pendingPaymentItem && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000
+        }}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+            borderRadius: 14, padding: 28, width: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+            display: 'flex', flexDirection: 'column', gap: 16
+          }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Confirm Installment Payment</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Please select the payment method and target account below.
+              </div>
+            </div>
+
+            <div style={{ padding: 12, background: 'var(--bg-secondary)', borderRadius: 10, fontSize: 13, border: '1px solid var(--border-color)' }}>
+              <div><strong>Customer:</strong> {pendingPaymentItem.Customer_Name}</div>
+              <div><strong>Property:</strong> {pendingPaymentItem.Plot_Shop_Number} ({pendingPaymentItem.Type})</div>
+              <div><strong>Installment:</strong> Month {pendingPaymentItem.Month_Number} of {pendingPaymentItem.Total_Months}</div>
+              <div style={{ marginTop: 4, fontSize: 14, color: 'var(--accent-green)' }}><strong>Amount:</strong> {fmt(parseFloat(pendingPaymentItem.Monthly_Amount) || 0)}</div>
+            </div>
+
+            <div>
+              <PaymentMethodSelector
+                townName={townName}
+                value={paymentAccount}
+                onChange={setPaymentAccount}
+                label="Receive Payment Into *"
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+              <button className="btn btn-ghost" onClick={() => { setShowPaymentModal(false); setPendingPaymentItem(null); }}>Cancel</button>
+              <button className="btn btn-success" onClick={confirmPayment} disabled={!paymentAccount}>
+                Receive Payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Official Receipt Modal ─── */}
+      {receiptData && (
+        <OfficialReceipt
+          data={receiptData}
+          townName={townName}
+          onClose={() => setReceiptData(null)}
+        />
+      )}
     </div>
   );
 }

@@ -102,9 +102,9 @@ function KPICard({ Icon, label, value, sub, color, progressValue }) {
       onMouseLeave={() => setHover(false)}
     >
       <div className="ui-kpi-card-icon" style={{ color }}><Icon size={20}/></div>
-      <div className="ui-kpi-card-lbl">{label}</div>
-      <div className="ui-kpi-card-val" style={{ color }}>{value}</div>
-      {sub && <div className="ui-kpi-card-sub">{sub}</div>}
+      <div className="ui-kpi-card-lbl" title={label}>{label}</div>
+      <div className="ui-kpi-card-val" style={{ color }} title={typeof value === 'string' ? value : String(value)}>{value}</div>
+      {sub && <div className="ui-kpi-card-sub" title={typeof sub === 'string' ? sub : String(sub)}>{sub}</div>}
       {progressValue > 0 && (
         <div className="ui-kpi-card-progress">
           <div

@@ -114,12 +114,30 @@ function extractMissingColumn(error) {
   return '';
 }
 
-// ─── GENERIC ───────────────────────────────────────────────────
+function getAccountantTownFilter() {
+  try {
+    const storage = require('../storage');
+    const ctx = storage.getSyncContext() || {};
+    if (String(ctx.role || '').toLowerCase() === 'accountant') {
+      return String(ctx.accountantTown || ctx.town_name || ctx.town_id || '').trim();
+    }
+  } catch (_) {}
+  return '';
+}
 
 async function getAll(table) {
-  let { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: false });
+  const accountantTown = getAccountantTownFilter();
+  let query = supabase.from(table).select('*');
+  if (accountantTown && table !== 'towns' && table !== 'system_settings') {
+    query = query.eq('town_name', accountantTown);
+  }
+  let { data, error } = await query.order('created_at', { ascending: false });
   if (error && String(error.message || '').includes('created_at')) {
-    ({ data, error } = await supabase.from(table).select('*'));
+    let fallbackQuery = supabase.from(table).select('*');
+    if (accountantTown && table !== 'towns' && table !== 'system_settings') {
+      fallbackQuery = fallbackQuery.eq('town_name', accountantTown);
+    }
+    ({ data, error } = await fallbackQuery);
   }
   if (error) throw error;
   return normalizeCloudRows(table, data);
@@ -159,6 +177,10 @@ async function insert(table, row) {
 
 async function updateWhere(table, match, updates) {
   let query = supabase.from(table).update(toCloudRow(table, { ...updates, updated_at: new Date().toISOString(), sync_status: 'synced' })).select();
+  const accountantTown = getAccountantTownFilter();
+  if (accountantTown && table !== 'towns' && table !== 'system_settings') {
+    query = query.eq('town_name', accountantTown);
+  }
   for (const [key, val] of Object.entries(toCloudMatch(table, match))) {
     query = query.eq(key, val);
   }
@@ -169,6 +191,10 @@ async function updateWhere(table, match, updates) {
 
 async function deleteWhere(table, match) {
   let query = supabase.from(table).delete();
+  const accountantTown = getAccountantTownFilter();
+  if (accountantTown && table !== 'towns' && table !== 'system_settings') {
+    query = query.eq('town_name', accountantTown);
+  }
   for (const [key, val] of Object.entries(toCloudMatch(table, match))) {
     query = query.eq(key, val);
   }
@@ -179,6 +205,10 @@ async function deleteWhere(table, match) {
 
 async function findOne(table, match) {
   let query = supabase.from(table).select('*');
+  const accountantTown = getAccountantTownFilter();
+  if (accountantTown && table !== 'towns' && table !== 'system_settings') {
+    query = query.eq('town_name', accountantTown);
+  }
   for (const [key, val] of Object.entries(toCloudMatch(table, match))) {
     query = query.eq(key, val);
   }
@@ -189,6 +219,10 @@ async function findOne(table, match) {
 
 function buildSelectQuery(table, match) {
   let query = supabase.from(table).select('*');
+  const accountantTown = getAccountantTownFilter();
+  if (accountantTown && table !== 'towns' && table !== 'system_settings') {
+    query = query.eq('town_name', accountantTown);
+  }
   for (const [key, val] of Object.entries(toCloudMatch(table, match))) {
     query = query.eq(key, val);
   }
@@ -223,10 +257,12 @@ async function getAllProperties() {
 }
 
 async function getSoldProperties() {
-  const { data, error } = await supabase
-    .from('properties')
-    .select('*')
-    .in('status', ['Sold', 'Resold', 'sold', 'resold']);
+  let query = supabase.from('properties').select('*').in('status', ['Sold', 'Resold', 'sold', 'resold']);
+  const accountantTown = getAccountantTownFilter();
+  if (accountantTown) {
+    query = query.eq('town_name', accountantTown);
+  }
+  const { data, error } = await query;
   if (error) throw error;
   const all = normalizeCloudRows('properties', data);
   return {
@@ -422,6 +458,7 @@ async function recordMoneyEvent(data) {
     Status: data.status || data.Status || 'approved',
     Created_By: data.createdBy || data.Created_By || 'System',
     Created_At: data.createdAt || data.Created_At || new Date().toISOString(),
+    Payment_Method: data.paymentMethod || data.Payment_Method || 'cash',
     Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
     Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
     Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
@@ -488,6 +525,10 @@ async function markInstallmentPaid(data) {
       Receipt_Number: Receipt_Number || '',
       Paid_By: data.Paid_By || data.Created_By || 'Accountant',
       Payee_Name: inst.Customer_Name || '',
+      payment_method: data.paymentMethod || data.Payment_Method || 'Cash',
+      payment_account_id: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+      payment_account_name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+      payment_account_type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
     }
   );
 
@@ -944,7 +985,12 @@ async function resellProperty(data) {
     for (let i = 1; i <= totalInstallments; i++) {
       const dueDate = new Date(startDate);
       dueDate.setDate(dueDate.getDate() + (gapDays * i));
-      const installmentAmount = parseFloat(data.Monthly_Installment) || (baseInstallment + (i <= installmentRemainder ? 1 : 0));
+      let installmentAmount = parseFloat(data.Monthly_Installment) || (baseInstallment + (i <= installmentRemainder ? 1 : 0));
+      // Adjust the last installment if custom Monthly_Installment is specified to prevent rounding mismatch
+      if (parseFloat(data.Monthly_Installment) && i === totalInstallments) {
+        const precedingTotal = parseFloat(data.Monthly_Installment) * (totalInstallments - 1);
+        installmentAmount = Math.max(0, remaining - precedingTotal);
+      }
       installments.push({
         Tracker_ID: generateId(),
         Sale_ID: saleId,
@@ -1080,11 +1126,54 @@ async function getTownPerformance(townName) {
 
 async function getPendingAppeals(userId, appealType) {
   let query = supabase.from('appeals').select('*').eq('status', 'pending');
+  const accountantTown = getAccountantTownFilter();
+  if (accountantTown) {
+    query = query.eq('town_name', accountantTown);
+  }
   if (userId) query = query.eq('requested_by_user_id', userId);
   if (appealType) query = query.eq('appeal_type', appealType);
   const { data, error } = await query.order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
+}
+
+// ─── PENDING SYNC ENGINE ──────────────────────────────────────────
+
+async function nukeCloudData() {
+  const TABLES = [
+    'towns', 'properties', 'all_sales', 'installments', 'expenses', 'ceo_expenses', 'ceo_salary',
+    'salary_records', 'resell_history', 'daily_entries', 'notifications', 'user_activity', 'receipt_log',
+    'employees', 'employees_v2', 'advance_salaries', 'salary_payments', 'commissions',
+    'investors', 'investor_transactions', 'construction_projects', 'construction_payments',
+    'commission_receipts', 'collection_payments', 'receipt_archive', 'media_library',
+    'cash_bank_accounts', 'money_ledger', 'town_financial_summary', 'town_map_shapes', 'daily_reports'
+  ];
+  
+  // Try to use the admin client to bypass RLS, otherwise fallback to anon
+  const client = getCloudClient();
+
+  for (const table of TABLES) {
+    try {
+      // Deleting where id is not an empty string deletes all rows effectively.
+      const { error } = await client.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (error && error.code !== '42P01') {
+        console.error(`Failed to truncate ${table} in cloud:`, error.message);
+      }
+    } catch (e) {
+      console.error(`Error dropping rows from ${table}:`, e.message);
+    }
+  }
+
+  // Also remove local pending sync data just in case
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const { app } = require('electron');
+    const qPath = path.join(app.getPath('userData'), 'pending_sync_queue.json');
+    if (fs.existsSync(qPath)) fs.unlinkSync(qPath);
+  } catch (e) { }
+
+  return { success: true };
 }
 
 // ─── PENDING COLLECTIONS ────────────────────────────────────────
@@ -1250,6 +1339,10 @@ async function deliverFileAfterPayment(saleId) {
 
 async function getCommissions(filter) {
   let query = supabase.from('commissions').select('*, users(full_name, email)');
+  const accountantTown = getAccountantTownFilter();
+  if (accountantTown) {
+    query = query.eq('town_name', accountantTown);
+  }
   if (filter?.status) query = query.eq('status', filter.status);
   if (filter?.agent_id) query = query.eq('agent_id', filter.agent_id);
   const { data, error } = await query.order('created_at', { ascending: false });
@@ -1275,6 +1368,7 @@ async function markCommissionPaid(commissionId) {
 }
 
 module.exports = {
+  nukeCloudData,
   getAll, insert, updateWhere, deleteWhere, findOne, findMany, generateId,
   addDailyEntry, recordMoneyEvent,
   // Properties

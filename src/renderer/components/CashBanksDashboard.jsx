@@ -6,8 +6,9 @@ export default function CashBanksDashboard({ townName, showToast }) {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ Account_Name: '', Opening_Balance: '' });
+  const [form, setForm] = useState({ Account_Name: '', Opening_Balance: '', IncludeInTownBalance: false });
   const [refreshTick, setRefreshTick] = useState(0);
+  const [confirmModal, setConfirmModal] = useState(null);
 
   // Statement Report State
   const [reportAccount, setReportAccount] = useState(null);
@@ -39,10 +40,8 @@ export default function CashBanksDashboard({ townName, showToast }) {
   useEffect(() => {
     const onDataChanged = (event) => {
       const detail = event?.detail || {};
-      const events = Array.isArray(detail.events) ? detail.events : [];
       const sameTown = !detail.townName || !townName || String(detail.townName) === String(townName);
-      if (!sameTown) return;
-      if (events.some((name) => ['cash-bank:changed', 'ledger:changed', 'summary:rebuild-required'].includes(name))) {
+      if (sameTown) {
         setRefreshTick((tick) => tick + 1);
       }
     };
@@ -80,9 +79,10 @@ export default function CashBanksDashboard({ townName, showToast }) {
         Town_Name: townName,
         Account_Name: form.Account_Name.trim(),
         Opening_Balance: Number(form.Opening_Balance) || 0,
+        IncludeInTownBalance: form.IncludeInTownBalance,
       });
       if (res?.error) throw new Error(res.error);
-      setForm({ Account_Name: '', Opening_Balance: '' });
+      setForm({ Account_Name: '', Opening_Balance: '', IncludeInTownBalance: false });
       showToast?.('Bank account saved locally. Cloud sync will retry if needed.', 'success');
       await load();
     } catch (error) {
@@ -93,21 +93,27 @@ export default function CashBanksDashboard({ townName, showToast }) {
   };
 
   const archiveBank = async (account) => {
-    if (!window.confirm(`Archive ${account.Account_Name}? Existing ledger rows will stay safe.`)) return;
-    setSaving(true);
-    try {
-      const res = await window.api.updateBankAccount?.({
-        accountId: account.Account_ID,
-        updates: { Status: 'archived' },
-      });
-      if (res?.error) throw new Error(res.error);
-      showToast?.('Bank account archived', 'success');
-      await load();
-    } catch (error) {
-      showToast?.(`Archive failed: ${error.message}`, 'error');
-    } finally {
-      setSaving(false);
-    }
+    setConfirmModal({
+      message: `Archive ${account.Account_Name}? Existing ledger rows will stay safe.`,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setSaving(true);
+        try {
+          const res = await window.api.updateBankAccount?.({
+            accountId: account.Account_ID,
+            updates: { Status: 'archived' },
+          });
+          if (res?.error) throw new Error(res.error);
+          showToast?.('Bank account archived', 'success');
+          await load();
+        } catch (error) {
+          showToast?.(`Archive failed: ${error.message}`, 'error');
+        } finally {
+          setSaving(false);
+        }
+      },
+      onCancel: () => setConfirmModal(null)
+    });
   };
 
   const fetchStatement = async (accountId) => {
@@ -164,7 +170,7 @@ export default function CashBanksDashboard({ townName, showToast }) {
           {!loading && accounts.map((account) => (
             <div key={account.Account_ID} className={`account-card cash-bank-card ${account.Account_ID === 'cash-in-hand' ? 'active' : ''}`}>
               <span>{account.Account_Type === 'bank' ? 'Bank Account' : 'Default Cash'}</span>
-              <strong>{account.Account_Name}</strong>
+              <strong title={account.Account_Name}>{account.Account_Name}</strong>
               <div className="cash-bank-flow">
                 <small>Credit {money(account.Total_Credit)}</small>
                 <small>Debit {money(account.Total_Debit)}</small>
@@ -192,6 +198,10 @@ export default function CashBanksDashboard({ townName, showToast }) {
             <div className="form-group">
               <label>Opening balance</label>
               <input type="number" min="0" value={form.Opening_Balance} onChange={(e) => setForm((f) => ({ ...f, Opening_Balance: e.target.value }))} placeholder="0" />
+            </div>
+            <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+              <input type="checkbox" id="includeBalance" checked={form.IncludeInTownBalance} onChange={(e) => setForm(f => ({ ...f, IncludeInTownBalance: e.target.checked }))} style={{ width: 16, height: 16, cursor: 'pointer', margin: 0 }} />
+              <label htmlFor="includeBalance" style={{ cursor: 'pointer', marginBottom: 0, fontSize: 13, userSelect: 'none' }}>Include in Town Balance?</label>
             </div>
             <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'Saving...' : 'Add Bank Account'}</button>
           </form>
@@ -295,6 +305,19 @@ export default function CashBanksDashboard({ townName, showToast }) {
             
             <div style={{ marginTop: 16, textAlign: 'right', fontSize: 14, fontWeight: 700 }}>
               Closing Balance: <span style={{ color: statement?.closingBalance >= 0 ? '#2563eb' : '#dc2626' }}>{money(statement?.closingBalance)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmModal && (
+        <div className="modal-overlay" onClick={() => setConfirmModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Confirm Action</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>{confirmModal.message}</p>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn btn-secondary" onClick={confirmModal.onCancel}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmModal.onConfirm}>Confirm</button>
             </div>
           </div>
         </div>

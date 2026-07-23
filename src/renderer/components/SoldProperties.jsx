@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { PlotIcon, ShopIcon, SoldIcon, ClockIcon } from './Icons';
 import { useAuth } from '../contexts/AuthContext';
 import AdminPasswordConfirm from './AdminPasswordConfirm';
+import PaymentMethodSelector from './shared/PaymentMethodSelector';
 
 export default function SoldProperties({ showToast, loadNotifications, townName, panel, refreshKey = 0 }) {
   const { userProfile, userRole } = useAuth();
@@ -14,6 +15,7 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
   const [cancelReceipt, setCancelReceipt] = useState('');
   const [showAdminConfirm, setShowAdminConfirm] = useState(false);
   const [pendingCancelInfo, setPendingCancelInfo] = useState(null);
+  const [cancelPaymentAccount, setCancelPaymentAccount] = useState(null);
 
   // File delivery photo upload state
   const [deliveryPhoto, setDeliveryPhoto] = useState(null);
@@ -40,6 +42,7 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
     const number = p[tab === 'plots' ? 'Plot_Number' : 'Shop_Number'];
     const tName = p.Town_Name;
     setCancelReceipt('');
+    setCancelPaymentAccount(null);
     if (userRole === 'accountant') {
       setPendingCancelInfo({ type, number, townName: tName });
       setShowAdminConfirm(true);
@@ -57,7 +60,13 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
     const key = `${type}|${townName}|${number}`;
     setWorkingKey(key);
     try {
-      const r = await window.api.cancelDeal({ type, number, townName, Receipt_Number });
+      const payload = { 
+        type, number, townName, Receipt_Number,
+        paymentAccountId: cancelPaymentAccount?.paymentAccountId,
+        paymentAccountName: cancelPaymentAccount?.paymentAccountName,
+        paymentAccountType: cancelPaymentAccount?.paymentAccountType
+      };
+      const r = await window.api.cancelDeal(payload);
       if (r?.error) showToast?.(r.error, 'error');
       else {
         showToast?.('Deal cancelled. Property is available again.');
@@ -162,48 +171,6 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
 
   return (
     <div>
-      {/* Admin Password Confirmation for Accountant */}
-      <AdminPasswordConfirm
-        isOpen={showAdminConfirm}
-        onClose={() => { setShowAdminConfirm(false); setPendingCancelInfo(null); }}
-        onConfirm={async () => {
-          setShowAdminConfirm(false);
-          if (pendingCancelInfo) {
-            setCancelCtx({ ...pendingCancelInfo });
-            setPendingCancelInfo(null);
-          }
-        }}
-        title="Confirm Deal Cancellation"
-        message="Enter your administration password to confirm this deal cancellation."
-      />
-
-      {/* Cancel Deal Modal */}
-      {cancelCtx && !showAdminConfirm && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.35)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16
-        }}>
-          <div className="form-container" style={{ maxWidth: 520, width: '100%' }}>
-            <div className="form-title" style={{ fontSize: 15 }}>Deal Cancel</div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
-              {cancelCtx.type} {cancelCtx.number} ({cancelCtx.townName})
-            </div>
-            <div className="form-grid">
-              <div className="form-group full">
-                <label>Receipt Number *</label>
-                <input type="password" placeholder="Enter receipt number to confirm" value={cancelReceipt} onChange={(e) => setCancelReceipt(e.target.value)} />
-              </div>
-            </div>
-            <div className="flex-between mt-6">
-              <button className="btn btn-ghost" onClick={() => setCancelCtx(null)} disabled={!!workingKey}>Close</button>
-              <button className="btn btn-danger" onClick={confirmCancelDeal} disabled={!!workingKey}>
-                {workingKey ? <><ClockIcon size={12}/> Cancelling...</> : 'Confirm Cancel'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Photo Upload Modal for File Delivery */}
       {deliveryTarget && (
         <div style={{
@@ -237,6 +204,55 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
           </div>
         </div>
       )}
+      {/* Admin Password Confirmation for Accountant */}
+      <AdminPasswordConfirm
+        isOpen={showAdminConfirm}
+        onClose={() => { setShowAdminConfirm(false); setPendingCancelInfo(null); }}
+        onConfirm={async () => {
+          setShowAdminConfirm(false);
+          if (pendingCancelInfo) {
+            setCancelCtx({ ...pendingCancelInfo });
+            setPendingCancelInfo(null);
+          }
+        }}
+        title="Confirm Deal Cancellation"
+        message="Enter your administration password to confirm this deal cancellation."
+      />
+
+      {/* Cancel Deal Modal */}
+      {cancelCtx && !showAdminConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.35)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16
+        }}>
+          <div className="form-container" style={{ maxWidth: 520, width: '100%' }}>
+            <div className="form-title" style={{ fontSize: 15 }}>Deal Cancel</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
+              {cancelCtx.type} {cancelCtx.number} ({cancelCtx.townName})
+            </div>
+            <div className="form-grid">
+              <div className="form-group full">
+                <label>Receipt Number *</label>
+                <input type="text" placeholder="Enter receipt number to confirm" value={cancelReceipt} onChange={(e) => setCancelReceipt(e.target.value)} />
+              </div>
+              <div className="form-group full" style={{ marginTop: '4px' }}>
+              <PaymentMethodSelector
+                townName={cancelCtx.townName}
+                value={cancelPaymentAccount || null}
+                onChange={(acc) => setCancelPaymentAccount(acc)}
+                label="Refund Paid From *"
+              />
+              </div>
+            </div>
+            <div className="flex-between mt-6">
+              <button className="btn btn-ghost" onClick={() => setCancelCtx(null)} disabled={!!workingKey}>Close</button>
+              <button className="btn btn-danger" onClick={confirmCancelDeal} disabled={!!workingKey}>
+                {workingKey ? <><ClockIcon size={12}/> Cancelling...</> : 'Confirm Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         <button className={`btn ${tab === 'plots' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('plots')}
@@ -261,9 +277,9 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
                   <th>Customer</th>
                   <th>CNIC</th>
                   <th>Phone</th>
-                  <th>Total</th>
-                  <th>Received</th>
-                  <th>Remaining</th>
+                  <th className="num-col">Total</th>
+                  <th className="num-col">Received</th>
+                  <th className="num-col">Remaining</th>
                   <th>Installment</th>
                   <th>Agent</th>
                   <th>Status</th>
@@ -283,9 +299,9 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
                       <td>{p.Customer_Name}</td>
                       <td>{p.CNIC||'-'}</td>
                       <td>{p.Phone_Number||'-'}</td>
-                      <td>PKR {(parseFloat(p.Total_Amount_PKR)||0).toLocaleString()}</td>
-                      <td className="text-green">PKR {(parseFloat(p.Received_Amount)||0).toLocaleString()}</td>
-                      <td className={(parseFloat(p.Remaining_Amount)||0) > 0 && (parseInt(p.Total_Installments) || 0) === 0 ? 'text-yellow' : 'text-red'}>
+                      <td className="num-col">PKR {(parseFloat(p.Total_Amount_PKR)||0).toLocaleString()}</td>
+                      <td className="num-col text-green">PKR {(parseFloat(p.Received_Amount)||0).toLocaleString()}</td>
+                      <td className={`num-col ${(parseFloat(p.Remaining_Amount)||0) > 0 && (parseInt(p.Total_Installments) || 0) === 0 ? 'text-yellow' : 'text-red'}`}>
                         PKR {(parseFloat(p.Remaining_Amount)||0).toLocaleString()}
                       </td>
                       <td>{p.Installment_Status}</td>

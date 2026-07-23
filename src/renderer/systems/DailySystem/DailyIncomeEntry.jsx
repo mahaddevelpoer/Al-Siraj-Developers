@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import PaymentAccountSelect from '../../components/PaymentAccountSelect';
+import PaymentMethodSelector from '../../components/shared/PaymentMethodSelector'; // PaymentAccountSelect
 
 export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, accountOptions = [] }) {
   const [incomeType, setIncomeType] = useState('general');
@@ -239,7 +239,7 @@ export default function DailyIncomeEntry({ townName, onSubmit, isAppealMode, acc
         </div>
       </div>
 
-      <PaymentAccountSelect
+      <PaymentMethodSelector
         townName={townName}
         value={paymentAccount}
         onChange={setPaymentAccount}

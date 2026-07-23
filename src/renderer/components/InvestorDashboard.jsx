@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { WalletIcon, PlusIcon, DollarIcon } from './Icons';
 import OfficialReceipt from './OfficialReceipt';
-import PaymentAccountSelect from './PaymentAccountSelect';
+import PaymentMethodSelector from './shared/PaymentMethodSelector'; // PaymentAccountSelect
 
 const fmt = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
 
@@ -220,7 +220,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
             <div className="form-group"><label>Date</label><input type="date" value={tx.Date} onChange={tu('Date')} /></div>
             <div className="form-group full"><label>Notes</label><input value={tx.Notes} onChange={tu('Notes')} /></div>
           </div>
-          <PaymentAccountSelect
+          <PaymentMethodSelector
             townName={townName}
             value={paymentAccount}
             onChange={setPaymentAccount}

@@ -23,6 +23,7 @@ const pendingSync = require('./db/pendingSync');
 const mediaLibrary = require('./db/mediaLibrary');
 const cashBanks = require('./db/cashBanks');
 const dailyReportSettings = require('./db/dailyReportSettings');
+const IntegrityLayer = require('./db/integrityLayer');
 const { getGlobalsPath } = require('./db/core');
 const { buildTownLedgerReport, exportTownLedgerReport, buildDueInstallmentsReport, exportDueInstallmentsReport } = require('./db/townReport');
 
@@ -44,7 +45,29 @@ function getActiveWindow() {
 function sendSyncWarning(message) {
   const win = getActiveWindow();
   if (win && !win.isDestroyed()) {
-    try { win.webContents.send('sync-warning', message); } catch {}
+    try {
+      let msgStr = '';
+      if (message && typeof message === 'object') {
+        msgStr = message.message || message.error || JSON.stringify(message);
+      } else {
+        msgStr = String(message || 'Unknown sync issue');
+      }
+      win.webContents.send('sync-warning', msgStr);
+    } catch {}
+  }
+}
+
+async function isInternetAvailable() {
+  const dns = require('dns').promises;
+  try {
+    // Perform a fast, lightweight DNS lookup on the Supabase URL with a 1.5-second timeout
+    await Promise.race([
+      dns.lookup('wdislbdftnwmaexqtfmn.supabase.co'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500))
+    ]);
+    return true;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -277,6 +300,13 @@ function scheduleQueuedCloudSync(delayMs = 1500) {
       scheduleQueuedCloudSync(delayMs);
       return;
     }
+    
+    // Silent pre-flight connection check to prevent background upload errors when offline
+    if (!(await isInternetAvailable())) {
+      console.log('[sync-upload] Offline. Skipping background upload until connection is restored.');
+      return;
+    }
+
     _cloudSyncInFlight = true;
     try {
       sendCloudUploadProgress(2, 'Checking pending local Excel changes...');
@@ -342,6 +372,13 @@ function scheduleCloudDownload(delayMs = 1200) {
   _queuedCloudDownloadTimer = setTimeout(async () => {
     _queuedCloudDownloadTimer = null;
     if (_cloudDownloadInFlight) return;
+    
+    // Silent pre-flight connection check to prevent background download errors when offline
+    if (!(await isInternetAvailable())) {
+      console.log('[sync-download] Offline. Skipping background download.');
+      return;
+    }
+
     _cloudDownloadInFlight = true;
     try {
       const win = getActiveWindow();
@@ -434,11 +471,28 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
       if (!pdfPath && exported.htmlPath) {
         try { pdfPath = await renderHtmlReportToPdf(exported.htmlPath); } catch (_) {}
       }
+      let pdfBase64 = '';
+      if (pdfPath && fs.existsSync(pdfPath)) {
+        try {
+          const buf = fs.readFileSync(pdfPath);
+          pdfBase64 = `data:application/pdf;base64,${buf.toString('base64')}`;
+        } catch (_) {}
+      }
+      let htmlContent = '';
+      if (exported.htmlPath && fs.existsSync(exported.htmlPath)) {
+        try {
+          htmlContent = fs.readFileSync(exported.htmlPath, 'utf8');
+        } catch (_) {}
+      }
+
       generated.push({
         townName,
         pdfPath: pdfPath || exported.htmlPath,
+        pdfBase64,
+        htmlContent,
         excelPath: exported.excelPath,
         summary: exported.report?.summary || {},
+        report: exported.report || {},
       });
       const mediaRow = await mediaLibrary.recordMediaItem({
         townName,
@@ -447,6 +501,9 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
         pdfPath: pdfPath || '',
         excelPath: exported.excelPath || '',
         htmlPath: exported.htmlPath || '',
+        pdfBase64,
+        htmlContent,
+        reportDataJson: JSON.stringify(exported.report || {}),
         reportDate: date,
         fromDate: date,
         toDate: date,
@@ -490,6 +547,9 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
       fromDate: date,
       toDate: date,
       accountName: `Income ${totals.income} | Expenses ${totals.expenses} | Pending ${totals.pending}`,
+      pdfBase64: generated[0]?.pdfBase64 || '',
+      htmlContent: generated[0]?.htmlContent || '',
+      reportDataJson: JSON.stringify(totals),
     });
     await onlineDb.insert('media_library', groupMediaRow).catch(async (e) => {
       mediaSyncFailures.push({ townName: 'All Towns', error: e.message || 'Group media cloud sync failed' });
@@ -572,6 +632,25 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
     }).catch(() => {});
     sendSyncWarning('Daily receipt cloud notification queued: ' + (e.message || 'offline'));
   }
+
+  // Send FCM Push Notification to CEO App via Supabase Edge Function
+  try {
+    const supabaseClient = require('./db/supabase');
+    if (supabaseClient) {
+      await supabaseClient.functions.invoke('send-ceo-push', {
+        body: {
+          title: failed.length ? '⚠️ Daily Reports Need Attention (8 PM)' : '📊 Daily Ledger Reports Ready (8 PM)',
+          body: message,
+          data: {
+            route: 'daily_ledger_receipts',
+            type: 'daily_ledger_report_ready',
+            reportId,
+            date,
+          },
+        },
+      }).catch(e => console.warn('[ipc] FCM push failed:', e.message));
+    }
+  } catch (_) {}
   if (generated.length) storage.queueAllLocalFiles();
   dailyReportSettings.recordDailyReportStatus({
     lastGeneratedAt: startedAt,
@@ -669,7 +748,7 @@ async function syncOnline(localFn, supabaseFn, options = {}) {
         const warning = 'Cloud quick sync failed: ' + (e.message || 'Unknown');
         sendSyncWarning(warning);
         sendBusinessDataChanged({ ...baseChange, status: 'sync-queued', events: [...baseChange.events, 'sync:queued'], error: e.message || 'Unknown' });
-        await pendingSync.markPendingAttemptFailed(e).catch(() => {});
+        await pendingSync.markPendingAttemptFailed(e, clientWriteId).catch(() => {});
       }
     })();
   }
@@ -1043,7 +1122,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.getAll('towns')
       );
       return filterRowsByScope(towns);
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('add-town', async (_, data) => {
     try {
@@ -1061,7 +1140,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         },
         { tableName: 'towns', payload: data, clientWriteId: `town-${String(data.Town_Name).trim().toLowerCase()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('update-town', async (_, townName, data) => {
     try {
@@ -1073,7 +1152,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.updateWhere('towns', { Town_Name: townName }, data),
         { tableName: 'towns', operation: 'update', payload: { ...data, Town_Name: townName }, clientWriteId: `town-update-${String(townName).trim().toLowerCase()}-${Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('delete-town', async (_, townName) => {
     try {
@@ -1098,9 +1177,9 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         },
         { tableName: 'towns', operation: 'delete', payload: { Town_Name: townName }, clientWriteId: `town-delete-${String(townName).trim().toLowerCase()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
-  ipcMain.handle('get-town-details', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getTownDetails(town), () => onlineDb.findOne('towns', { Town_Name: town })); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-town-details', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getTownDetails(town), () => onlineDb.findOne('towns', { Town_Name: town })); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
   ipcMain.handle('get-town-prices', async (_, townName) => {
     try {
       const town = scopedTown(townName, true);
@@ -1128,7 +1207,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         }
       } catch {} // Supabase comparison is non-blocking
       return { ...localPrices, cloudWarning };
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('set-town-prices', async (_, townName, prices) => {
     try {
@@ -1140,7 +1219,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.updateWhere('towns', { Town_Name: townName }, prices),
         { tableName: 'towns', operation: 'update', payload: { ...prices, Town_Name: townName }, clientWriteId: `town-prices-${String(townName).trim().toLowerCase()}-${Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Properties
@@ -1155,7 +1234,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.insert('properties', { Property_Type: 'Plot', Property_Number: data.Plot_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }),
         { tableName: 'properties', operation: 'insert', payload: { ...data, Property_Type: 'Plot', Property_Number: data.Plot_Number }, clientWriteId: `property-plot-${data.Town_Name}-${data.Plot_Number}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('add-shop', async (_, data) => {
     try {
@@ -1168,10 +1247,10 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.insert('properties', { Property_Type: 'Shop', Property_Number: data.Shop_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }),
         { tableName: 'properties', operation: 'insert', payload: { ...data, Property_Type: 'Shop', Property_Number: data.Shop_Number }, clientWriteId: `property-shop-${data.Town_Name}-${data.Shop_Number}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
-  ipcMain.handle('get-plot', async (_, num, town) => { try { if (!isNonEmpty(num)) throw new Error('Plot number is required'); const scoped = scopedTown(town, true); return await dataLayer.read(() => getPropertyFile('Plot', num, scoped), () => onlineDb.getProperty('Plot', num, scoped)); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-shop', async (_, num, town) => { try { if (!isNonEmpty(num)) throw new Error('Shop number is required'); const scoped = scopedTown(town, true); return await dataLayer.read(() => getPropertyFile('Shop', num, scoped), () => onlineDb.getProperty('Shop', num, scoped)); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-plot', async (_, num, town) => { try { if (!isNonEmpty(num)) throw new Error('Plot number is required'); const scoped = scopedTown(town, true); return await dataLayer.read(() => getPropertyFile('Plot', num, scoped), () => onlineDb.getProperty('Plot', num, scoped)); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
+  ipcMain.handle('get-shop', async (_, num, town) => { try { if (!isNonEmpty(num)) throw new Error('Shop number is required'); const scoped = scopedTown(town, true); return await dataLayer.read(() => getPropertyFile('Shop', num, scoped), () => onlineDb.getProperty('Shop', num, scoped)); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
   ipcMain.handle('get-all-plots', async (_, town) => {
     try {
       const scoped = scopedTown(town, isAccountantScoped());
@@ -1179,7 +1258,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => getAllPropertiesByTown(scoped, 'Plot'),
         () => onlineDb.getPropertiesByTown(scoped, 'Plot')
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('get-all-shops', async (_, town) => {
     try {
@@ -1188,7 +1267,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => getAllPropertiesByTown(scoped, 'Shop'),
         () => onlineDb.getPropertiesByTown(scoped, 'Shop')
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('get-all-properties', async () => {
     try {
@@ -1198,7 +1277,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       );
       if (!isAccountantScoped()) return result;
       return { plots: filterRowsByScope(result?.plots || []), shops: filterRowsByScope(result?.shops || []) };
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Town SVG map shapes
@@ -1212,7 +1291,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           return (rows || []).map(townMapDb.fromRow);
         }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('save-town-map-shapes', async (_, { townName, shapes }) => {
@@ -1235,7 +1314,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         },
         { tableName: 'town_map_shapes', payload: { townName: town, count: shapes.length } }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('delete-town-map-shape', async (_, shapeId) => {
@@ -1246,7 +1325,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.deleteWhere('town_map_shapes', { Shape_ID: shapeId }),
         { tableName: 'town_map_shapes', operation: 'delete', payload: { Shape_ID: shapeId } }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Sales
@@ -1259,10 +1338,12 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertTownAccess(data.townName);
       if (!isNonEmpty(data.Customer_Name)) throw new Error('Customer_Name is required');
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
+      await IntegrityLayer.runAll('sell-property', data);
       // SECURITY FIX: Server-side date validation — prevent price manipulation via backdated sales
       const today = new Date().toISOString().slice(0, 10);
       const saleDate = String(data.Sell_Date || '').slice(0, 10);
-      if (saleDate && saleDate !== today) {
+      const isApprovedAppeal = Boolean(data.isApprovedAppeal || data.appealApproved || data.appealId || data.approvedDate || data.dateChangeApproved);
+      if (saleDate && saleDate !== today && !isApprovedAppeal) {
         throw new Error(`Sell date must be today (${today}). To use a different date, request a date change appeal from CEO first.`);
       }
       if (!saleDate) {
@@ -1277,7 +1358,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         },
         { tableName: 'all_sales', operation: 'insert', payload: data }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('cancel-deal', async (_, data) => {
     try {
@@ -1293,7 +1374,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.cancelDeal(data),
         { tableName: 'all_sales', operation: 'delete', payload: data, clientWriteId: `cancel-deal-${data.townName}-${data.type}-${data.number}-${Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('updateFileStatus', async (_, params) => {
@@ -1305,7 +1386,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.updateFileStatus(params),
         { tableName: 'properties', operation: 'update', payload: params, clientWriteId: `file-status-${params.townName || params.Town_Name}-${params.type || params.Type}-${params.number || params.Property_Number}-${Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('get-sold-properties', async () => {
     try {
@@ -1314,7 +1395,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.getSoldProperties()
       );
       return filterSoldByScope(result);
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('get-all-sales', async () => {
     try {
@@ -1323,16 +1404,17 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.getAllSales()
       );
       return filterRowsByScope(rows);
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Installments
-  ipcMain.handle('get-installments', async () => { try { const rows = await dataLayer.read(() => getInstallments(), () => onlineDb.getAllInstallments()); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-due-installments', async () => { try { const rows = await dataLayer.read(() => getDueInstallments(), async () => { const all = await onlineDb.getAllInstallments(); const today = new Date().toISOString().split('T')[0]; const lead = new Date(); lead.setDate(lead.getDate() + 7); const leadDate = lead.toISOString().split('T')[0]; return (all || []).filter(i => { const s = (i.Status || '').toLowerCase(); if (s === 'paid') return false; const d = i.Due_Date || ''; return d && (d < today || d <= leadDate || s === 'overdue'); }).map(i => ({ ...i, Status: (i.Due_Date || '') < today ? 'Overdue' : 'Due' })); }); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-installments', async () => { try { const rows = await dataLayer.read(() => getInstallments(), () => onlineDb.getAllInstallments()); return filterRowsByScope(rows); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
+  ipcMain.handle('get-due-installments', async () => { try { const rows = await dataLayer.read(() => getDueInstallments(), async () => { const all = await onlineDb.getAllInstallments(); const today = new Date().toISOString().split('T')[0]; const lead = new Date(); lead.setDate(lead.getDate() + 7); const leadDate = lead.toISOString().split('T')[0]; return (all || []).filter(i => { const s = (i.Status || '').toLowerCase(); if (s === 'paid') return false; const d = i.Due_Date || ''; return d && (d < today || d <= leadDate || s === 'overdue'); }).map(i => ({ ...i, Status: (i.Due_Date || '') < today ? 'Overdue' : 'Due' })); }); return filterRowsByScope(rows); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
   ipcMain.handle('mark-installment-paid', async (_, data) => {
     try {
       assertObjectPayload(data, 'installment payload');
       if (!isNonEmpty(data.Tracker_ID)) throw new Error('Tracker_ID is required');
+      await IntegrityLayer.runAll('mark-installment-paid', data);
       return await syncOnline(
         () => markInstallmentPaid(data),
         async (localResult) => {
@@ -1348,7 +1430,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         },
         { tableName: 'installments', operation: 'update', payload: data, events: ['receipt:created', 'media:changed', 'account:changed'] }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('extend-installment-date', async (_, data) => {
     try {
@@ -1360,7 +1442,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.extendInstallmentDueDate(data),
         { tableName: 'installments', operation: 'update', payload: data, clientWriteId: `installment-extend-${data.Tracker_ID}-${Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Resell
@@ -1372,10 +1454,12 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       if (!isNonEmpty(data.townName)) throw new Error('Town name is required');
       assertTownAccess(data.townName);
       if (!isNonEmpty(data.Receipt_Number)) throw new Error('Receipt_Number is required');
+      await IntegrityLayer.runAll('resell-property', data);
       // SECURITY FIX: Server-side date validation — prevent price manipulation via backdated resells
       const today = new Date().toISOString().slice(0, 10);
       const resellDate = String(data.Sell_Date || data.Resell_Date || '').slice(0, 10);
-      if (resellDate && resellDate !== today) {
+      const isApprovedAppeal = Boolean(data.isApprovedAppeal || data.appealApproved || data.appealId || data.approvedDate || data.dateChangeApproved);
+      if (resellDate && resellDate !== today && !isApprovedAppeal) {
         throw new Error(`Resell date must be today (${today}). To use a different date, request a date change appeal from CEO first.`);
       }
       if (!resellDate) {
@@ -1390,15 +1474,16 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         },
         { tableName: 'resell_history', operation: 'insert', payload: data }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
-  ipcMain.handle('get-resell-history', async () => { try { const rows = await dataLayer.read(() => getResellHistory(), () => onlineDb.getAll('resell_history')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-resell-history', async () => { try { const rows = await dataLayer.read(() => getResellHistory(), () => onlineDb.getAll('resell_history')); return filterRowsByScope(rows); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
 
   // Expenses
   ipcMain.handle('add-expense', async (_, data) => {
     try {
       assertObjectPayload(data, 'expense payload');
       if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
+      await IntegrityLayer.runAll('add-expense', data);
       const { generateId } = require('./db/core');
       const expData = { Expense_ID: generateId(), Town_Name: data.Town_Name||'', Expense_Name: data.Expense_Name||'', Amount_PKR: parseFloat(data.Amount_PKR)||0, Description: data.Description||'', Category: data.Category||'General', Date: data.Date || new Date().toISOString().split('T')[0], Added_By: data.Added_By||'Employee' };
       const { appendToExcel, getGlobalsPath } = require('./db/core');
@@ -1421,23 +1506,24 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.insert('expenses', expData),
         { tableName: 'expenses', operation: 'insert', payload: expData, clientWriteId: expData.Expense_ID }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
-  ipcMain.handle('get-expenses', async (_, town) => { try { const scoped = scopedTown(town, isAccountantScoped()); return await dataLayer.read(() => { const all = getAllExpenses(); return scoped ? all.filter(e => e.Town_Name === scoped) : all; }, async () => { const all = await onlineDb.getAll('expenses'); return scoped ? (all || []).filter(e => e.Town_Name === scoped) : (all || []); }); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-all-expenses', async () => { try { const rows = await dataLayer.read(() => getAllExpenses(), () => onlineDb.getAll('expenses')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('get-ceo-expenses', async () => { try { const rows = await dataLayer.read(() => getCeoExpenses(), () => onlineDb.getAll('ceo_expenses')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-expenses', async (_, town) => { try { const scoped = scopedTown(town, isAccountantScoped()); return await dataLayer.read(() => { const all = getAllExpenses(); return scoped ? all.filter(e => e.Town_Name === scoped) : all; }, async () => { const all = await onlineDb.getAll('expenses'); return scoped ? (all || []).filter(e => e.Town_Name === scoped) : (all || []); }); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
+  ipcMain.handle('get-all-expenses', async () => { try { const rows = await dataLayer.read(() => getAllExpenses(), () => onlineDb.getAll('expenses')); return filterRowsByScope(rows); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
+  ipcMain.handle('get-ceo-expenses', async () => { try { const rows = await dataLayer.read(() => getCeoExpenses(), () => onlineDb.getAll('ceo_expenses')); return filterRowsByScope(rows); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
   ipcMain.handle('add-ceo-expense', async (_, data) => {
     try {
       assertObjectPayload(data, 'ceo expense payload');
       if (!isNonEmpty(data.Town_Name)) throw new Error('Town_Name is required');
       assertTownAccess(data.Town_Name);
       if (!isNonEmpty(data.Expense_Name)) throw new Error('Expense_Name is required');
+      await IntegrityLayer.runAll('add-ceo-expense', data);
       return await syncOnline(
         () => addCeoExpense(data),
         () => onlineDb.insert('ceo_expenses', { Expense_ID: onlineDb.generateId(), Town_Name: data.Town_Name, Expense_Name: data.Expense_Name, Amount_PKR: parseFloat(data.Amount_PKR)||0, Description: data.Description||'', Category: data.Category||'General', Date: data.Date||new Date().toISOString().split('T')[0] }),
         { tableName: 'ceo_expenses', operation: 'insert', payload: data }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('delete-ceo-expense', async (_, id) => {
     try {
@@ -1448,7 +1534,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.deleteWhere('ceo_expenses', { Expense_ID: id }),
         { tableName: 'ceo_expenses', operation: 'delete', payload: { Expense_ID: id }, clientWriteId: `ceo-expense-delete-${id}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('edit-ceo-expense', async (_, data) => {
     try {
@@ -1460,11 +1546,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.updateWhere('ceo_expenses', { Expense_ID: data.Expense_ID }, data),
         { tableName: 'ceo_expenses', operation: 'update', payload: data, clientWriteId: `ceo-expense-update-${data.Expense_ID}-${Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // CEO Salary
-  ipcMain.handle('get-ceo-salary', async () => { try { const rows = await dataLayer.read(() => getCeoSalary(), () => onlineDb.getAll('ceo_salary')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-ceo-salary', async () => { try { const rows = await dataLayer.read(() => getCeoSalary(), () => onlineDb.getAll('ceo_salary')); return filterRowsByScope(rows); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
   ipcMain.handle('add-ceo-salary', async (_, data) => {
     try {
       assertObjectPayload(data, 'ceo salary payload');
@@ -1476,7 +1562,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.insert('ceo_salary', { Salary_ID: onlineDb.generateId(), Town_Name: data.Town_Name, Month_Year: data.Month_Year, Amount_PKR: parseFloat(data.Amount_PKR)||0, Date: data.Date||new Date().toISOString().split('T')[0] }),
         { tableName: 'ceo_salary', operation: 'insert', payload: data }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('delete-ceo-salary', async (_, id) => {
     try {
@@ -1487,7 +1573,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.deleteWhere('ceo_salary', { Salary_ID: id }),
         { tableName: 'ceo_salary', operation: 'delete', payload: { Salary_ID: id }, clientWriteId: `ceo-salary-delete-${id}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Employees
@@ -1501,9 +1587,9 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.insert('employees', { Employee_ID: onlineDb.generateId(), Employee_Name: data.Employee_Name, CNIC: data.CNIC||'', Phone: data.Phone || data.Phone_Number || '', Role: data.Role||'', Town_Name: data.Town_Name||'', Salary: parseFloat(data.Salary)||0 }),
         { tableName: 'employees', operation: 'insert', payload: data }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
-  ipcMain.handle('get-employees', async () => { try { const rows = await dataLayer.read(() => getEmployees(), () => onlineDb.getAll('employees')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-employees', async () => { try { const rows = await dataLayer.read(() => getEmployees(), () => onlineDb.getAll('employees')); return filterRowsByScope(rows); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
   ipcMain.handle('delete-employee', async (_, id) => {
     try {
       assertPermanentDeleteAllowed();
@@ -1513,11 +1599,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.deleteWhere('employees', { Employee_ID: id }),
         { tableName: 'employees', operation: 'delete', payload: { Employee_ID: id }, clientWriteId: `employee-delete-${id}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Dashboard
-  ipcMain.handle('get-dashboard-stats', async () => { try { return await dataLayer.read(() => getDashboardStats(), () => onlineDb.getDashboardStats()); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-dashboard-stats', async () => { try { return await dataLayer.read(() => getDashboardStats(), () => onlineDb.getDashboardStats()); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
 
   ipcMain.handle('local-accountant-login', async (_, { email, password, adminPassword } = {}) => {
     try {
@@ -1533,7 +1619,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       startPeriodicCloudDownload(120000);
       return { success: true, user: { id: profile.id, email: profile.email }, profile };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1551,7 +1637,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       startPeriodicCloudDownload(120000);
       return { success: true, user: { id: profile.id, email: profile.email }, profile };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1569,7 +1655,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       });
       return { success: true, profile };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1578,7 +1664,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const filePath = accountantAuth.ensureFile(dbPath);
       return { success: true, filePath, accounts: accountantAuth.list(dbPath) };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1588,12 +1674,12 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       await shell.openPath(filePath);
       return { success: true, filePath };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
   // Notifications
-  ipcMain.handle('get-notifications', async () => { try { const rows = await dataLayer.read(() => getNotifications(), () => onlineDb.getAll('notifications')); return filterRowsByScope(rows); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-notifications', async () => { try { const rows = await dataLayer.read(() => getNotifications(), () => onlineDb.getAll('notifications')); return filterRowsByScope(rows); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
   ipcMain.handle('dismiss-notification', async (_, id) => {
     try {
       if (!isNonEmpty(id)) throw new Error('Notification id is required');
@@ -1602,11 +1688,11 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         () => onlineDb.updateWhere('notifications', { Notification_ID: id }, { Dismissed: 'Yes', Status: 'Dismissed' }),
         { tableName: 'notifications', operation: 'update', payload: { Notification_ID: id, Dismissed: 'Yes', Status: 'Dismissed' }, clientWriteId: `notification-dismiss-${id}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Backup & Sync
-  ipcMain.handle('trigger-backup', async () => { try { return await performBackup(dbPath); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('trigger-backup', async () => { try { return await performBackup(dbPath); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
   ipcMain.handle('configure-file-sync-context', async (_, context) => {
     try {
       storage.setSyncContext(context || {});
@@ -1623,7 +1709,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         databaseSync = { scheduled: true, background: true };
       }
       return { success: true, context: storage.getSyncContext(), fileSync, databaseSync };
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('sync-from-cloud', async (event) => { 
     try { 
@@ -1640,7 +1726,14 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           : 50 + Math.round(((percent - 30) / 70) * 50);
         sendProgress(Math.min(100, mapped), msg);
       };
-      sendProgress(5, 'Fetching latest data from database...');
+      sendProgress(5, 'Checking network connection...');
+      
+      // Pre-flight connection check to prevent network errors in UI when offline
+      if (!(await isInternetAvailable())) {
+        return { error: 'No internet connection detected. Please connect to the internet to sync with cloud.' };
+      }
+
+      sendProgress(8, 'Fetching latest data from database...');
       if (await pendingSync.hasPendingSyncRows()) {
         sendProgress(100, 'Skipped: local changes are still syncing to cloud.');
         return { success: false, skipped: true, error: 'Local changes are still pending sync. Sync to Cloud first, then download.' };
@@ -1655,7 +1748,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       sendProgress(100, 'Sync Complete!');
       try { event.sender.send('cloud-data-refreshed', { background: false, at: new Date().toISOString() }); } catch (_) {}
       return { success: true, ...result, databaseSync };
-    } catch(e) { return { error: e.message }; } 
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } 
   });
 
   ipcMain.handle('sync-to-cloud', async (event) => {
@@ -1667,6 +1760,12 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
           }
         } catch (_) {}
       };
+      
+      // Pre-flight connection check to prevent network errors in UI when offline
+      if (!(await isInternetAvailable())) {
+        return { error: 'No internet connection detected. Please connect to the internet to upload local changes.' };
+      }
+
       const result = await performFullSyncUp(sendProgress);
       await pendingSync.markAllPendingSynced();
       sendBusinessDataChanged({
@@ -1685,7 +1784,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         events: ['sync:failed', 'pending-sync:changed'],
         error: e.message || 'Unknown',
       });
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1698,7 +1797,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         byTable[table] = (byTable[table] || 0) + 1;
       }
       return { success: true, count: rows.length, byTable };
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('run-business-audit', async () => {
@@ -1713,7 +1812,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const result = await auditModule.runBusinessAudit({ rootPath, outputDir });
       return result;
     } catch(e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1728,7 +1827,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const result = await auditModule.runHandoverStabilityAudit({ rootPath, outputDir });
       return result;
     } catch(e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1736,7 +1835,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       const town = scopedTown(townName, isAccountantScoped());
       return await cashBanks.getPaymentAccounts(town);
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('get-bank-account-statement', async (_, params) => {
@@ -1747,7 +1846,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       return await dataLayer.read(() => getBankAccountTransactions(params), async () => {
         return { transactions: [] }; // Fallback
       });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('add-bank-account', async (_, data = {}) => {
@@ -1760,7 +1859,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         (account) => onlineDb.insert('cash_bank_accounts', account),
         { tableName: 'cash_bank_accounts', operation: 'insert', payload: data, clientWriteId: `cash-bank-${data.Town_Name || data.townName}-${data.Account_Name || data.accountName || Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('update-bank-account', async (_, { accountId, updates } = {}) => {
@@ -1772,14 +1871,14 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         (account) => onlineDb.updateWhere('cash_bank_accounts', { Account_ID: accountId }, account),
         { tableName: 'cash_bank_accounts', operation: 'update', payload: { Account_ID: accountId, ...(updates || {}) }, clientWriteId: `cash-bank-update-${accountId}-${Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('generate-daily-town-receipts', async (event, date) => {
     try {
-      return await generateDailyTownReceiptBundle(date || new Date().toISOString().slice(0, 10), event.sender);
+      return await generateDailyTownReceiptBundle(date || new Date().toISOString().slice(0, 10), event.sender, { force: true });
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1787,7 +1886,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       return dailyReportSettings.getDailyReportSettings();
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1795,7 +1894,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     try {
       return dailyReportSettings.updateDailyReportSettings(patch || {});
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1804,7 +1903,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       const date = params.date || new Date().toISOString().slice(0, 10);
       return await generateDailyTownReceiptBundle(date, event.sender, { force: true });
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -1822,31 +1921,31 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         }
       }
       return prefix + String(maxNum + 1).padStart(4, '0');
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Reports
-  ipcMain.handle('get-profit-loss-report', async () => { try { return await dataLayer.read(() => getProfitLossReport(), async () => { const stats = await onlineDb.getDashboardStats(); return [{ Town_Name: 'All', Total_Income: stats.totalIncome, Total_Expenses: stats.totalExpenses, Commission: stats.totalCommission, Net_Profit_Loss: stats.netProfitLoss }]; }); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('get-profit-loss-report', async () => { try { return await dataLayer.read(() => getProfitLossReport(), async () => { const stats = await onlineDb.getDashboardStats(); return [{ Town_Name: 'All', Total_Income: stats.totalIncome, Total_Expenses: stats.totalExpenses, Commission: stats.totalCommission, Net_Profit_Loss: stats.netProfitLoss }]; }); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
 
 
   ipcMain.handle('factory-reset', async () => {
     try {
       assertPermanentDeleteAllowed();
       return await handleFactoryReset(dbPath);
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('get-town-performance', async (_, townName) => {
     try {
       const town = scopedTown(townName, true);
       return await dataLayer.read(() => getTownPerformance(town), () => onlineDb.getTownPerformance(town));
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('get-town-ledger-report', async (_, params = {}) => {
     try {
       const town = scopedTown(params.townName, true);
       return await buildTownLedgerReport({ ...params, townName: town });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('export-town-ledger-report', async (_, params = {}) => {
     try {
@@ -1865,7 +1964,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       });
       sendMediaChanged({ townName: town, title: `${town} ledger report`, path: pdfPath });
       return { ...result, pdfPath };
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('export-account-ledger-report', async (_, params = {}) => {
     try {
@@ -1954,20 +2053,20 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       });
       sendMediaChanged({ townName: town, title: `${accountName} account report`, path: pdfPath });
       return { success: true, htmlPath, pdfPath };
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('get-due-installments-report', async (_, params = {}) => {
     try {
       const town = params.townName ? scopedTown(params.townName, true) : scopedTown('', false);
       return await buildDueInstallmentsReport({ ...params, townName: town || params.townName || '' });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('export-due-installments-report', async (_, params = {}) => {
     try {
       const town = params.townName ? scopedTown(params.townName, true) : scopedTown('', false);
       const result = await exportDueInstallmentsReport({ ...params, townName: town || params.townName || '' });
       const pdfPath = await renderHtmlReportToPdf(result.htmlPath);
-      await mediaLibrary.recordMediaItem({
+      const mediaRow = await mediaLibrary.recordMediaItem({
         townName: town || params.townName || '',
         type: 'due_installments',
         title: `Due installment report ${params.fromDate || ''} to ${params.toDate || ''}`.trim(),
@@ -1977,15 +2076,29 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         fromDate: params.fromDate || '',
         toDate: params.toDate || '',
       });
+      if (mediaRow) {
+        try {
+          await onlineDb.insert('media_library', mediaRow);
+        } catch (e) {
+          console.warn('[Sync] Failed to sync due installments media to cloud:', e.message);
+          await pendingSync.addPendingSync({
+            operation: 'upsert',
+            tableName: 'media_library',
+            clientWriteId: mediaRow.Media_ID || `${town || 'all'}-${Date.now()}`,
+            payload: mediaRow,
+            error: e.message || '',
+          }).catch(() => {});
+        }
+      }
       sendMediaChanged({ townName: town || params.townName || '', title: 'Due installment report', path: pdfPath });
       return { ...result, pdfPath };
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('get-media-library', async (_, params = {}) => {
     try {
       const town = params.townName ? scopedTown(params.townName, true) : scopedTown('', false);
       return await mediaLibrary.getMediaLibrary({ ...params, townName: town || params.townName || '' });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('export-receipt-archive-pdf', async (_, params = {}) => {
     try {
@@ -2086,19 +2199,19 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       });
       sendMediaChanged({ townName: town || receipt.Town_Name || '', title: `${receiptNumber} receipt`, path: pdfPath, events: ['media:changed', 'report:created', 'receipt:created'] });
       return { success: true, pdfPath, htmlPath };
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('open-report-file', async (_, filePath) => {
     try {
       if (!filePath || !fs.existsSync(filePath)) throw new Error('Report file not found');
       const err = await shell.openPath(filePath);
       return err ? { error: err } : { success: true };
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Installment Properties (for daily income entry)
-  ipcMain.handle('getInstallmentProperties', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getInstallmentProperties(town), () => onlineDb.getInstallmentProperties(town)); } catch(e) { return { error: e.message }; } });
-  ipcMain.handle('getPropertyInstallments', async (_, propertyId) => { try { if (!isNonEmpty(propertyId)) throw new Error('Property ID is required'); return await dataLayer.read(() => getPropertyInstallments(propertyId), () => onlineDb.getPropertyInstallments(propertyId)); } catch(e) { return { error: e.message }; } });
+  ipcMain.handle('getInstallmentProperties', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getInstallmentProperties(town), () => onlineDb.getInstallmentProperties(town)); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
+  ipcMain.handle('getPropertyInstallments', async (_, propertyId) => { try { if (!isNonEmpty(propertyId)) throw new Error('Property ID is required'); return await dataLayer.read(() => getPropertyInstallments(propertyId), () => onlineDb.getPropertyInstallments(propertyId)); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
 
   // Daily Entries
   ipcMain.handle('getDailyEntries', async (_, params) => {
@@ -2106,12 +2219,13 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       assertObjectPayload(params, 'getDailyEntries payload');
       const t = scopedTown(params.townName, isAccountantScoped());
       return await dataLayer.read(() => getDailyEntries({ ...params, townName: t }), async () => { const all = await onlineDb.getAll('daily_entries'); return t ? (all || []).filter(e => e.Town_Name === t) : (all || []); });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('addDailyEntry', async (_, params) => {
     try {
       assertObjectPayload(params, 'addDailyEntry payload');
       if (isAccountantScoped()) params.townName = scopedTown(params.townName || params.Town_Name, true);
+      await IntegrityLayer.runAll('addDailyEntry', params);
       if (isAccountantScoped()) {
         const entryDate = String(params.date || params.Date || '').slice(0, 10);
         const today = new Date().toISOString().slice(0, 10);
@@ -2126,18 +2240,19 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         (localRow) => onlineDb.addDailyEntry(localRow),
         { tableName: 'daily_entries', operation: 'upsert', payload: params }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('deleteDailyEntry', async (_, params) => {
     try {
       assertPermanentDeleteAllowed();
       assertObjectPayload(params, 'deleteDailyEntry payload');
+      const entryId = params.entryId || params.Entry_ID;
       return await syncOnline(
         () => deleteDailyEntry(params),
-        () => onlineDb.deleteWhere('daily_entries', { Entry_ID: params.Entry_ID }),
-        { tableName: 'daily_entries', operation: 'delete', payload: params, clientWriteId: `daily-entry-delete-${params.Entry_ID}` }
+        () => onlineDb.deleteWhere('daily_entries', { Entry_ID: entryId }),
+        { tableName: 'daily_entries', operation: 'delete', payload: { Entry_ID: entryId }, clientWriteId: `daily-entry-delete-${entryId}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('getSystemSettings', async () => {
@@ -2148,7 +2263,37 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
       }
       return {};
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
+  });
+
+  ipcMain.handle('updateSystemSettings', async (_, patch) => {
+    try {
+      const core = require('./db/core');
+      const globalsPath = core.getGlobalsPath();
+      const settingsPath = path.join(globalsPath, 'System_Settings.json');
+      let current = {};
+      if (fs.existsSync(settingsPath)) {
+        try { current = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch (_) {}
+      }
+      const updated = { ...current, ...(patch || {}), updated_at: new Date().toISOString() };
+      fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 2), 'utf8');
+
+      try {
+        const rows = Object.entries(updated).map(([k, v]) => ({ Key: k, Value: String(v) }));
+        await core.writeExcelFile(path.join(globalsPath, 'System_Settings.xlsx'), 'Data', rows);
+      } catch (_) {}
+
+      syncOnline(
+        () => ({ success: true, settings: updated }),
+        async () => {
+          for (const [k, v] of Object.entries(updated)) {
+            await onlineDb.insert('system_settings', { key_name: k, key_value: String(v), updated_at: new Date().toISOString() }).catch(() => {});
+          }
+        }
+      ).catch(() => {});
+
+      return { success: true, settings: updated };
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('getLockerAuditSchedule', async (_, params) => {
@@ -2156,7 +2301,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       assertObjectPayload(params, 'getLockerAuditSchedule payload');
       const townName = params.townName;
       return await lockerAudits.getLockerAuditSchedule(townName);
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('submitLockerAudit', async (_, params) => {
@@ -2201,13 +2346,14 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         },
         { tableName: 'locker_audits', operation: 'insert', payload: auditPayload, clientWriteId: `locker-audit-${auditPayload.townName}-${Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('recordSalaryPayment', async (_, data) => {
     try {
       assertObjectPayload(data, 'salary payload');
       if (isAccountantScoped()) data.townName = scopedTown(data.townName, true);
+      await IntegrityLayer.runAll('record-salary-payment', data);
       const { recordSalaryPayment } = require('./db/globals');
 
       return await syncOnline(() => recordSalaryPayment(data), async (localResult) => {
@@ -2266,14 +2412,14 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
           });
         }
       }, { tableName: 'salary_payments', operation: 'insert', payload: data });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('getSalaryRecords', async (_, params) => {
     try {
       const { getSalaryRecords } = require('./db/globals');
       const tn = scopedTown(params?.townName, isAccountantScoped());
       return await dataLayer.read(() => getSalaryRecords(tn), async () => { const all = await onlineDb.getAll('salary_payments'); return tn ? (all || []).filter(r => r.Town_Name === tn) : (all || []); });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // Employee DB (per-town)
@@ -2285,7 +2431,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
     try {
       const tn = scopedTown(townName, isAccountantScoped());
       return await dataLayer.read(() => employeeDB.getEmployees(tn), () => tn ? onlineDb.findMany('employees_v2', { Town_Name: tn }) : onlineDb.getAll('employees_v2'));
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('addEmployeeV2', async (_, data) => {
     try {
@@ -2315,7 +2461,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         Role: designation,
         Salary: parseFloat(baseSalary) || 0
       }), { tableName: 'employees_v2', operation: 'insert', payload: { ...normalizedData, Town_Name: townName } });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('updateEmployeeV2', async (_, { employeeId, data }) => {
     try {
@@ -2332,7 +2478,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         () => onlineDb.updateWhere('employees_v2', { Employee_ID: String(employeeId) }, onlineUpdates),
         { tableName: 'employees_v2', operation: 'update', payload: { Employee_ID: employeeId, ...data }, clientWriteId: `employee-v2-update-${employeeId}-${Date.now()}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('addAdvanceSalary', async (_, data) => {
     try {
@@ -2346,13 +2492,13 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         Status: 'Active',
         Notes: data.advanceType === 'installment' ? `Installments: ${data.totalInstallments}, Monthly: ${data.monthlyDeduction}` : 'Lump Sum',
       }), { tableName: 'advance_salaries', operation: 'insert', payload: data });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('getAdvanceSalaries', async (_, { townName, employeeName }) => {
     try {
       const tn = scopedTown(townName, isAccountantScoped());
       return await dataLayer.read(() => employeeDB.getAdvanceSalaries(tn, employeeName), async () => { const match = {}; if (tn) match.Town_Name = tn; if (employeeName) match.Employee_Name = employeeName; return await onlineDb.findMany('advance_salaries', match); });
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('updateAdvanceSalary', async (_, advanceId) => {
     try {
@@ -2362,7 +2508,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         () => onlineDb.updateWhere('advance_salaries', { Advance_ID: advanceId }, { Status: 'Paid' }),
         { tableName: 'advance_salaries', operation: 'update', payload: { Advance_ID: advanceId, Status: 'Paid' }, clientWriteId: `advance-salary-paid-${advanceId}` }
       );
-    } catch(e) { return { error: e.message }; }
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('deleteEmployeeV2', async (_, { employeeId, townName }) => {
@@ -2375,7 +2521,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         () => onlineDb.updateWhere('employees_v2', { Employee_ID: String(employeeId) }, { Status: 'Deleted' }),
         { tableName: 'employees_v2', operation: 'delete', payload: { Employee_ID: employeeId, Town_Name: townName, Status: 'Deleted' }, clientWriteId: `employee-v2-delete-${employeeId}` }
       );
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('sendDeleteEmployeeOtpEmail', async (_, { otpCode, employeeName, designation, townName, requestedBy }) => {
@@ -2404,7 +2550,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       ].join('');
 
       return await sendResendEmail(apiKey, ceoEmail, `⚠️ Delete Employee OTP — ${employeeName} (${townName})`, html);
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
 
@@ -2469,7 +2615,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
 
   function getEmailConfig() {
     const config = loadDevConfig();
-    return { apiKey: config.resend_api_key, ceoEmail: config.ceo_email };
+    return { apiKey: config.resend_api_key, ceoEmail: config.ceo_email || 'loyal.blood300@gmail.com' };
   }
 
   // ─── Resend — Send OTP to CEO (Agent Registration) ───────────────────────
@@ -2765,6 +2911,23 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
               Role: 'Accountant',
               Salary: 0,
             }).catch(() => {});
+            
+            const globals = require('./db/globals');
+            const legacyEmp = await globals.addEmployee({
+              Employee_Name: name,
+              CNIC: '',
+              Phone_Number: '',
+              Salary: 0,
+            });
+            await onlineDb.insert('employees', {
+              Employee_ID: legacyEmp.Employee_ID || onlineDb.generateId(),
+              Employee_Name: name,
+              CNIC: '',
+              Phone: '',
+              Role: 'Accountant',
+              Town_Name: town,
+              Salary: 0,
+            }).catch(() => {});
           }
         } catch (e) {
           console.error('[create-accountant] Failed to register accountant as employee:', e);
@@ -2835,13 +2998,13 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       await registerAccountantAsEmployee(fullName, assignedTown);
       return { success: true, userId: authData.user.id, townName: assignedTown, offlineLogin: true };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
   ipcMain.handle('get-town-agents', async (_, townName) => {
     try { const town = scopedTown(townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getTownAgents(town), () => onlineDb.findMany?.('town_agents', town ? { Town_Name: town } : {}) || []); }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('add-town-agent', async (_, data) => {
@@ -2853,7 +3016,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         (localAgent) => onlineDb.insert('town_agents', localAgent),
         { tableName: 'town_agents', operation: 'insert', payload: data, clientWriteId: `town-agent-${data.Town_Name || ''}-${data.Agent_Name || data.name || Date.now()}` }
       );
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('get-daily-reports', async (_, townName) => {
@@ -2861,7 +3024,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       const { getDailyReportsLocal } = require('./db/dailyReports');
       const town = scopedTown(townName, isAccountantScoped());
       return await dataLayer.read(() => getDailyReportsLocal(town), () => onlineDb.findMany?.('daily_reports', town ? { Town_Name: town } : {}) || []);
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('export-daily-report', async (_, reportId) => {
@@ -2912,12 +3075,12 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       `;
       fs.writeFileSync(tmpPath, html);
       return { htmlPath: tmpPath, pdfPath: tmpPath };
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('get-investors', async (_, townName) => {
     try { const town = scopedTown(townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getInvestors(town), () => onlineDb.findMany?.('investors', town ? { Town_Name: town } : {}) || []); }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('add-investor', async (_, data) => {
@@ -2929,13 +3092,14 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         (localInvestor) => onlineDb.insert('investors', localInvestor),
         { tableName: 'investors', operation: 'insert', payload: data, clientWriteId: `investor-${data.Town_Name || ''}-${data.Investor_Name || data.name || Date.now()}` }
       );
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('record-investor-transaction', async (_, data) => {
     try {
       assertObjectPayload(data, 'investor transaction payload');
       if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
+      await IntegrityLayer.runAll('record-investor-transaction', data);
       const result = await syncOnline(
         async () => {
           const tx = await businessExtras.investorTransaction(data);
@@ -2950,6 +3114,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             reference: tx.Transaction_ID,
             createdBy: tx.Created_By || 'System',
             reviewStatus: 'approved',
+            skipLedger: 'yes',
           });
           return tx;
         },
@@ -2992,12 +3157,12 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         { tableName: 'investor_transactions', operation: 'insert', payload: data, clientWriteId: `investor-tx-${data.Transaction_ID || data.Investor_ID || data.investorId || Date.now()}` }
       );
       return result;
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('get-investor-transactions', async (_, params = {}) => {
     try { const town = scopedTown(params.townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getInvestorTransactions(town, params.investorId), () => onlineDb.findMany?.('investor_transactions', town ? { Town_Name: town } : {}) || []); }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('get-receipt-archive', async (_, params = {}) => {
@@ -3013,7 +3178,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         }
       );
     }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('save-daily-receipt-archive', async (_, data = {}) => {
@@ -3038,12 +3203,12 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         { tableName: 'receipt_archive', operation: 'upsert', payload, clientWriteId: `receipt-archive-${receiptNumber}`, events: ['receipt:created', 'media:changed', 'report:created'] }
       );
       return result;
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('get-construction-projects', async (_, townName) => {
     try { const town = scopedTown(townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getConstructionProjects(town), () => onlineDb.findMany?.('construction_projects', town ? { Town_Name: town } : {}) || []); }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('add-construction-project', async (_, data) => {
@@ -3058,13 +3223,14 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         },
         { tableName: 'construction_projects', operation: 'insert', payload: data, clientWriteId: `construction-project-${data.Town_Name || ''}-${data.Category || ''}-${data.Constructor_Name || Date.now()}` }
       );
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('record-construction-payment', async (_, data) => {
     try {
       assertObjectPayload(data, 'construction payment payload');
       if (isAccountantScoped()) data.Town_Name = scopedTown(data.Town_Name, true);
+      await IntegrityLayer.runAll('record-construction-payment', data);
       const result = await syncOnline(
         async () => {
           const payment = await businessExtras.recordConstructionPayment(data);
@@ -3079,6 +3245,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             reference: payment.Payment_ID,
             createdBy: payment.Created_By || 'System',
             reviewStatus: 'approved',
+            skipLedger: 'yes',
             paymentAccountId: payment.Payment_Account_ID,
             paymentAccountName: payment.Payment_Account_Name,
             paymentAccountType: payment.Payment_Account_Type,
@@ -3134,12 +3301,12 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         { tableName: 'construction_payments', operation: 'insert', payload: data, clientWriteId: `construction-payment-${data.Payment_ID || data.Project_ID || Date.now()}` }
       );
       return result;
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('get-construction-payments', async (_, townName) => {
     try { const town = scopedTown(townName, isAccountantScoped()); return await dataLayer.read(() => businessExtras.getConstructionPayments(town), () => onlineDb.findMany?.('construction_payments', town ? { Town_Name: town } : {}) || []); }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('cleanup-legacy-agent-data', async () => {
@@ -3148,7 +3315,18 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       scheduleQueuedFileUpload();
       scheduleQueuedCloudSync();
       return result;
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
+  });
+
+  ipcMain.handle('nuke-all-data', async () => {
+    try {
+      const core = require('./db/core');
+      const result = await core.nukeAllData();
+      if (result.success && win && !win.isDestroyed() && win.webContents) {
+        win.webContents.send('sync-warning', 'Global Data Wipe Successful. System resetting...');
+      }
+      return result;
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // ─── Setup Agent Property Access Table ────────────────────────────────────
@@ -3363,7 +3541,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       if (e.message?.includes('relation') || e.message?.includes('does not exist')) {
         return { error: 'TABLE_MISSING' };
       }
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -3395,7 +3573,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       if (e.message?.includes('relation') || e.message?.includes('does not exist')) {
         return { error: 'TABLE_MISSING' };
       }
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -3479,7 +3657,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         });
       return { data };
     }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('mark-commission-paid', async (_, payload) => {
     try {
@@ -3548,6 +3726,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
             reference: localPayload.Commission_ID,
             createdBy: 'Accountant',
             reviewStatus: 'approved',
+            skipLedger: 'yes',
             paymentAccountId: localPayload.Payment_Account_ID,
             paymentAccountName: localPayload.Payment_Account_Name,
             paymentAccountType: localPayload.Payment_Account_Type,
@@ -3601,7 +3780,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         },
         { tableName: 'commissions', operation: 'update', payload: localPayload }
       );
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // ─── Pending Collections ──────────────────────────────────────
@@ -3681,11 +3860,12 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         });
       return { data };
     }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
-  ipcMain.handle('record-pending-collection', async (_, { saleId, amount, paymentMethod, notes, type, plotShopNumber, townName, customerName, agentName, totalAmount, currentReceived, paymentAccountId, paymentAccountName, paymentAccountType }) => {
+  ipcMain.handle('record-pending-collection', async (_, data = {}) => {
     try {
+      let { saleId, amount, paymentMethod, notes, type, plotShopNumber, townName, customerName, agentName, totalAmount, currentReceived, paymentAccountId, paymentAccountName, paymentAccountType } = data;
       let allowedTown = townName;
       if (!allowedTown) {
         const saleRows = filterRowsByScope(await getAllSales());
@@ -3696,6 +3876,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         allowedTown = sale?.Town_Name || '';
       }
       allowedTown = scopedTown(allowedTown, true);
+      await IntegrityLayer.runAll('record-pending-collection', { ...data, townName: allowedTown });
       const result = await syncOnline(
         () => recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName: allowedTown, amount, paymentMethod, notes, paymentAccountId, paymentAccountName, paymentAccountType }),
         (localResult) => onlineDb.recordCollectionPayment(
@@ -3705,10 +3886,15 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
           notes,
           localResult?.payment || null
         ),
-        { tableName: 'collection_payments', operation: 'upsert', payload: { saleId, amount, paymentMethod, notes, townName: allowedTown, paymentAccountId, paymentAccountName, paymentAccountType } }
+        {
+          tableName: 'collection_payments',
+          operation: 'upsert',
+          payload: { saleId, amount, paymentMethod, notes, townName: allowedTown, paymentAccountId, paymentAccountName, paymentAccountType },
+          events: ['overview-stats', 'town-balance', 'installment-list', 'collection:update', 'sale:update', 'cash-bank']
+        }
       );
       return { success: true, ...result };
-    } catch (e) { return { error: e.message }; }
+    } catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('get-collection-history', async (_, saleId) => {
@@ -3731,7 +3917,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         }));
       return { data };
     }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   ipcMain.handle('deliver-file-after-payment', async (_, saleId) => {
@@ -3766,7 +3952,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       );
       return { success: true, ...result };
     }
-    catch (e) { return { error: e.message }; }
+    catch (e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
   // ─── Desktop Notifications ─────────────────────────────────────
@@ -3794,7 +3980,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       const result = await storage.uploadChangedFiles(sendProgress);
       return result;
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -3810,7 +3996,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       const result = await storage.downloadMissingFiles(sendProgress);
       return result;
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -3847,7 +4033,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       }));
       return { success: true, data: rows, total: rows.length };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -3863,7 +4049,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       if (error) throw error;
       return { success: true, data };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -3877,7 +4063,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       if (error) throw error;
       return { success: true, count: count || 0 };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -3908,7 +4094,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       await appendToExcel(fp, 'Data', row);
       return { success: true, appeal: row };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -3955,7 +4141,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       }
       return { success: true, data: active };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 
@@ -3971,7 +4157,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       }
       return { success: true };
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message || String(e) || 'Unknown error' };
     }
   });
 }

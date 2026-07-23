@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { createBusinessAppeal } from '../lib/appeals';
 import AdminPasswordConfirm from './AdminPasswordConfirm';
+import PaymentMethodSelector from './shared/PaymentMethodSelector';
 
 export default function DailyEntries({ showToast, townName }) {
   const { userRole, user } = useAuth();
@@ -33,6 +34,22 @@ export default function DailyEntries({ showToast, townName }) {
 
   useEffect(() => {
     loadEntries();
+  }, [form.Date, townName]);
+
+  // Auto-refresh when financial data changes from other tabs
+  useEffect(() => {
+    const handler = (e) => {
+      const events = Array.isArray(e.detail?.events) ? e.detail.events : [];
+      if (events.some(ev => ev.includes('daily-entry:') || ev.includes('ledger:') || ev.includes('summary:'))) {
+        loadEntries();
+      }
+    };
+    window.addEventListener('al-siraj-business-data-changed', handler);
+    window.addEventListener('al-siraj-data-refreshed', handler);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', handler);
+      window.removeEventListener('al-siraj-data-refreshed', handler);
+    };
   }, [form.Date, townName]);
 
   const loadEntries = async () => {
@@ -118,6 +135,9 @@ export default function DailyEntries({ showToast, townName }) {
       description: form.Description,
       amount: parseFloat(form.Amount) || 0,
       townName,
+      paymentAccountId: form.paymentAccount?.paymentAccountId,
+      paymentAccountName: form.paymentAccount?.paymentAccountName,
+      paymentAccountType: form.paymentAccount?.paymentAccountType,
     });
   };
 
@@ -184,8 +204,15 @@ export default function DailyEntries({ showToast, townName }) {
     setLoading(false);
   };
 
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
   const handleDeleteEntry = async (entryId) => {
-    if (!window.confirm('Are you sure you want to delete this entry?')) return;
+    setDeleteConfirmId(entryId);
+  };
+
+  const confirmDelete = async () => {
+    const entryId = deleteConfirmId;
+    setDeleteConfirmId(null);
     if (userRole === 'accountant') {
       setPendingDeleteId(entryId);
       setShowAdminConfirm(true);
@@ -362,6 +389,15 @@ export default function DailyEntries({ showToast, townName }) {
               />
             </div>
 
+            <div className="form-group full" style={{ marginTop: '8px' }}>
+              <PaymentMethodSelector
+                townName={townName}
+                value={form.paymentAccount || null}
+                onChange={(acc) => setForm({ ...form, paymentAccount: acc })}
+                label="Payment Account *"
+              />
+            </div>
+
             <button 
               type="submit" 
               className={`btn btn-lg ${isNonTodayAccountant ? 'btn-warning' : 'btn-primary'}`}
@@ -437,7 +473,7 @@ export default function DailyEntries({ showToast, townName }) {
                       <th style={{ width: '100px' }}>Type</th>
                       <th style={{ width: '160px' }}>Account</th>
                       <th>Description</th>
-                      <th style={{ width: '150px' }}>Amount</th>
+                      <th className="num-col" style={{ width: '150px' }}>Amount</th>
                       <th style={{ width: '80px' }}>Actions</th>
                     </tr>
                   </thead>
@@ -457,7 +493,7 @@ export default function DailyEntries({ showToast, townName }) {
                         </td>
                         <td style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{entryAccount(e)}</td>
                         <td>{e.Description}</td>
-                        <td className={e.Type === 'Income' ? 'text-green' : 'text-red'} style={{ fontWeight: '700' }}>
+                        <td className={`num-col ${e.Type === 'Income' ? 'text-green' : 'text-red'}`} style={{ fontWeight: '700' }}>
                           {fmtPkr(e.Amount)}
                         </td>
                         <td>
@@ -569,6 +605,19 @@ export default function DailyEntries({ showToast, townName }) {
               <button className="btn btn-primary" onClick={verifyOtp} disabled={loading} style={{ flex: 1 }}>
                 {loading ? 'Verifying...' : 'Verify OTP'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirmId(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Confirm Deletion</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>Are you sure you want to delete this entry?</p>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn btn-secondary" onClick={() => setDeleteConfirmId(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmDelete}>Delete</button>
             </div>
           </div>
         </div>

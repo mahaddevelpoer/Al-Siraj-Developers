@@ -265,7 +265,7 @@ export default function AccountsDashboard({ townName, showToast }) {
               onClick={() => setSelectedId(account.id)}
             >
               <span>{account.type}</span>
-              <strong>{account.name}</strong>
+              <strong title={account.name}>{account.name}</strong>
               <div>
                 <small>Received {money(account.received)}</small>
                 <small>Paid {money(account.paid)}</small>

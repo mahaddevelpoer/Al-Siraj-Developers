@@ -4,6 +4,8 @@ const ExcelJS = require('exceljs');
 const crypto = require('crypto');
 const {
   getGlobalsPath,
+  getTownsPath,
+  getDbPath,
   readExcelFile,
   appendToExcel,
   updateExcelRow,
@@ -25,7 +27,7 @@ const FILE_NAME = 'Money_Ledger.xlsx';
 const SUMMARY_FILE_NAME = 'Town_Financial_Summary.xlsx';
 const COLUMNS = [
   'Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount',
-  'Debit_Account','Credit_Account','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type',
+  'Debit_Account','Credit_Account','Payment_Method','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type',
   'Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'
 ];
 const SUMMARY_COLUMNS = [
@@ -188,10 +190,22 @@ async function archiveLedgerReceipt(row, receiptType) {
 async function getMoneyLedger({ townName } = {}) {
   const fp = await ensureMoneyLedgerFile();
   const rows = await readExcelFile(fp, 'Data');
-  return rows.filter(r =>
+  const filtered = rows.filter(r =>
     String(r.Status || 'approved').toLowerCase() === 'approved' &&
     (!townName || String(r.Town_Name || '') === String(townName))
   );
+
+  // Deduplicate by sourceKey to prevent double-counting from past race conditions
+  const unique = [];
+  const seenKeys = new Set();
+  for (const row of filtered) {
+    const key = sourceKey(row);
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      unique.push(row);
+    }
+  }
+  return unique;
 }
 
 async function backfillLedgerReceipts({ townName } = {}) {
@@ -218,7 +232,22 @@ async function backfillLedgerReceipts({ townName } = {}) {
   return { success: true, updated, archived };
 }
 
+let moneyEventMutex = Promise.resolve();
+
 async function recordMoneyEvent(data) {
+  return new Promise((resolve, reject) => {
+    moneyEventMutex = moneyEventMutex.then(async () => {
+      try {
+        const result = await _recordMoneyEvent(data);
+        resolve(result);
+      } catch (err) {
+        reject(err);
+      }
+    }).catch(() => {});
+  });
+}
+
+async function _recordMoneyEvent(data) {
   const amount = toMoney(data?.amount ?? data?.Amount);
   if (amount <= 0) return { skipped: true, reason: 'amount_zero' };
   const sourceType = data.sourceType || data.Source_Type || 'manual';
@@ -261,6 +290,7 @@ async function recordMoneyEvent(data) {
     Amount: amount,
     Debit_Account: accounts.debit,
     Credit_Account: accounts.credit,
+    Payment_Method: data.paymentMethod || data.Payment_Method || 'cash',
     Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
     Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
     Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
@@ -319,6 +349,7 @@ async function computePendingCollection(townName) {
   };
   return sales
     .filter((s) => !townName || String(s.Town_Name || '') === String(townName))
+    .filter((s) => !['cancelled', 'resold'].includes(String(s.Status || '').trim().toLowerCase()))
     .reduce((sum, s) => {
       const total = toMoney(s.Total_Amount_PKR);
       const installmentCount = parseInt(s.Total_Installments, 10) || 0;
@@ -397,27 +428,71 @@ async function getTownFinancialSummary(townName) {
 async function getAllTownFinancialSummaries() {
   const fp = await ensureSummaryFile();
   const rows = await readExcelFile(fp, 'Data');
-  const towns = rows.map((row) => String(row.Town_Name || '').trim()).filter(Boolean);
-  for (const town of towns) {
+
+  // Only process towns whose .xlsx file still exists on disk.
+  // Deleted towns must not appear in financials or the CEO dashboard.
+  const { getTownsPath } = require('./core');
+  const townsPath = getTownsPath();
+  const activeTownFiles = require('fs').existsSync(townsPath)
+    ? require('fs').readdirSync(townsPath).filter(f => f.endsWith('.xlsx')).map(f => f.replace(/\.xlsx$/i, ''))
+    : [];
+  const activeTownSet = new Set(activeTownFiles.map(n => String(n).trim().toLowerCase()));
+
+  // Remove stale TFS rows for deleted towns (they can distort CEO dashboard totals)
+  for (const row of rows) {
+    const town = String(row.Town_Name || '').trim();
+    if (town && !activeTownSet.has(town.toLowerCase()) && row._rowNumber) {
+      try {
+        const { deleteExcelRow } = require('./core');
+        await deleteExcelRow(fp, 'Data', row._rowNumber);
+      } catch (_) {}
+    }
+  }
+
+  // Refresh only active towns
+  for (const town of activeTownFiles) {
     await refreshTownFinancialSummary(town).catch(() => {});
   }
+
   const refreshed = await readExcelFile(fp, 'Data');
-  return refreshed.map((row) => ({
-    Town_Name: row.Town_Name || '',
-    Total_Received: toMoney(row.Total_Received),
-    Total_Expenses: toMoney(row.Total_Expenses),
-    Cash_Balance: toMoney(row.Cash_Balance),
-    Pending_Collection: toMoney(row.Pending_Collection),
-    Investor_Balance: toMoney(row.Investor_Balance),
-    Updated_At: row.Updated_At || '',
-  })).filter((row) => row.Town_Name);
+  return refreshed
+    .filter(row => {
+      const town = String(row.Town_Name || '').trim();
+      return town && activeTownSet.has(town.toLowerCase());
+    })
+    .map((row) => ({
+      Town_Name: row.Town_Name || '',
+      Total_Received: toMoney(row.Total_Received),
+      Total_Expenses: toMoney(row.Total_Expenses),
+      Cash_Balance: toMoney(row.Cash_Balance),
+      Pending_Collection: toMoney(row.Pending_Collection),
+      Investor_Balance: toMoney(row.Investor_Balance),
+      Updated_At: row.Updated_At || '',
+    }));
 }
+
 
 async function backfillMoneyLedger() {
   await ensureMoneyLedgerFile();
   const globals = getGlobalsPath();
   const safeRead = async (file) => {
     try { return await readExcelFile(path.join(globals, file), 'Data'); } catch (_) { return []; }
+  };
+
+  // Build active town set — only process data belonging to towns that still exist on disk.
+  // Records for deleted towns are SKIPPED so they never pollute Money_Ledger or any town balance.
+  const townsPath = getTownsPath();
+  const activeTownSet = new Set(
+    require('fs').existsSync(townsPath)
+      ? require('fs').readdirSync(townsPath)
+          .filter(f => f.endsWith('.xlsx'))
+          .map(f => f.replace(/\.xlsx$/i, '').trim().toLowerCase())
+      : []
+  );
+  // Helper: returns true only if the record belongs to an active (non-deleted) town.
+  const isActiveTown = (townName) => {
+    const t = String(townName || '').trim();
+    return t && activeTownSet.has(t.toLowerCase());
   };
 
   const [sales, installments, collections, expenses, ceoExpenses, ceoSalary, salaries, investorTx, constructionPayments, commissionReceipts] = await Promise.all([
@@ -433,7 +508,10 @@ async function backfillMoneyLedger() {
     safeRead('Commission_Receipts.xlsx'),
   ]);
 
+
   for (const s of sales || []) {
+    if (s.Daily_Entry_ID) continue;
+    if (!isActiveTown(s.Town_Name)) continue;
     const saleId = s.Sale_ID || `${s.Type}|${s.Plot_Shop_Number}|${s.Town_Name}|${s.Receipt_Number}`;
     const advance = toMoney(s.Advance_Amount_PKR);
     if (advance > 0) {
@@ -455,6 +533,7 @@ async function backfillMoneyLedger() {
   }
 
   for (const c of collections || []) {
+    if (!isActiveTown(c.Town_Name)) continue;
     const sourceId = c.Payment_ID || `${c.Sale_ID}|${c.Payment_Date}|${c.Amount}`;
     const receiptNumber = c.Receipt_Number || stableReceiptNumber({
       sourceType: 'collection_payment',
@@ -482,6 +561,7 @@ async function backfillMoneyLedger() {
 
   for (const i of installments || []) {
     if (String(i.Status || '').toLowerCase() !== 'paid') continue;
+    if (!isActiveTown(i.Town_Name)) continue;
     const sourceId = i.Tracker_ID || `${i.Town_Name}|${i.Type}|${i.Plot_Shop_Number}|${i.Month_Number}`;
     const receiptNumber = i.Receipt_Number || stableReceiptNumber({
       sourceType: 'installment_payment',
@@ -506,6 +586,7 @@ async function backfillMoneyLedger() {
   }
 
   for (const e of expenses || []) {
+    if (!isActiveTown(e.Town_Name)) continue;
     const category = String(e.Category || '').toLowerCase();
     const name = String(e.Expense_Name || '').toLowerCase();
     if (
@@ -532,6 +613,7 @@ async function backfillMoneyLedger() {
   }
 
   for (const e of ceoExpenses || []) {
+    if (!isActiveTown(e.Town_Name)) continue;
     await recordMoneyEvent({
       sourceType: 'ceo_expense',
       sourceId: e.Expense_ID || `${e.Town_Name}|${e.Date}|${e.Expense_Name}|${e.Amount_PKR}`,
@@ -545,6 +627,7 @@ async function backfillMoneyLedger() {
   }
 
   for (const s of ceoSalary || []) {
+    if (!isActiveTown(s.Town_Name)) continue;
     await recordMoneyEvent({
       sourceType: 'ceo_salary',
       sourceId: s.Salary_ID || `${s.Town_Name}|${s.Month_Year}`,
@@ -558,6 +641,7 @@ async function backfillMoneyLedger() {
   }
 
   for (const s of salaries || []) {
+    if (!isActiveTown(s.Town_Name)) continue;
     const cashDisbursed = toMoney(s.Cash_Disbursed_Amount !== undefined && s.Cash_Disbursed_Amount !== '' ? s.Cash_Disbursed_Amount : s.Amount);
     const salaryApplied = toMoney(s.Salary_Paid_Amount !== undefined && s.Salary_Paid_Amount !== '' ? s.Salary_Paid_Amount : s.Amount);
     const advanceGiven = toMoney(s.New_Advance_Given);
@@ -593,6 +677,7 @@ async function backfillMoneyLedger() {
   }
 
   for (const t of investorTx || []) {
+    if (!isActiveTown(t.Town_Name)) continue;
     await recordMoneyEvent({
       sourceType: 'investor_transaction',
       sourceId: t.Transaction_ID,
@@ -607,6 +692,7 @@ async function backfillMoneyLedger() {
   }
 
   for (const p of constructionPayments || []) {
+    if (!isActiveTown(p.Town_Name)) continue;
     await recordMoneyEvent({
       sourceType: 'construction_payment',
       sourceId: p.Payment_ID,
@@ -621,6 +707,7 @@ async function backfillMoneyLedger() {
   }
 
   for (const c of commissionReceipts || []) {
+    if (!isActiveTown(c.Town_Name)) continue;
     await recordMoneyEvent({
       sourceType: 'commission_payment',
       sourceId: c.Receipt_ID || c.Commission_ID || c.Receipt_Number,
@@ -638,6 +725,7 @@ async function backfillMoneyLedger() {
 }
 
 async function getBankAccountTransactions({ townName, accountId, fromDate, toDate }) {
+  const { getPaymentAccounts } = require('./cashBanks');
   const account_id = String(accountId || 'cash-in-hand').trim().toLowerCase();
   const allLedger = await getMoneyLedger({ townName });
   

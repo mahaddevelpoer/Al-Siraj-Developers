@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BriefcaseIcon, UsersIcon, WarnIcon } from './Icons';
-import PaymentAccountSelect from './PaymentAccountSelect';
+import PaymentMethodSelector from './shared/PaymentMethodSelector'; // PaymentAccountSelect
 
 export default function CommissionTracker({ showToast, townName, refreshKey = 0 }) {
   const [sales, setSales] = useState([]);
@@ -185,7 +185,7 @@ export default function CommissionTracker({ showToast, townName, refreshKey = 0 
                     <input type="number" min="1" max={remaining || undefined} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} autoFocus />
                     <div className="field-helper-text">This creates commission receipt, expense daily entry, and debit/credit money ledger row.</div>
                   </div>
-                  <PaymentAccountSelect
+                  <PaymentMethodSelector
                     townName={townName || payTarget.Town_Name || payTarget.town_name}
                     value={paymentAccount}
                     onChange={setPaymentAccount}

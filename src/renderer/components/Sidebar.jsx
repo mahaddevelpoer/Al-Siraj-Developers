@@ -51,29 +51,52 @@ const EMPLOYEE_GROUPS = (t) => [
   }
 ];
 
-export default function Sidebar({ panel, page, setPage, onLogout, userRole, onSwitchWorkspace }) {
+export default function Sidebar({ panel, page, setPage, onLogout, userRole, onSwitchWorkspace, collapsed, setCollapsed }) {
   const { t, lang, setLang } = useLang();
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [alertModal, setAlertModal] = useState(null);
   const groups = panel === 'ceo' ? CEO_GROUPS(t, userRole) : EMPLOYEE_GROUPS(t);
 
   return (
-    <div className="sidebar">
+    <div className={`sidebar${collapsed ? ' collapsed' : ''}`}>
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
-      <div className="sidebar-logo">
-        <img src="./logo.png" alt="AL SIRAJ DEVELOPERS" className="sidebar-brand-mark" />
-        <div>
-          <h1>AL SIRAJ DEVELOPERS</h1>
-          <span>{panel === 'ceo' ? 'CEO Control Center' : 'Employee Sales Window'}</span>
-        </div>
+      <div className="sidebar-logo" style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', gap: '8px' }}>
+        <img 
+          src="./logo.png" 
+          alt="AL SIRAJ DEVELOPERS" 
+          className="sidebar-brand-mark" 
+          onClick={() => setCollapsed(!collapsed)} 
+          style={{ cursor: 'pointer', width: '36px', height: '36px' }} 
+          title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+        />
+        {!collapsed && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginLeft: '12px' }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '14px', fontWeight: 800 }}>AL SIRAJ</h1>
+              <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                {panel === 'ceo' ? 'CEO' : 'Sales'}
+              </span>
+            </div>
+            <button 
+              onClick={() => setCollapsed(true)} 
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', padding: '0 4px' }}
+              title="Collapse Sidebar"
+            >
+              ⟨
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="sidebar-scroll" style={{ flex: 1, overflowY: 'auto' }}>
         {groups.map((group, gIdx) => (
           <div key={gIdx} className="sidebar-section">
-            <div className="sidebar-section-title" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 8, marginTop: gIdx > 0 ? 16 : 0, fontWeight: 800 }}>
-              {group.title}
-            </div>
+            {!collapsed && (
+              <div className="sidebar-section-title" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 8, marginTop: gIdx > 0 ? 16 : 0, fontWeight: 800 }}>
+                {group.title}
+              </div>
+            )}
             {group.items.map(item => {
               const IconComp = item.icon;
               return (
@@ -81,9 +104,10 @@ export default function Sidebar({ panel, page, setPage, onLogout, userRole, onSw
                   key={item.key}
                   className={`sidebar-item${page === item.key ? ' active' : ''}`}
                   onClick={() => setPage(item.key)}
+                  title={collapsed ? item.label : ''}
                 >
                   <span className="icon"><IconComp /></span>
-                  {item.label}
+                  {!collapsed && <span style={{ marginLeft: '10px' }}>{item.label}</span>}
                 </div>
               );
             })}
@@ -91,8 +115,8 @@ export default function Sidebar({ panel, page, setPage, onLogout, userRole, onSw
         ))}
       </div>
 
-      <div className="sidebar-section" style={{ marginTop: 'auto' }}>
-        <div className="ui-sidebar-divider" />
+      <div className="sidebar-section" style={{ marginTop: 'auto', paddingBottom: '16px' }}>
+        {!collapsed && <div className="ui-sidebar-divider" style={{ height: '1px', background: 'var(--border-color)', margin: '10px 0' }} />}
 
         {/* Workspace Switch (CEO & Accountant) */}
         {(userRole === 'ceo' || userRole === 'accountant') && onSwitchWorkspace && (
@@ -100,8 +124,10 @@ export default function Sidebar({ panel, page, setPage, onLogout, userRole, onSw
             className="sidebar-item"
             onClick={() => onSwitchWorkspace()}
             style={{ color: 'var(--accent-blue)' }}
+            title={collapsed ? `Switch Workspace` : ''}
           >
-            Switch to {panel === 'ceo' ? 'Employee' : 'CEO'} Workspace
+            <span className="icon"><PropertyIcon /></span>
+            {!collapsed && <span style={{ marginLeft: '10px' }}>Switch Workspace</span>}
           </div>
         )}
 
@@ -110,17 +136,20 @@ export default function Sidebar({ panel, page, setPage, onLogout, userRole, onSw
           <div
             className="sidebar-item"
             onClick={() => setShowLangMenu(v => !v)}
-            style={{ justifyContent: 'space-between' }}
+            style={{ justifyContent: collapsed ? 'center' : 'space-between' }}
+            title={collapsed ? t.language : ''}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ display: 'flex', alignItems: 'center' }}>
               <span className="icon"><LangIcon /></span>
-              {t.language}
+              {!collapsed && <span style={{ marginLeft: '10px' }}>{t.language}</span>}
             </span>
-            <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>
-              {LANGUAGES.find(l => l.code === lang)?.label}
-            </span>
+            {!collapsed && (
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>
+                {LANGUAGES.find(l => l.code === lang)?.label}
+              </span>
+            )}
           </div>
-          {showLangMenu && (
+          {showLangMenu && !collapsed && (
             <div className="ui-sidebar-lang-menu">
               {LANGUAGES.map(l => (
                 <div
@@ -144,21 +173,46 @@ export default function Sidebar({ panel, page, setPage, onLogout, userRole, onSw
           onClick={async () => {
             if (window.api) {
               const r = await window.api.triggerBackup();
-              alert(r?.success ? `Backup saved to: ${r.location}` : 'Backup failed');
+              setAlertModal(r?.success ? `Backup saved to: ${r.location}` : 'Backup failed');
             }
           }}
+          title={collapsed ? t.manualBackup : ''}
         >
           <span className="icon"><SaveIcon /></span>
-          {t.manualBackup}
+          {!collapsed && <span style={{ marginLeft: '10px' }}>{t.manualBackup}</span>}
         </div>
-        <div className="sidebar-item" onClick={() => setShowSettings(true)}>
-          Settings
+        
+        <div 
+          className="sidebar-item" 
+          onClick={() => setShowSettings(true)}
+          title={collapsed ? 'Settings' : ''}
+        >
+          <span className="icon"><TownIcon /></span>
+          {!collapsed && <span style={{ marginLeft: '10px' }}>Settings</span>}
         </div>
-        <div className="sidebar-item" onClick={onLogout} style={{ color: 'var(--accent-red)' }}>
+
+        <div 
+          className="sidebar-item" 
+          onClick={onLogout} 
+          style={{ color: 'var(--accent-red)' }}
+          title={collapsed ? t.logout : ''}
+        >
           <span className="icon"><LogoutIcon /></span>
-          {t.logout}
+          {!collapsed && <span style={{ marginLeft: '10px' }}>{t.logout}</span>}
         </div>
       </div>
+
+      {alertModal && (
+        <div className="modal-overlay" onClick={() => setAlertModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:400,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Notification</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>{alertModal}</p>
+            <div style={{display:'flex',justifyContent:'flex-end'}}>
+              <button className="btn btn-primary" onClick={() => setAlertModal(null)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

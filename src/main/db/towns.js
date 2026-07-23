@@ -204,6 +204,9 @@ async function addCeoExpense(data) {
     partyName: 'CEO',
     description: Expense_Name,
     createdBy: 'CEO',
+    paymentAccountId: data.paymentAccountId || 'cash-in-hand',
+    paymentAccountName: data.paymentAccountName || 'Cash in Hand',
+    paymentAccountType: data.paymentAccountType || 'cash',
   });
 
   if (isOverLimit) {
@@ -235,6 +238,23 @@ async function deleteCeoExpense(expenseId) {
   }
 
   await recomputeCeoLimitFlags(item.Town_Name);
+
+  const ledgerPath = path.join(getGlobalsPath(), 'Money_Ledger.xlsx');
+  if (require('fs').existsSync(ledgerPath)) {
+    const ledger = await readExcelFile(ledgerPath, 'Data');
+    const ledgerMatch = ledger.find(r => 
+      String(r.Source_Type) === 'ceo_expense' && 
+      String(r.Source_ID) === String(expenseId)
+    );
+    if (ledgerMatch) {
+      await deleteExcelRow(ledgerPath, 'Data', ledgerMatch._rowNumber);
+    }
+  }
+
+  const { refreshTownFinancialSummary } = require('./moneyLedger');
+  if (item.Town_Name) await refreshTownFinancialSummary(item.Town_Name).catch(() => {});
+  const { updateTownFinancials } = require('./properties');
+  if (item.Town_Name) await updateTownFinancials(item.Town_Name);
   return { success: true };
 }
 

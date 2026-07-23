@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import OfficialReceipt from '../../components/OfficialReceipt';
-import PaymentAccountSelect from '../../components/PaymentAccountSelect';
+import PaymentMethodSelector from '../../components/shared/PaymentMethodSelector'; // PaymentAccountSelect
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { createBusinessAppeal, verifyBusinessAppealOtp } from '../../lib/appeals';
@@ -524,6 +524,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
   const [paymentAccount, setPaymentAccount] = useState(null);
+  const [showAdvanceConfirm, setShowAdvanceConfirm] = useState(false);
 
   useEffect(() => {
     loadActiveAdvance();
@@ -563,17 +564,16 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
   const netAmount = Math.max(0, numericPaymentAmount - advanceDeduction);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e && e.preventDefault();
     if (!month || numericBaseSalary <= 0 || numericPaymentAmount <= 0) {
       showToast('Please fill month, base salary and pay amount', 'error');
       return;
     }
-    if (numericPaymentAmount > remainingSalary) {
-      const ok = window.confirm(
-        `Only PKR ${remainingSalary.toLocaleString()} is remaining for ${employee.name}'s ${month} salary. Save the extra PKR ${advanceFromOverpay.toLocaleString()} as an advance salary?`
-      );
-      if (!ok) return;
+    if (numericPaymentAmount > remainingSalary && !showAdvanceConfirm) {
+      setShowAdvanceConfirm(true);
+      return;
     }
+    setShowAdvanceConfirm(false);
     setLoading(true);
     try {
       // Deduct active advance installment
@@ -761,7 +761,7 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
             )}
           </div>
 
-          <PaymentAccountSelect
+          <PaymentMethodSelector
             townName={townName}
             value={paymentAccount}
             onChange={setPaymentAccount}
@@ -885,6 +885,32 @@ function SalaryPaymentPanel({ employee, townName, showToast, onClose, onSaved })
             {loading ? <><IconHourglass size={14} /> Processing...</> : <><IconCheck size={14} /> Confirm & Print Receipt</>}
           </button>
         </form>
+
+        {/* Advance Confirm Modal */}
+        {showAdvanceConfirm && (
+          <div style={{
+            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
+            borderRadius: 16, backdropFilter: 'blur(2px)'
+          }}>
+            <div style={{
+              background: 'var(--bg-card)', borderRadius: 16, padding: 24, width: '85%',
+              border: '1px solid var(--border-color)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+              textAlign: 'center'
+            }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 800 }}>Confirm Advance Salary</h3>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+                Only <strong>PKR {remainingSalary.toLocaleString()}</strong> is remaining for {employee.name}'s {month} salary.<br/>
+                Save the extra <strong>PKR {advanceFromOverpay.toLocaleString()}</strong> as an advance salary?
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button className="btn btn-ghost" onClick={(e) => { e.preventDefault(); setShowAdvanceConfirm(false); }} style={{ flex: 1, border: '1px solid var(--border-color)' }}>Cancel</button>
+                <button className="btn btn-primary" onClick={(e) => { e.preventDefault(); handleSubmit(); }} style={{ flex: 1 }}>Yes, Save as Advance</button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

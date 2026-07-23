@@ -15,6 +15,7 @@ export default function AgentRegister() {
   const [tempUserId, setTempUserId] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [alertModal, setAlertModal] = useState(null);
 
   useEffect(() => {
     if (step !== 2) return;
@@ -41,8 +42,13 @@ export default function AgentRegister() {
       }, async (payload) => {
         if (!payload.new?.is_active) return;
         try { await auth.signInWithPassword({ email, password }); } catch (_) {}
-        alert('CEO approved your account. Agent dashboard is now available.');
-        window.location.href = '/';
+        setAlertModal({
+           message: 'CEO approved your account. Agent dashboard is now available.',
+           onClose: () => {
+             setAlertModal(null);
+             window.location.href = '/';
+           }
+        });
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -185,6 +191,18 @@ export default function AgentRegister() {
           </div>
         )}
       </div>
+
+      {alertModal && (
+        <div className="modal-overlay" onClick={alertModal.onClose}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:400,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Notification</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>{alertModal.message}</p>
+            <div style={{display:'flex',justifyContent:'flex-end'}}>
+              <button className="btn btn-primary" onClick={alertModal.onClose}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

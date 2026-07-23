@@ -18,8 +18,22 @@ export default function AddEmployee({ showToast }) {
   };
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null);
 
   useEffect(() => { loadEmployees(); }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      loadEmployees();
+    };
+    window.addEventListener('al-siraj-business-data-changed', handler);
+    window.addEventListener('al-siraj-data-refreshed', handler);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', handler);
+      window.removeEventListener('al-siraj-data-refreshed', handler);
+    };
+  }, []);
+
   const loadEmployees = async () => { if (!window.api) return; const d = await window.api.getEmployees(); if (Array.isArray(d)) setEmployees(d); };
 
   const handleSubmit = async (e) => {
@@ -35,10 +49,16 @@ export default function AddEmployee({ showToast }) {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Deactivate this employee?')) return;
-    await window.api.deleteEmployee(id);
-    showToast('Employee deactivated');
-    loadEmployees();
+    setConfirmModal({
+      message: 'Deactivate this employee?',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        await window.api.deleteEmployee(id);
+        showToast('Employee deactivated');
+        loadEmployees();
+      },
+      onCancel: () => setConfirmModal(null)
+    });
   };
 
   return (
@@ -73,6 +93,18 @@ export default function AddEmployee({ showToast }) {
           </table>
         )}
       </div>
+      {confirmModal && (
+        <div className="modal-overlay" onClick={() => setConfirmModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Confirm Action</h3>
+            <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>{confirmModal.message}</p>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn btn-secondary" onClick={confirmModal.onCancel}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmModal.onConfirm}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

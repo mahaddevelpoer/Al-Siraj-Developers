@@ -11,7 +11,7 @@ const {
   writeWorkbookAtomic,
   syncMirrorsForFile,
 } = require('./core');
-const { getMoneyLedger } = require('./moneyLedger');
+const { getMoneyLedger, recordMoneyEvent, refreshTownFinancialSummary } = require('./moneyLedger');
 const { parseMoney } = require('./moneyUtils');
 
 const FILE_NAME = 'Cash_Bank_Accounts.xlsx';
@@ -87,7 +87,7 @@ async function getPaymentAccounts(townName = '') {
       return rowId === id;
     });
     const totalCredit = related
-      .filter((row) => String(row.Direction || '').toLowerCase() === 'income')
+      .filter((row) => String(row.Direction || '').toLowerCase() === 'income' && String(row.Source_Type || '').toLowerCase() !== 'bank_opening')
       .reduce((sum, row) => sum + money(row.Amount), 0);
     const totalDebit = related
       .filter((row) => String(row.Direction || '').toLowerCase() === 'expense')
@@ -130,6 +130,26 @@ async function addBankAccount(data = {}) {
     Sync_Status: 'pending',
   };
   await appendToExcel(fp, 'Data', row);
+
+  if (data.IncludeInTownBalance && row.Opening_Balance > 0) {
+    try {
+      await recordMoneyEvent({
+        townName: row.Town_Name,
+        direction: 'income',
+        amount: row.Opening_Balance,
+        sourceType: 'bank_opening',
+        sourceId: row.Account_ID,
+        paymentAccountId: row.Account_ID,
+        paymentAccountType: row.Account_Type,
+        description: `Opening balance added for ${row.Account_Name}`,
+        date: now.split('T')[0]
+      });
+      await refreshTownFinancialSummary(row.Town_Name);
+    } catch (e) {
+      console.error('Failed to record opening balance in money ledger:', e);
+    }
+  }
+
   return row;
 }
 

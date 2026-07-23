@@ -268,10 +268,25 @@ async function upsertDueInstallmentNotifications({ leadDays = 7 } = {}) {
   return created;
 }
 
+let markInstallmentMutex = Promise.resolve();
+
 async function markInstallmentPaid(data) {
+  return new Promise((resolve, reject) => {
+    markInstallmentMutex = markInstallmentMutex.then(async () => {
+      try {
+        const result = await _markInstallmentPaid(data);
+        resolve(result);
+      } catch (err) {
+        reject(err);
+      }
+    }).catch(() => {});
+  });
+}
+
+async function _markInstallmentPaid(data) {
   const { Tracker_ID } = data;
   const filePath = path.join(getGlobalsPath(), 'Installments_Tracker.xlsx');
-  await ensureSheetColumns(filePath, 'Data', ['Sale_ID', 'Receipt_Number', 'Paid_By', 'Payee_Name']);
+  await ensureSheetColumns(filePath, 'Data', ['Sale_ID', 'Receipt_Number', 'Paid_By', 'Payee_Name', 'Payment_Method', 'Payment_Account_ID', 'Payment_Account_Name', 'Payment_Account_Type']);
   let all = await readExcelFile(filePath, 'Data');
   let item = all.find(i => i.Tracker_ID === Tracker_ID);
   if (!item && String(Tracker_ID || '').startsWith('missing|')) {
@@ -328,6 +343,10 @@ async function markInstallmentPaid(data) {
     Receipt_Number: receiptNumber,
     Paid_By: data.Paid_By || data.createdBy || 'Accountant',
     Payee_Name: data.Payee_Name || item.Customer_Name || '',
+    Payment_Method: data.paymentMethod || data.Payment_Method || 'Cash',
+    Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+    Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
   });
 
   const salesPath = path.join(getGlobalsPath(), 'All_Sales.xlsx');
@@ -383,9 +402,7 @@ async function markInstallmentPaid(data) {
   }
 
   // Recalculate town financials
-  const { updateTownFinancials } = require('./properties');
-  if (item.Town_Name) await updateTownFinancials(item.Town_Name);
-  if (item.Town_Name) await refreshTownFinancialSummary(item.Town_Name).catch(() => {});
+
   if (sale && newRemainingForSale !== null && newRemainingForSale <= 0) {
     await upsertCommissionForSaleLocal({ ...sale, Received_Amount: newReceivedForSale, Remaining_Amount: newRemainingForSale });
   }
@@ -400,10 +417,15 @@ async function markInstallmentPaid(data) {
     description: `${item.Type || 'Property'} ${item.Plot_Shop_Number || ''} installment ${item.Month_Number || ''}`,
     receiptNumber,
     createdBy: item.Agent_Name || 'System',
+    paymentMethod: data.paymentMethod || data.Payment_Method,
     paymentAccountId: data.paymentAccountId || data.Payment_Account_ID,
     paymentAccountName: data.paymentAccountName || data.Payment_Account_Name,
     paymentAccountType: data.paymentAccountType || data.Payment_Account_Type,
   });
+
+  const { updateTownFinancials } = require('./properties');
+  if (item.Town_Name) await updateTownFinancials(item.Town_Name);
+  if (item.Town_Name) await refreshTownFinancialSummary(item.Town_Name).catch(() => {});
 
   const receiptPayload = {
     receiptNumber,
@@ -419,6 +441,10 @@ async function markInstallmentPaid(data) {
     installmentNumber: item.Month_Number || '',
     totalInstallments: item.Total_Months || '',
     dueDate: item.Due_Date || '',
+    paymentMethod: data.paymentMethod || data.Payment_Method || 'Cash',
+    paymentAccountName: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+    paymentAccountType: data.paymentAccountType || data.Payment_Account_Type || 'cash',
+    remainingAmount: newRemainingForSale !== null ? newRemainingForSale : (prop ? (parseFloat(prop.Remaining_Amount) - parseFloat(item.Monthly_Amount)) : 0),
   };
   let receiptArchive = null;
   try {
@@ -537,6 +563,22 @@ async function addCeoSalary(data) {
     Notes: Notes || '',
   };
   await appendToExcel(path.join(getGlobalsPath(), 'CEO_Salary.xlsx'), 'Data', salaryData);
+  const { recordMoneyEvent } = require('./moneyLedger');
+  await recordMoneyEvent({
+    sourceType: 'ceo_salary',
+    sourceId: salaryData.Salary_ID,
+    direction: 'expense',
+    amount: salaryData.Amount_PKR,
+    townName: salaryData.Town_Name,
+    date: salaryData.Date_Recorded,
+    partyName: 'CEO',
+    description: `CEO salary ${salaryData.Month_Year || ''}`,
+    createdBy: 'CEO',
+    paymentAccountId: data.paymentAccountId || 'cash-in-hand',
+    paymentAccountName: data.paymentAccountName || 'Cash in Hand',
+    paymentAccountType: data.paymentAccountType || 'cash',
+  });
+
   // Also trigger town financial update
   const { updateTownFinancials } = require('./properties');
   if (Town_Name) await updateTownFinancials(Town_Name);
@@ -550,6 +592,21 @@ async function deleteCeoSalary(salaryId) {
   if (!item) return { error: 'Salary record not found' };
   const { deleteExcelRow } = require('./core');
   await deleteExcelRow(filePath, 'Data', item._rowNumber);
+  
+  const ledgerPath = path.join(getGlobalsPath(), 'Money_Ledger.xlsx');
+  if (require('fs').existsSync(ledgerPath)) {
+    const ledger = await readExcelFile(ledgerPath, 'Data');
+    const ledgerMatch = ledger.find(r => 
+      String(r.Source_Type) === 'ceo_salary' && 
+      String(r.Source_ID) === String(salaryId)
+    );
+    if (ledgerMatch) {
+      await deleteExcelRow(ledgerPath, 'Data', ledgerMatch._rowNumber);
+    }
+  }
+
+  const { refreshTownFinancialSummary } = require('./moneyLedger');
+  if (item.Town_Name) await refreshTownFinancialSummary(item.Town_Name).catch(() => {});
   const { updateTownFinancials } = require('./properties');
   if (item.Town_Name) await updateTownFinancials(item.Town_Name);
   return { success: true };
@@ -657,7 +714,7 @@ async function recordSalaryPayment(data) {
   await ensureSheetColumns(recordsPath, 'Data', [
     'Receipt_Number','Date','Payment_Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By',
     'Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After',
-    'Salary_Remaining_After','Is_Advance_Salary','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'
+    'Salary_Remaining_After','Is_Advance_Salary','Payment_Method','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'
   ]);
   const previousRows = await readExcelFile(recordsPath, 'Data').catch(() => []);
   const cleanName = String(employeeName || '').trim().toLowerCase();
@@ -705,6 +762,7 @@ async function recordSalaryPayment(data) {
     Salary_Paid_After: paidAfter,
     Salary_Remaining_After: remainingAfter,
     Is_Advance_Salary: isAdvanceSalary || extraAdvance > 0 ? 'Yes' : 'No',
+    Payment_Method: data.paymentMethod || data.Payment_Method || 'Cash',
     Payment_Account_ID: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
     Payment_Account_Name: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
     Payment_Account_Type: data.paymentAccountType || data.Payment_Account_Type || 'cash',
@@ -736,6 +794,7 @@ async function recordSalaryPayment(data) {
       description: `${type || 'Employee'} salary applied ${month || ''}`,
       receiptNumber,
       createdBy: 'CEO',
+      paymentMethod: salaryData.Payment_Method,
       paymentAccountId: salaryData.Payment_Account_ID,
       paymentAccountName: salaryData.Payment_Account_Name,
       paymentAccountType: salaryData.Payment_Account_Type,
@@ -755,6 +814,7 @@ async function recordSalaryPayment(data) {
       debitAccount: 'Employee Advance Receivable',
       creditAccount: 'Cash / Bank',
       createdBy: 'CEO',
+      paymentMethod: salaryData.Payment_Method,
       paymentAccountId: salaryData.Payment_Account_ID,
       paymentAccountName: salaryData.Payment_Account_Name,
       paymentAccountType: salaryData.Payment_Account_Type,
@@ -777,18 +837,46 @@ async function getProfitLossReport() {
   const { getTowns } = require('./towns');
   await backfillMoneyLedger();
   const towns = await getTowns();
+  const { getMoneyLedger } = require('./moneyLedger');
 
   const reports = [];
   for (const t of towns) {
     const money = await getMoneySummary(t.Town_Name);
+    const ledgerRows = await getMoneyLedger({ townName: t.Town_Name });
+    
+    // Filter approved expenses only to break down totals accurately
+    const approvedExpenses = ledgerRows.filter(r => 
+      String(r.Status || 'approved').toLowerCase() === 'approved' &&
+      String(r.Direction || '').toLowerCase() === 'expense'
+    );
+
+    let commission = 0;
+    let ceoExpenses = 0;
+    let ceoSalary = 0;
+    let opExpenses = 0;
+
+    approvedExpenses.forEach(r => {
+      const amt = parseFloat(r.Amount) || 0;
+      const src = String(r.Source_Type || '').toLowerCase();
+      if (src === 'ceo_expense') {
+        ceoExpenses += amt;
+      } else if (src === 'ceo_salary') {
+        ceoSalary += amt;
+      } else if (src === 'commission_payment') {
+        commission += amt;
+      } else {
+        opExpenses += amt;
+      }
+    });
+
     reports.push({
       Town_Name: t.Town_Name,
       Total_Income: money.totalReceived,
       Total_Received: money.totalReceived,
-      Commission: 0,
-      Operation_Expenses: money.totalExpenses,
-      CEO_Expenses: 0,
-      CEO_Salary: 0,
+      Commission: commission,
+      Operation_Expenses: opExpenses,
+      CEO_Expenses: ceoExpenses,
+      CEO_Salary: ceoSalary,
       Total_Expenses: money.totalExpenses,
       Cash_Balance: money.cashBalance,
       Net_Profit_Loss: money.cashBalance,
@@ -809,17 +897,41 @@ async function getTownPerformance(townName) {
 
   const tSales = sales.filter(s => s.Town_Name === townName);
   const income = money.totalReceived;
-  const opExp = money.totalExpenses;
-  const commission = 0;
-  const ceo = 0;
-  const salary = 0;
+  
+  const { getMoneyLedger } = require('./moneyLedger');
+  const ledgerRows = await getMoneyLedger({ townName });
+  
+  // Filter approved expenses only to break down totals accurately
+  const approvedExpenses = ledgerRows.filter(r => 
+    String(r.Status || 'approved').toLowerCase() === 'approved' &&
+    String(r.Direction || '').toLowerCase() === 'expense'
+  );
+
+  let commission = 0;
+  let ceo = 0;
+  let salary = 0;
+  let opExp = 0;
+
+  approvedExpenses.forEach(r => {
+    const amt = parseFloat(r.Amount) || 0;
+    const src = String(r.Source_Type || '').toLowerCase();
+    if (src === 'ceo_expense') {
+      ceo += amt;
+    } else if (src === 'ceo_salary') {
+      salary += amt;
+    } else if (src === 'commission_payment') {
+      commission += amt;
+    } else {
+      opExp += amt;
+    }
+  });
 
   const { getAllPropertiesByTown } = require('./properties');
   const { getTownPrices } = require('./towns');
   const allPlots = await getAllPropertiesByTown(townName, 'Plot');
   const allShops = await getAllPropertiesByTown(townName, 'Shop');
   let prices = {};
-  try { prices = await getTownPrices(townName); } catch {}
+  try { prices = await getTownPrices(townName) || {}; } catch {}
 
   const soldPlots = tSales.filter(s => s.Type === 'Plot').length;
   const soldShops = tSales.filter(s => s.Type === 'Shop').length;
@@ -956,8 +1068,22 @@ async function getPropertyInstallments(propertyId) {
     receiptNumber: inst.Receipt_Number || '',
   }));
 }
+let recordCollectionMutex = Promise.resolve();
 
-async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName, amount, paymentMethod, notes, paymentAccountId, paymentAccountName, paymentAccountType }) {
+async function recordCollectionPaymentLocal(data) {
+  return new Promise((resolve, reject) => {
+    recordCollectionMutex = recordCollectionMutex.then(async () => {
+      try {
+        const result = await _recordCollectionPaymentLocal(data);
+        resolve(result);
+      } catch (err) {
+        reject(err);
+      }
+    }).catch(() => {});
+  });
+}
+
+async function _recordCollectionPaymentLocal({ saleId, type, plotShopNumber, townName, amount, paymentMethod, notes, paymentAccountId, paymentAccountName, paymentAccountType }) {
   const filePath = path.join(getGlobalsPath(), 'All_Sales.xlsx');
   const all = await readExcelFile(filePath, 'Data');
   const item = all.find(i =>
@@ -1007,7 +1133,6 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
     }
   }
 
-  if (townName) await updateTownFinancials(townName);
 
   const historyPath = path.join(getGlobalsPath(), 'Collection_Payments.xlsx');
   await ensureCollectionPaymentsFile(historyPath);
@@ -1056,6 +1181,8 @@ async function recordCollectionPaymentLocal({ saleId, type, plotShopNumber, town
   if (newRemaining <= 0) {
     await upsertCommissionForSaleLocal({ ...item, Received_Amount: newReceived, Remaining_Amount: newRemaining });
   }
+
+  if (townName) await updateTownFinancials(townName);
 
   return { newReceived, newRemaining, payment: paymentRow };
 }

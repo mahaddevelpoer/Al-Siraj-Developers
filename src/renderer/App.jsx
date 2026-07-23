@@ -39,6 +39,23 @@ const PAGE_TITLES = {
   agentProperties: 'My Properties',
 };
 
+const BREADCRUMBS = {
+  dashboard: ['Dashboard'],
+  addTown: ['Dashboard', 'Towns', 'Add Town'],
+  addProperty: ['Dashboard', 'Plots & Shops', 'Add Plot'],
+  townPrices: ['Dashboard', 'Towns', 'Town Prices Setup'],
+  pendingCollections: ['Dashboard', 'Collections', 'Pending Collections'],
+  ceoExpenses: ['Dashboard', 'Expenses', 'CEO Expenses'],
+  addEmployee: ['Dashboard', 'Employees', 'Manage Employees'],
+  resellProperty: ['Dashboard', 'Properties', 'Resell Property'],
+  soldProperties: ['Dashboard', 'Properties', 'Sold Properties'],
+  sellFlow: ['Dashboard', 'Properties', 'Sell Property'],
+  installments: ['Dashboard', 'Collections', 'Installment Tracker'],
+  profitLoss: ['Dashboard', 'Reports', 'Profit & Loss'],
+  resellHistory: ['Dashboard', 'Properties', 'Resell History'],
+  commission: ['Dashboard', 'Collections', 'Commission Tracker'],
+};
+
 function PoweredByFooter({ compact }) {
   const [devUrl, setDevUrl] = React.useState('https://example.com');
   React.useEffect(() => {
@@ -339,9 +356,22 @@ function AppInner() {
   const [toast, setToast] = useState(null);
   const [ready, setReady] = useState(false);
 
+  // Phase 5: Input Focus Recovery for Electron "dead click" bug
+  useEffect(() => {
+    const handleInputClick = (e) => {
+      const target = e.target;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+        setTimeout(() => target.focus(), 10);
+      }
+    };
+    document.addEventListener('mousedown', handleInputClick);
+    return () => document.removeEventListener('mousedown', handleInputClick);
+  }, []);
+
   const [auditDue, setAuditDue] = useState(null);
   const [selectedTown, setSelectedTown] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('zameen_theme') || 'light');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [dataRefreshKey, setDataRefreshKey] = useState(0);
   const [cloudRefresh, setCloudRefresh] = useState({ visible: false, percent: 0, msg: '' });
   const [bellOpen, setBellOpen] = useState(false);
@@ -690,7 +720,10 @@ function AppInner() {
 
   useEffect(() => {
     if (window.api?.onSyncWarning) {
-      window.api.onSyncWarning((msg) => showToast(msg, 'error'));
+      window.api.onSyncWarning((msg) => {
+        const text = typeof msg === 'object' ? (msg.message || msg.error || JSON.stringify(msg)) : String(msg || '');
+        showToast(text, 'error');
+      });
     }
   }, [showToast]);
 
@@ -1371,13 +1404,15 @@ function AppInner() {
   }
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <ThemeToggle theme={theme} onToggle={toggleTheme} />
       <Sidebar
         panel={panel}
         page={page}
         setPage={setPage}
         userRole={userRole}
+        collapsed={sidebarCollapsed}
+        setCollapsed={setSidebarCollapsed}
         onSwitchWorkspace={() => {
           const newPanel = panel === 'ceo' ? 'employee' : 'ceo';
           if (userRole === 'accountant' && assignedAccountantTown) {
@@ -1393,7 +1428,16 @@ function AppInner() {
       <div className="main-content">
         <div className="main-header">
           <div>
-            <div className="header-eyebrow">AL SIRAJ DEVELOPERS</div>
+            <div className="breadcrumbs" style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 800 }}>
+              {BREADCRUMBS[page]?.map((crumb, idx) => (
+                <React.Fragment key={idx}>
+                  {idx > 0 && <span style={{ opacity: 0.5 }}>/</span>}
+                  <span style={{ color: idx === BREADCRUMBS[page].length - 1 ? 'var(--text-primary)' : 'inherit' }}>
+                    {crumb}
+                  </span>
+                </React.Fragment>
+              )) || <span>Dashboard</span>}
+            </div>
             <h2>{PAGE_TITLES[page] || 'Dashboard'}</h2>
           </div>
           <div className="main-header-actions">
@@ -1406,7 +1450,7 @@ function AppInner() {
             {headerBellNode}
           </div>
         </div>
-        <div className="main-body">{renderPage()}</div>
+        <div className="main-body fade-in-page" key={page}>{renderPage()}</div>
         <PoweredByFooter compact />
       </div>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}

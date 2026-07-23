@@ -13,8 +13,40 @@ ChartJS.register(CategoryScale, LinearScale, ArcElement, PointElement, LineEleme
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { labels: { color: '#94a3b8', font: { size: 12 } } } },
-  scales: { x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(42,49,80,0.3)' } }, y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(42,49,80,0.3)' } } },
+  plugins: {
+    legend: {
+      position: 'top',
+      labels: {
+        color: 'var(--text-secondary)',
+        font: { family: 'Plus Jakarta Sans', size: 12, weight: '600' },
+        boxWidth: 8,
+        usePointStyle: true,
+        pointStyle: 'circle'
+      }
+    },
+    tooltip: {
+      backgroundColor: 'var(--bg-card)',
+      titleColor: 'var(--text-primary)',
+      bodyColor: 'var(--text-secondary)',
+      borderColor: 'var(--border-color)',
+      borderWidth: 1,
+      padding: 12,
+      boxPadding: 6,
+      cornerRadius: 10,
+      titleFont: { family: 'Plus Jakarta Sans', weight: '700' },
+      bodyFont: { family: 'Plus Jakarta Sans' }
+    }
+  },
+  scales: {
+    x: {
+      ticks: { color: 'var(--text-muted)', font: { family: 'Plus Jakarta Sans', size: 11 } },
+      grid: { display: false }
+    },
+    y: {
+      ticks: { color: 'var(--text-muted)', font: { family: 'Plus Jakarta Sans', size: 11 } },
+      grid: { color: 'var(--border-color)', drawBorder: false }
+    }
+  }
 };
 
 const fmt = (n) => `PKR ${(n || 0).toLocaleString()}`;
@@ -172,23 +204,23 @@ function AgentDashboard({ sales }) {
         <>
           <div className="kpi-strip" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
             <div className="kpi-item">
-              <div className="kpi-label">Properties Sold</div>
-              <div className="kpi-value">{totalSold}</div>
+              <div className="kpi-label" title="Properties Sold">Properties Sold</div>
+              <div className="kpi-value" title={String(totalSold)}>{totalSold}</div>
               <div className="kpi-sub">Total by you</div>
             </div>
             <div className="kpi-item">
-              <div className="kpi-label">Received Amount</div>
-              <div className="kpi-value" style={{ color: '#3b82f6' }}>{fmt(totalReceived)}</div>
+              <div className="kpi-label" title="Received Amount">Received Amount</div>
+              <div className="kpi-value" style={{ color: '#3b82f6' }} title={fmt(totalReceived)}>{fmt(totalReceived)}</div>
               <div className="kpi-sub">Customer payments</div>
             </div>
             <div className="kpi-item">
-              <div className="kpi-label">My Income (Commission)</div>
-              <div className="kpi-value pos">{fmt(totalIncome)}</div>
+              <div className="kpi-label" title="My Income (Commission)">My Income (Commission)</div>
+              <div className="kpi-value pos" title={fmt(totalIncome)}>{fmt(totalIncome)}</div>
               <div className="kpi-sub">Your earnings</div>
             </div>
             <div className="kpi-item">
-              <div className="kpi-label">Pending Commission</div>
-              <div className="kpi-value" style={{ color: 'var(--accent-orange, #f97316)' }}>{fmt(pendingIncome)}</div>
+              <div className="kpi-label" title="Pending Commission">Pending Commission</div>
+              <div className="kpi-value" style={{ color: 'var(--accent-orange, #f97316)' }} title={fmt(pendingIncome)}>{fmt(pendingIncome)}</div>
               <div className="kpi-sub">Awaiting payment</div>
             </div>
           </div>
@@ -307,6 +339,19 @@ export default function Dashboard({ onNavigate, panel }) {
     loadStats();
   }, []);
 
+  // Auto-refresh when any financial or business data changes
+  useEffect(() => {
+    const handler = () => {
+      loadStats();
+    };
+    window.addEventListener('al-siraj-business-data-changed', handler);
+    window.addEventListener('al-siraj-data-refreshed', handler);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', handler);
+      window.removeEventListener('al-siraj-data-refreshed', handler);
+    };
+  }, []);
+
   const loadStats = async () => {
     if (!window.api) { setLoading(false); return; }
     try {
@@ -334,14 +379,40 @@ export default function Dashboard({ onNavigate, panel }) {
   const incomeTrendData = {
     labels: timelineSource.map(t => t.name),
     datasets: [
-      { label: 'Income', data: timelineSource.map(t => t.income || 0), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.18)', fill: true, tension: 0.35 },
-      { label: 'Expenses', data: timelineSource.map(t => t.expenses || 0), borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.12)', fill: true, tension: 0.35 },
+      { 
+        label: 'Income', 
+        data: timelineSource.map(t => t.income || 0), 
+        borderColor: 'var(--accent-blue)', 
+        backgroundColor: 'rgba(37, 99, 235, 0.08)', 
+        fill: true, 
+        tension: 0.4,
+        pointBackgroundColor: 'var(--accent-blue)',
+        pointHoverRadius: 6,
+        borderWidth: 2
+      },
+      { 
+        label: 'Expenses', 
+        data: timelineSource.map(t => t.expenses || 0), 
+        borderColor: 'var(--accent-orange)', 
+        backgroundColor: 'rgba(233, 84, 18, 0.04)', 
+        fill: true, 
+        tension: 0.4,
+        pointBackgroundColor: 'var(--accent-orange)',
+        pointHoverRadius: 6,
+        borderWidth: 2
+      },
     ],
   };
 
   const doughnutData = {
     labels: ['Income', 'Expenses'],
-    datasets: [{ data: [s.totalIncome, s.totalExpenses], backgroundColor: ['rgba(16,185,129,0.8)', 'rgba(239,68,68,0.8)'], borderWidth: 0 }],
+    datasets: [{ 
+      data: [s.totalIncome, s.totalExpenses], 
+      backgroundColor: ['rgba(13, 148, 136, 0.85)', 'rgba(225, 29, 72, 0.85)'], 
+      hoverBackgroundColor: ['#0d9488', '#e11d48'],
+      borderWidth: 2,
+      borderColor: 'var(--bg-card)',
+    }],
   };
 
   const performanceTotal = (s.townPerformance || []).reduce((acc, item) => acc + (item.income || 0), 0);
@@ -364,32 +435,32 @@ export default function Dashboard({ onNavigate, panel }) {
 
       <div className="kpi-strip" style={{ gridTemplateColumns: 'repeat(6, minmax(0,1fr))' }}>
         <div className="kpi-item">
-          <div className="kpi-label">{t.totalIncome}</div>
-          <div className="kpi-value pos">{fmt(s.totalIncome)}</div>
+          <div className="kpi-label" title={t.totalIncome}>{t.totalIncome}</div>
+          <div className="kpi-value pos" title={fmt(s.totalIncome)}>{fmt(s.totalIncome)}</div>
           <div className="kpi-sub">{t.actualCashReceived}</div>
         </div>
         <div className="kpi-item">
-          <div className="kpi-label">{t.totalExpenses}</div>
-          <div className="kpi-value neg">{fmt(s.totalExpenses)}</div>
+          <div className="kpi-label" title={t.totalExpenses}>{t.totalExpenses}</div>
+          <div className="kpi-value neg" title={fmt(s.totalExpenses)}>{fmt(s.totalExpenses)}</div>
           <div className="kpi-sub" style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 600 }}>{t.ceoEmployee}</div>
         </div>
         <div className="kpi-item">
-          <div className="kpi-label">{t.commissionPaid}</div>
-          <div className="kpi-value" style={{ color: 'var(--accent-orange, #f97316)' }}>{fmt(s.totalCommission || 0)}</div>
+          <div className="kpi-label" title={t.commissionPaid}>{t.commissionPaid}</div>
+          <div className="kpi-value" style={{ color: 'var(--accent-orange, #f97316)' }} title={fmt(s.totalCommission || 0)}>{fmt(s.totalCommission || 0)}</div>
           <div className="kpi-sub">{t.agentCommission}</div>
         </div>
         <div className="kpi-item">
-          <div className="kpi-label">{t.netProfitLoss}</div>
-          <div className={`kpi-value ${s.netProfitLoss >= 0 ? 'pos' : 'neg'}`}>{fmt(s.netProfitLoss)}</div>
+          <div className="kpi-label" title={t.netProfitLoss}>{t.netProfitLoss}</div>
+          <div className={`kpi-value ${s.netProfitLoss >= 0 ? 'pos' : 'neg'}`} title={fmt(s.netProfitLoss)}>{fmt(s.netProfitLoss)}</div>
           <div className="kpi-sub">{s.netProfitLoss >= 0 ? t.profitPosition : t.lossPosition}</div>
         </div>
         <div className="kpi-item">
-          <div className="kpi-label">{t.plotsSold}</div>
-          <div className="kpi-value">{s.soldPlots}</div>
+          <div className="kpi-label" title={t.plotsSold}>{t.plotsSold}</div>
+          <div className="kpi-value" title={String(s.soldPlots)}>{s.soldPlots}</div>
         </div>
         <div className="kpi-item">
-          <div className="kpi-label">{t.shopsSold}</div>
-          <div className="kpi-value">{s.soldShops}</div>
+          <div className="kpi-label" title={t.shopsSold}>{t.shopsSold}</div>
+          <div className="kpi-value" title={String(s.soldShops)}>{s.soldShops}</div>
         </div>
       </div>
 

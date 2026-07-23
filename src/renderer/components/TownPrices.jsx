@@ -119,9 +119,11 @@ export default function TownPrices({ showToast, townName }) {
           <>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
               gap: 16,
               marginBottom: 24,
+              width: '100%',
+              boxSizing: 'border-box',
             }}>
               {/* Plot Card */}
               <div style={{
@@ -129,8 +131,10 @@ export default function TownPrices({ showToast, townName }) {
                 border: '1.5px solid rgba(16,185,129,0.25)',
                 borderRadius: 12,
                 padding: '16px 18px',
+                minWidth: 0,
+                boxSizing: 'border-box',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                   <span style={{ display:'inline-flex', alignItems:'center', color: 'var(--accent-green)' }}><PlotIcon size={16}/></span>
                   <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent-green)' }}>
                     Standard Plots
@@ -140,37 +144,37 @@ export default function TownPrices({ showToast, townName }) {
                   </span>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, width: '100%' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <label style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       Residential Plot Price *
                     </label>
-                    <div style={{ position: 'relative' }}>
-                      <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>PKR</span>
+                    <div style={{ position: 'relative', width: '100%' }}>
+                      <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, zIndex: 1 }}>PKR</span>
                       <input
                         type="number"
                         placeholder="Residential"
                         value={prices.Residential_Plot_Price}
                         onChange={u('Residential_Plot_Price')}
                         min="0"
-                        style={{ paddingLeft: 36, fontSize: 13, fontWeight: 700 }}
+                        style={{ paddingLeft: 34, fontSize: 13, fontWeight: 700, width: '100%', boxSizing: 'border-box' }}
                       />
                     </div>
                   </div>
 
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <label style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       Commercial Plot Price *
                     </label>
-                    <div style={{ position: 'relative' }}>
-                      <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>PKR</span>
+                    <div style={{ position: 'relative', width: '100%' }}>
+                      <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, zIndex: 1 }}>PKR</span>
                       <input
                         type="number"
                         placeholder="Commercial"
                         value={prices.Commercial_Plot_Price}
                         onChange={u('Commercial_Plot_Price')}
                         min="0"
-                        style={{ paddingLeft: 36, fontSize: 13, fontWeight: 700 }}
+                        style={{ paddingLeft: 34, fontSize: 13, fontWeight: 700, width: '100%', boxSizing: 'border-box' }}
                       />
                     </div>
                   </div>
@@ -184,8 +188,10 @@ export default function TownPrices({ showToast, townName }) {
                   border: '1.5px solid rgba(59,130,246,0.2)',
                   borderRadius: 12,
                   padding: '16px 18px',
+                  minWidth: 0,
+                  boxSizing: 'border-box',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                     <span style={{ display:'inline-flex', alignItems:'center', color: 'var(--accent-blue)' }}><rt.Icon size={16}/></span>
                     <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent-blue)' }}>
                       {rt.label}
@@ -196,7 +202,7 @@ export default function TownPrices({ showToast, townName }) {
                   </div>
 
                   {rt.hasName && (
-                    <div style={{ marginBottom: 12 }}>
+                    <div style={{ marginBottom: 12, width: '100%' }}>
                       <label style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>
                         {t.customRoadName}
                       </label>
@@ -204,42 +210,42 @@ export default function TownPrices({ showToast, townName }) {
                         placeholder="e.g. Main Boulevard"
                         value={prices.Custom_Name}
                         onChange={u('Custom_Name')}
-                        style={{ fontSize: 13 }}
+                        style={{ fontSize: 13, width: '100%', boxSizing: 'border-box' }}
                       />
                     </div>
                   )}
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, width: '100%' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Residential Price *
                       </label>
-                      <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>PKR</span>
+                      <div style={{ position: 'relative', width: '100%' }}>
+                        <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, zIndex: 1 }}>PKR</span>
                         <input
                           type="number"
                           placeholder="Residential"
                           value={prices[`${rt.key}_Residential`]}
                           onChange={u(`${rt.key}_Residential`)}
                           min="0"
-                          style={{ paddingLeft: 36, fontSize: 13, fontWeight: 700 }}
+                          style={{ paddingLeft: 34, fontSize: 13, fontWeight: 700, width: '100%', boxSizing: 'border-box' }}
                         />
                       </div>
                     </div>
 
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Commercial Price *
                       </label>
-                      <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>PKR</span>
+                      <div style={{ position: 'relative', width: '100%' }}>
+                        <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, zIndex: 1 }}>PKR</span>
                         <input
                           type="number"
                           placeholder="Commercial"
                           value={prices[`${rt.key}_Commercial`]}
                           onChange={u(`${rt.key}_Commercial`)}
                           min="0"
-                          style={{ paddingLeft: 36, fontSize: 13, fontWeight: 700 }}
+                          style={{ paddingLeft: 34, fontSize: 13, fontWeight: 700, width: '100%', boxSizing: 'border-box' }}
                         />
                       </div>
                     </div>

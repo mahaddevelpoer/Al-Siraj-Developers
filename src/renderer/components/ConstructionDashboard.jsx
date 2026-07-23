@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BriefcaseIcon, PlusIcon, DollarIcon } from './Icons';
 import OfficialReceipt from './OfficialReceipt';
-import PaymentAccountSelect from './PaymentAccountSelect';
+import PaymentMethodSelector from './shared/PaymentMethodSelector'; // PaymentAccountSelect
 
 const CATEGORIES = ['Sewerage', 'Road', 'Office construction', 'Boundary wall', 'Electricity', 'Gate', 'Other'];
 const fmt = (n) => `PKR ${(parseFloat(n) || 0).toLocaleString()}`;
@@ -161,9 +161,6 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
             <div className="form-group"><label>Constructor *</label><input value={project.Constructor_Name} onChange={u('Constructor_Name')} required /></div>
             <div className="form-group"><label>Phone</label><input value={project.Phone_Number} onChange={u('Phone_Number')} /></div>
             <div className="form-group"><label>Company</label><input value={project.Company_Name} onChange={u('Company_Name')} /></div>
-            <div className="form-group"><label>Material</label><input value={project.Material_Name} onChange={u('Material_Name')} /></div>
-            <div className="form-group"><label>Quantity</label><input value={project.Material_Quantity} onChange={u('Material_Quantity')} /></div>
-            <div className="form-group"><label>Rate</label><input value={project.Material_Rate} onChange={u('Material_Rate')} /></div>
             <div className="form-group"><label>Deal Amount *</label><input type="number" value={project.Deal_Amount} onChange={u('Deal_Amount')} required /></div>
             <div className="form-group full"><label>Notes</label><input value={project.Notes} onChange={u('Notes')} /></div>
           </div>
@@ -178,12 +175,9 @@ export default function ConstructionDashboard({ townName, showToast, refreshKey 
             <div className="form-group"><label>Active Construction</label><select value={payment.Project_ID} onChange={pu('Project_ID')} required><option value="">Select project</option>{activeProjects.map(p => <option key={p.Project_ID} value={p.Project_ID}>{p.Category} - {p.Constructor_Name} - Remaining {fmt(p.Remaining_Amount)}</option>)}</select></div>
             <div className="form-group"><label>Amount *</label><input type="number" value={payment.Amount} onChange={pu('Amount')} required /></div>
             <div className="form-group"><label>Date</label><input type="date" value={payment.Payment_Date} onChange={pu('Payment_Date')} /></div>
-            <div className="form-group"><label>Material</label><input value={payment.Material_Name} onChange={pu('Material_Name')} /></div>
-            <div className="form-group"><label>Quantity</label><input value={payment.Material_Quantity} onChange={pu('Material_Quantity')} /></div>
-            <div className="form-group"><label>Rate</label><input value={payment.Material_Rate} onChange={pu('Material_Rate')} /></div>
             <div className="form-group full"><label>Notes</label><input value={payment.Notes} onChange={pu('Notes')} /></div>
           </div>
-          <PaymentAccountSelect
+          <PaymentMethodSelector
             townName={townName}
             value={paymentAccount}
             onChange={setPaymentAccount}

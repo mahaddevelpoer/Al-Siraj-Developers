@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import PaymentAccountSelect from '../../components/PaymentAccountSelect';
+import PaymentMethodSelector from '../../components/shared/PaymentMethodSelector'; // PaymentAccountSelect
 
 const EXPENSE_CATEGORIES = {
   construction: {
@@ -11,6 +11,15 @@ const EXPENSE_CATEGORIES = {
       { value: 'water', label: 'Water Facilities' },
       { value: 'road', label: 'Road Facilities' },
       { value: 'town', label: 'Town Constructive Facilities' },
+    ],
+  },
+  employee: {
+    label: 'Employee / Salary',
+    emoji: '',
+    subcategories: [
+      { value: 'none', label: 'Select Category...' },
+      { value: 'salary', label: 'Salary Payment' },
+      { value: 'advance', label: 'Salary Advance' },
     ],
   },
   food: {
@@ -39,11 +48,18 @@ export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, ac
   const [paymentAccount, setPaymentAccount] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  const filteredAccounts = accountOptions.filter(acc => {
+    if (category === 'construction') return acc.type === 'Constructor';
+    if (category === 'employee') return acc.type === 'Employee';
+    return true;
+  });
+
   const handleCategorySelect = (cat) => {
     setCategory(cat);
     setSubcategory(null);
     setDescription('');
     setShowCustom(false);
+    setAccountKey('');
   };
 
   const handleSubcategorySelect = (subcat) => {
@@ -61,7 +77,7 @@ export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, ac
     const subcategoryLabel = subcategory !== 'none'
       ? EXPENSE_CATEGORIES[category]?.subcategories?.find(s => s.value === subcategory)?.label || subcategory
       : '';
-    const account = accountOptions.find((item) => item.key === accountKey);
+    const account = filteredAccounts.find((item) => item.key === accountKey);
 
     onSubmit({
       type: 'Expense',
@@ -91,7 +107,7 @@ export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, ac
     <form onSubmit={handleSubmit} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 'var(--radius-md)' }}>
 
       {category && (
-        <PaymentAccountSelect
+        <PaymentMethodSelector
           townName={townName}
           value={paymentAccount}
           onChange={setPaymentAccount}
@@ -244,7 +260,7 @@ export default function DailyExpenseEntry({ townName, onSubmit, isAppealMode, ac
             <label>Paid to</label>
             <select value={accountKey} onChange={(e) => setAccountKey(e.target.value)}>
               <option value="">General / no account</option>
-              {accountOptions.map((account) => (
+              {filteredAccounts.map((account) => (
                 <option key={account.key} value={account.key}>{account.label}</option>
               ))}
             </select>

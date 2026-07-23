@@ -446,6 +446,167 @@ async function cleanupLegacyAgentData() {
   return { success: true, removed };
 }
 
+async function updateEmployeePaidAmount(townName, employeeName, amount, paymentAccount = {}) {
+  const { getDbPath, ensureSheetColumns, appendToExcel } = require('./core');
+  
+  let employeeExists = false;
+  let salaryAmount = 0;
+  
+  try {
+    const EmployeeDB = require('./employees');
+    const empDb = new EmployeeDB(getDbPath());
+    const emps = await empDb.getEmployees(townName);
+    const emp = emps.find(e => String(e.name || '').trim().toLowerCase() === String(employeeName || '').trim().toLowerCase() && String(e.status || 'Active').toLowerCase() !== 'deleted');
+    if (emp) {
+      employeeExists = true;
+      salaryAmount = parseFloat(emp.baseSalary) || 0;
+    } else {
+      const { getTownAgents } = module.exports; // just to verify if anything else is needed, but we check legacy Employees below
+      const { getEmployees } = require('./globals');
+      const legacyEmps = await getEmployees(townName);
+      const legEmp = legacyEmps.find(e => String(e.Employee_Name || '').trim().toLowerCase() === String(employeeName || '').trim().toLowerCase());
+      if (legEmp) {
+         employeeExists = true;
+         salaryAmount = parseFloat(legEmp.Salary) || 0;
+      }
+    }
+  } catch (e) {
+    console.warn('[updateEmployeePaidAmount] Error checking employee existence:', e);
+  }
+
+  if (!employeeExists) {
+    console.warn(`[updateEmployeePaidAmount] No employee found matching "${employeeName}" in "${townName}". Skipping balance update. Entry will continue saving.`);
+    return { success: true, updated: false, reason: 'not_found' };
+  }
+
+  try {
+    const globals = getDbPath();
+    const salaryPath = path.join(globals, 'Salary_Records.xlsx');
+    
+    const cols = ['Receipt_Number','Date','Payment_Date','Month','Type','Name','Designation','Amount','Town_Name','Note','Paid_By','Advance_Deduction','New_Advance_Given','Salary_Amount','Salary_Gross_Amount','Cash_Disbursed_Amount','Salary_Paid_Amount','Salary_Paid_Before','Salary_Paid_After','Salary_Remaining_After','Is_Advance_Salary','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'];
+    
+    const TODAY = new Date().toISOString().split('T')[0];
+    const receiptNum = `SAL-D-${TODAY.replace(/-/g, '')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+    
+    const newRow = {
+      Receipt_Number: receiptNum,
+      Date: TODAY,
+      Payment_Date: TODAY,
+      Month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' }),
+      Type: 'Salary',
+      Name: employeeName,
+      Designation: 'Employee',
+      Amount: amount,
+      Town_Name: townName,
+      Note: 'Paid via Daily Entries',
+      Paid_By: 'System',
+      Advance_Deduction: 0,
+      New_Advance_Given: 0,
+      Salary_Amount: salaryAmount,
+      Salary_Gross_Amount: salaryAmount,
+      Cash_Disbursed_Amount: amount,
+      Salary_Paid_Amount: amount,
+      Salary_Paid_Before: 0,
+      Salary_Paid_After: amount,
+      Salary_Remaining_After: salaryAmount - amount,
+      Is_Advance_Salary: 'No',
+      Payment_Account_ID: paymentAccount.paymentAccountId || 'daily-entry',
+      Payment_Account_Name: paymentAccount.paymentAccountName || 'Daily Entry Ledger',
+      Payment_Account_Type: paymentAccount.paymentAccountType || 'daily',
+    };
+    
+    await ensureSheetColumns(salaryPath, 'Data', cols);
+    await appendToExcel(salaryPath, 'Data', newRow);
+
+    // Sync to Supabase
+    try {
+      const onlineDb = require('./online/index');
+      await onlineDb.recordSalaryPayment(newRow);
+    } catch (onlineErr) {
+      console.warn('[updateEmployeePaidAmount] Online sync warning:', onlineErr);
+    }
+
+    return { success: true, updated: true };
+  } catch (err) {
+    console.error('[updateEmployeePaidAmount] Error updating salary record:', err);
+    // Entry must not fail, so swallow the error
+    return { success: false, error: err.message };
+  }
+}
+
+async function updateConstructorPaidAmount(townName, constructorName, amount, paymentAccount = {}) {
+  const projectsPath = await ensureFile('construction');
+  const payPath = await ensureFile('constructionPayments');
+  const allProjects = await readExcelFile(projectsPath, 'Data');
+  
+  // Find projects matching constructor name in this town that are active
+  const project = allProjects.find(p => 
+    String(p.Town_Name || '').trim().toLowerCase() === String(townName || '').trim().toLowerCase() &&
+    String(p.Constructor_Name || '').trim().toLowerCase() === String(constructorName || '').trim().toLowerCase() &&
+    String(p.Status || 'Active').toLowerCase() === 'active'
+  );
+  
+  if (!project) {
+    console.warn(`[updateConstructorPaidAmount] No active construction project found for constructor "${constructorName}" in "${townName}". Skipping balance update.`);
+    return { success: true, updated: false, reason: 'not_found' };
+  }
+  
+  const paid = toMoney(project.Paid_Amount);
+  const deal = toMoney(project.Deal_Amount);
+  const nextPaid = paid + amount;
+  const remaining = Math.max(0, deal - nextPaid);
+  
+  // Update project Excel row
+  await updateExcelRow(projectsPath, 'Data', project._rowNumber, {
+    Paid_Amount: nextPaid,
+    Remaining_Amount: remaining,
+    Status: remaining <= 0 ? 'Completed' : (project.Status || 'Active'),
+  });
+  
+  // Append to construction payments
+  const paymentId = generateId();
+  const TODAY_DATE = TODAY();
+  const receiptNumber = `CON-D-${TODAY_DATE.replace(/-/g, '')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+  const row = {
+    Payment_ID: paymentId,
+    Project_ID: project.Project_ID,
+    Town_Name: project.Town_Name,
+    Category: project.Category,
+    Constructor_Name: project.Constructor_Name,
+    Amount: amount,
+    Payment_Date: TODAY_DATE,
+    Material_Name: '',
+    Material_Quantity: '',
+    Material_Rate: '',
+    Remaining_After: remaining,
+    Receipt_Number: receiptNumber,
+    Notes: 'Paid via Daily Entries',
+    Created_By: 'System',
+    Payment_Account_ID: paymentAccount.paymentAccountId || 'cash-in-hand',
+    Payment_Account_Name: paymentAccount.paymentAccountName || 'Cash in Hand',
+    Payment_Account_Type: paymentAccount.paymentAccountType || 'cash',
+  };
+  await appendToExcel(payPath, 'Data', row);
+  
+  // Sync online
+  try {
+    const onlineDb = require('./online/index');
+    await onlineDb.insert('construction_payments', row);
+    // Update construction project online
+    const matchObj = { Project_ID: project.Project_ID };
+    const updatesObj = {
+      Paid_Amount: nextPaid,
+      Remaining_Amount: remaining,
+      Status: remaining <= 0 ? 'Completed' : (project.Status || 'Active'),
+    };
+    await onlineDb.updateWhere('construction_projects', matchObj, updatesObj);
+  } catch (onlineErr) {
+    console.warn('[updateConstructorPaidAmount] Online sync warning:', onlineErr);
+  }
+  
+  return { success: true, updated: true };
+}
+
 module.exports = {
   getTownAgents,
   addTownAgent,
@@ -461,4 +622,6 @@ module.exports = {
   saveReceiptArchive,
   getReceiptArchive,
   cleanupLegacyAgentData,
+  updateEmployeePaidAmount,
+  updateConstructorPaidAmount,
 };

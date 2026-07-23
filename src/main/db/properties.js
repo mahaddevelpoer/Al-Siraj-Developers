@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
-const { getPropertiesPath, getTownsPath, getGlobalsPath, readExcelFile, appendToExcel, generateId, deleteExcelRow, syncMirrorsForFile, getHeaderKeys, withFileWriteLock, writeWorkbookAtomic, ensureSheetColumns } = require('./core');
+const { getPropertiesPath, getTownsPath, getGlobalsPath, readExcelFile, appendToExcel, generateId, deleteExcelRow, syncMirrorsForFile, getHeaderKeys, withFileWriteLock, writeWorkbookAtomic, ensureSheetColumns, getWorkbook } = require('./core');
 const { recordMoneyEvent, getMoneySummary, backfillMoneyLedger } = require('./moneyLedger');
 const { saveReceiptArchive } = require('./businessExtras');
 
@@ -78,7 +78,7 @@ async function upsertCommissionForSaleLocal(sale) {
 }
 
 const PLOT_COLUMNS = [
-  'Plot_Number','Town_Name','Plot_Size','Plot_Marla','Length_Ft','Width_Ft','Area_Sqft','Per_Marla_Price','Total_Price','Owner_Name','Customer_Name','CNIC',
+  'Plot_Number','Town_Name','Plot_Size','Plot_Marla','Length_Ft','Width_Ft','Area_Sqft','Road_Type','Road_Key','Per_Marla_Price','Total_Price','Owner_Name','Customer_Name','CNIC',
   'Phone_Number','Sell_Date','Expected_Amount_PKR','Deal_Amount_PKR','Discount_Amount_PKR','Total_Amount_PKR','Advance_Amount_PKR',
   'Total_Installments','Total_Period_Months','Gap_Days','Gap_Label','Monthly_Installment','Received_Amount',
   'Remaining_Amount','Agent_Name','Commission_Rate','Commission_Amount',
@@ -158,8 +158,10 @@ async function addPlot(data) {
     Length_Ft: Length_Ft || '',
     Width_Ft: Width_Ft || '',
     Area_Sqft: Area_Sqft || '',
-    Per_Marla_Price: Per_Marla_Price || '',
-    Total_Price: Total_Price || '',
+    Road_Type: data.Road_Type || '',
+    Road_Key: data.Road_Key || '',
+    Per_Marla_Price: Per_Marla_Price || 0,
+    Total_Price: Total_Price || 0,
     Owner_Name: Owner_Name || '',
     Property_Category: Property_Category || 'Residential',
     Status: 'Available',
@@ -206,8 +208,7 @@ async function updatePropertyFile(type, number, townName, updates) {
   if (!filePath) return null;
 
   return await withFileWriteLock(filePath, async () => {
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
+    const workbook = await getWorkbook(filePath);
     const sheet = workbook.getWorksheet(`${prefix}_Details`);
     if (!sheet || sheet.rowCount < 2) return null;
 
@@ -577,7 +578,7 @@ async function updateFileStatus(params) {
 }
 
 async function cancelDeal(data) {
-  const { type, number, townName, Receipt_Number } = data || {};
+  const { type, number, townName, Receipt_Number, paymentAccountId, paymentAccountName, paymentAccountType } = data || {};
   if (!type || !number || !townName) throw new Error('Missing property info');
   if (!Receipt_Number) throw new Error('Receipt number is required to cancel deal');
 
@@ -632,6 +633,39 @@ async function cancelDeal(data) {
     await deleteExcelRow(expPath, 'Data', rn);
   }
 
+  // Calculate total received and create a reversal entry instead of deleting ledger rows
+  const advanceAmount = parseFloat(property.Advance_Amount_PKR) || parseFloat(property.Received_Amount) || 0;
+  let totalPaidInstallments = 0;
+  for (const row of allInst) {
+    if (
+      String(row.Type || '') === String(type) && 
+      String(row.Plot_Shop_Number || '') === String(number) && 
+      String(row.Town_Name || '') === String(townName) && 
+      String(row.Status || '').toLowerCase() === 'paid'
+    ) {
+      totalPaidInstallments += parseFloat(row.Received_Amount) || parseFloat(row.Monthly_Amount) || 0;
+    }
+  }
+
+  const totalReceived = advanceAmount + totalPaidInstallments;
+
+  if (totalReceived > 0) {
+    await recordMoneyEvent({
+      sourceType: 'expense',
+      sourceId: `CANCEL-${matches[0].Sale_ID}`,
+      direction: 'expense',
+      amount: totalReceived,
+      townName: townName,
+      date: new Date().toISOString().split('T')[0],
+      partyName: property.Customer_Name || '',
+      description: `Deal Cancelled - Advance Refund: ${type} ${number}`,
+      receiptNumber: Receipt_Number || '',
+      paymentAccountId: paymentAccountId || 'cash-in-hand',
+      paymentAccountName: paymentAccountName || 'Cash in Hand',
+      paymentAccountType: paymentAccountType || 'cash',
+    });
+  }
+
   // Reset property back to Available (clear sale fields)
   await updatePropertyFile(type, number, townName, {
     Customer_Name: '',
@@ -668,7 +702,9 @@ async function updateTownFinancials(townName) {
   const townFilePath = path.join(getTownsPath(), `${townName}.xlsx`);
   if (!fs.existsSync(townFilePath)) return;
 
-  await backfillMoneyLedger();
+  // Do NOT call backfillMoneyLedger() here — it would reprocess all historical data
+  // and could create duplicate ledger entries if called concurrently or after fixes.
+  // Money_Ledger is the single source of truth; refreshTownFinancialSummary reads from it.
   const money = await getMoneySummary(townName);
   // Get all sales for this town
   const sales = await readExcelFile(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data');
@@ -685,8 +721,7 @@ async function updateTownFinancials(townName) {
 
   await withFileWriteLock(townFilePath, async () => {
     // Update town file (read-modify-write must be inside the lock).
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(townFilePath);
+    const workbook = await getWorkbook(townFilePath);
     const sheet = workbook.getWorksheet('Data');
     if (!sheet || sheet.rowCount < 2) return;
 
@@ -923,6 +958,22 @@ async function resellProperty(data) {
       paymentAccountType: data.paymentAccountType || data.Payment_Account_Type,
     });
   }
+  if (refundAmount > 0) {
+    await recordMoneyEvent({
+      sourceType: 'resell_refund',
+      sourceId: saleId,
+      direction: 'expense',
+      amount: refundAmount,
+      townName,
+      date: resellDate,
+      partyName: property.Customer_Name || 'Previous Owner',
+      description: `${type} ${number} resell - previous owner refund`,
+      receiptNumber: Receipt_Number || '',
+      paymentAccountId: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
+      paymentAccountName: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
+      paymentAccountType: data.paymentAccountType || data.Payment_Account_Type || 'cash',
+    });
+  }
   if (remaining <= 0) {
     await upsertCommissionForSaleLocal({
       Sale_ID: saleId,
@@ -941,7 +992,12 @@ async function resellProperty(data) {
     for (let i = 1; i <= totalInstallments; i++) {
       const dueDate = new Date(startDate);
       dueDate.setDate(dueDate.getDate() + (gapDays * i));
-      const installmentAmount = parseFloat(Monthly_Installment) || (resellBaseInstallment + (i <= resellInstallmentRemainder ? 1 : 0));
+      let installmentAmount = parseFloat(Monthly_Installment) || (resellBaseInstallment + (i <= resellInstallmentRemainder ? 1 : 0));
+      // Adjust the last installment if custom Monthly_Installment is specified to prevent rounding mismatch
+      if (parseFloat(Monthly_Installment) && i === totalInstallments) {
+        const precedingTotal = parseFloat(Monthly_Installment) * (totalInstallments - 1);
+        installmentAmount = Math.max(0, remaining - precedingTotal);
+      }
       await appendToExcel(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data', {
         Tracker_ID: generateId(),
         Sale_ID: saleId,
@@ -985,9 +1041,14 @@ async function resellProperty(data) {
 async function getSoldProperties() {
   const { plots, shops } = await getAllProperties();
   return {
-    // Only show properties that are strictly 'Sold' — 'Resold' ones belong in Resell History
-    plots: plots.filter(p => String(p.Status || '').toLowerCase() === 'sold'),
-    shops: shops.filter(s => String(s.Status || '').toLowerCase() === 'sold'),
+    plots: plots.filter(p => {
+      const stat = String(p.Status || '').toLowerCase();
+      return stat === 'sold' || stat === 'resold';
+    }),
+    shops: shops.filter(s => {
+      const stat = String(s.Status || '').toLowerCase();
+      return stat === 'sold' || stat === 'resold';
+    }),
   };
 }
 

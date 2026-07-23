@@ -31,18 +31,36 @@ function calculateNextRunTime() {
   return next;
 }
 
-function generateTownSummary(towns, sales, expenses, entries) {
+function generateTownSummary(towns, sales, expenses, entries, ledger, reportDate) {
   const summaries = [];
+  const todayStr = reportDate || new Date().toISOString().slice(0, 10);
+
   for (const town of towns) {
     const townName = town.Town_Name;
-    const townSales = (sales || []).filter(s => s.Town_Name === townName);
-    const townExpenses = (expenses || []).filter(e => e.Town_Name === townName);
-    const townEntries = (entries || []).filter(e => String(e.Town_Name || e.townName) === townName);
+    const townSalesToday = (sales || []).filter(s => 
+      s.Town_Name === townName && 
+      String(s.Sell_Date || '').slice(0, 10) === todayStr
+    );
+    const townEntriesToday = (entries || []).filter(e => 
+      String(e.Town_Name || e.townName) === townName && 
+      String(e.Date || e.date || '').slice(0, 10) === todayStr
+    );
+    const townLedgerToday = (ledger || []).filter(r => 
+      String(r.Town_Name || r.town_name || '') === townName && 
+      String(r.Date || r.date || '').slice(0, 10) === todayStr &&
+      String(r.Status || 'approved').toLowerCase() === 'approved'
+    );
 
-    const totalReceived = townSales.reduce((sum, s) => sum + (parseFloat(s.Received_Amount) || 0), 0);
-    const totalExpenses = townExpenses.reduce((sum, e) => sum + (parseFloat(e.Amount) || 0), 0);
-    const dailyEntries = townEntries.reduce((sum, e) => sum + (parseFloat(e.Amount) || 0), 0);
-    const propertiesSold = townSales.filter(s => String(s.Status || '').toLowerCase() === 'sold').length;
+    const totalReceived = townLedgerToday
+      .filter(r => String(r.Direction || '').toLowerCase() === 'income')
+      .reduce((sum, r) => sum + (parseFloat(r.Amount) || 0), 0);
+      
+    const totalExpenses = townLedgerToday
+      .filter(r => String(r.Direction || '').toLowerCase() === 'expense')
+      .reduce((sum, r) => sum + (parseFloat(r.Amount) || 0), 0);
+      
+    const dailyEntries = townEntriesToday.reduce((sum, e) => sum + (parseFloat(e.Amount) || 0), 0);
+    const propertiesSold = townSalesToday.filter(s => String(s.Status || '').toLowerCase() === 'sold').length;
 
     summaries.push({
       townName,
@@ -63,14 +81,17 @@ async function runDailyReport(dbPath, mainWindow) {
     const { getAllSales } = require('./properties');
     const { getAllExpenses } = require('./globals');
     const { getAllEntries } = require('./dailyEntries');
+    const { getMoneyLedger } = require('./moneyLedger');
     const supabase = require('./supabase');
 
     const towns = await getTowns();
     const sales = await getAllSales();
     const expenses = await getAllExpenses();
     const entries = await getAllEntries();
+    const ledger = await getMoneyLedger().catch(() => []);
 
-    const summaries = generateTownSummary(towns, sales, expenses, entries);
+    const reportDate = new Date().toISOString().slice(0, 10);
+    const summaries = generateTownSummary(towns, sales, expenses, entries, ledger, reportDate);
 
     // Build notification message and Save Daily Reports Locally (triggers sync)
     let message = '';
@@ -82,7 +103,6 @@ async function runDailyReport(dbPath, mainWindow) {
       message += `\n${s.townName}: ${s.propertiesSold} sold | PKR ${s.net.toLocaleString()} net`;
       
       // Dual-write snapshot
-      const reportDate = new Date().toISOString().slice(0, 10);
       const reportPayload = {
         Report_ID: `EOD-${s.townName}-${reportDate}`.replace(/[^a-zA-Z0-9-]/g, ''),
         Town_Name: s.townName,

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ResellIcon, ClockIcon, SearchIcon, SoldIcon, EditIcon, CheckIcon } from './Icons';
 import OfficialReceipt from './OfficialReceipt';
-import PaymentAccountSelect from './PaymentAccountSelect';
+import PaymentMethodSelector from './shared/PaymentMethodSelector'; // PaymentAccountSelect
 
 export default function ResellProperty({ showToast, loadNotifications, townName }) {
   const [towns, setTowns] = useState([]);
@@ -276,48 +276,42 @@ export default function ResellProperty({ showToast, loadNotifications, townName 
               )}
             </div>
 
+            {/* ── Payment Method ── */}
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', marginBottom: 10, display:'flex', alignItems:'center', gap:6 }}>
-                💳 Payment Method
-              </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {[
-                  { value: 'Cash', icon: '💵', label: 'Cash' },
-                  { value: 'Cheque', icon: '🏦', label: 'Cheque' },
-                  { value: 'Bank Transfer', icon: '📱', label: 'Bank Transfer' },
-                ].map(opt => (
-                  <label
-                    key={opt.value}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '12px 20px', borderRadius: 10, cursor: 'pointer',
-                      border: paymentMethod === opt.value ? '2px solid var(--accent-blue)' : '1.5px solid var(--border-color)',
-                      background: paymentMethod === opt.value ? 'rgba(0,102,204,0.08)' : 'transparent',
-                      fontWeight: 700, fontSize: 13, transition: 'all 0.15s',
-                      userSelect: 'none',
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value={opt.value}
-                      checked={paymentMethod === opt.value}
-                      onChange={() => setPaymentMethod(opt.value)}
-                      style={{ accentColor: 'var(--accent-blue)', width: 15, height: 15 }}
-                    />
-                    {opt.icon} {opt.label}
-                  </label>
-                ))}
-              </div>
+              <PaymentMethodSelector
+                townName={selectedTown || townName}
+                value={paymentAccount}
+                onChange={(val) => {
+                  setPaymentAccount(val);
+                  if (val.paymentMethod === 'bank') {
+                    if (paymentMethod === 'Cash') setPaymentMethod('Bank Transfer');
+                  } else {
+                    setPaymentMethod('Cash');
+                  }
+                }}
+                label="Receive Resell Advance Into / Pay Refund From"
+              />
             </div>
 
-            <PaymentAccountSelect
-              townName={selectedTown || townName}
-              value={paymentAccount}
-              onChange={setPaymentAccount}
-              label="Receive Resell Advance Into / Pay Refund From"
-              paymentMethod={paymentMethod}
-            />
+            {paymentAccount?.paymentMethod === 'bank' && (
+              <div style={{ marginTop: 10 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>Bank Sub-Type</label>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {['Bank Transfer', 'Cheque'].map(m => (
+                    <label key={m} style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
+                      border: paymentMethod === m ? '2px solid var(--accent-blue)' : '1.5px solid var(--border-color)',
+                      background: paymentMethod === m ? 'rgba(0,102,204,0.08)' : 'transparent',
+                      fontWeight: 700, fontSize: 12
+                    }}>
+                      <input type="radio" checked={paymentMethod === m} onChange={() => setPaymentMethod(m)} style={{ accentColor: 'var(--accent-blue)' }} />
+                      {m}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {paymentMethod === 'Cheque' && (
               <div style={{

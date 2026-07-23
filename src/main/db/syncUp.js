@@ -45,7 +45,7 @@ async function performFullSyncUp(reportProgress, options = {}) {
   reportProgress(2, 'Reading local Excel data...');
   const scopedTown = getScopedTown();
 
-  const [towns, allProps, sales, expenses, ceoExpenses, ceoSalary, installments] = await Promise.all([
+  const [towns, allProps, sales, expenses, ceoExpenses, ceoSalary, installments, resellHistory] = await Promise.all([
     getTowns(),
     getAllProperties(),
     getAllSales(),
@@ -53,6 +53,7 @@ async function performFullSyncUp(reportProgress, options = {}) {
     getCeoExpenses(),
     getCeoSalary(),
     getInstallments(),
+    getResellHistory().catch(() => []),
   ]);
 
   reportProgress(10, 'Uploading Towns.xlsx -> towns...');
@@ -60,8 +61,8 @@ async function performFullSyncUp(reportProgress, options = {}) {
 
   reportProgress(18, 'Uploading Plots/Shops Excel -> properties...');
   const propRows = [
-    ...(allProps.plots || []).map(mapPlotToCloud),
-    ...(allProps.shops || []).map(mapShopToCloud),
+    ...(allProps.plots || []).map((p) => mapPlotToCloud(p, sales, resellHistory)),
+    ...(allProps.shops || []).map((s) => mapShopToCloud(s, sales, resellHistory)),
   ].filter((p) => p.Property_Number && p.Town_Name && (!scopedTown || String(p.Town_Name) === scopedTown));
   await upsertAll(_admin, 'properties', propRows);
 
@@ -92,10 +93,6 @@ async function performFullSyncUp(reportProgress, options = {}) {
   await upsertAll(_admin, 'notifications', pickTableRows('notifications', scopedRows(notifs, scopedTown)));
 
   reportProgress(68, 'Uploading Resell_History.xlsx -> resell_history...');
-  let resellHistory = [];
-  try {
-    resellHistory = await getResellHistory();
-  } catch (_) {}
   await upsertAll(_admin, 'resell_history', pickTableRows('resell_history', scopedRows(resellHistory, scopedTown)));
 
   reportProgress(70, 'Uploading Employees.xlsx -> employees...');

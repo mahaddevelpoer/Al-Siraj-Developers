@@ -248,13 +248,67 @@ function mapTownFromCloud(row) {
     Location_Lng: getRowVal(row, 'Longitude') ?? '',
   };
 }
+function findPropertyStatus(type, number, town, sales, resellHistory) {
+  const targetType = String(type || '').toLowerCase().trim();
+  const targetNumber = String(number || '').toLowerCase().trim();
+  const targetTown = String(town || '').toLowerCase().trim();
 
-function mapPlotToCloud(row) {
+  // Check resell history first (latest)
+  if (resellHistory && Array.isArray(resellHistory)) {
+    const match = resellHistory.find(r => {
+      const rType = String(r.Type || r.type || '').toLowerCase().trim();
+      const rNum = String(r.Plot_Shop_Number || r.plot_shop_number || '').toLowerCase().trim();
+      const rTown = String(r.Town_Name || r.town_name || '').toLowerCase().trim();
+      return rType === targetType && rNum === targetNumber && rTown === targetTown;
+    });
+    if (match) {
+      return {
+        Status: 'Resold',
+        Customer_Name: match.Customer_Name || match.customer_name || match.Original_Customer || match.original_customer || '',
+        CNIC: match.CNIC || match.cnic || '',
+        Phone_Number: match.Phone_Number || match.phone_number || '',
+        Sell_Date: match.Resell_Date || match.resell_date || '',
+        Total_Amount_PKR: parseFloat(match.Resell_Amount || match.resell_amount) || 0,
+        Received_Amount: parseFloat(match.Advance_Amount_PKR || match.advance_amount_pkr || match.Resell_Amount || match.resell_amount) || 0,
+        Remaining_Amount: parseFloat(match.Remaining_Amount || match.remaining_amount) || 0,
+      };
+    }
+  }
+
+  // Check sales
+  if (sales && Array.isArray(sales)) {
+    const match = sales.find(s => {
+      const sType = String(s.Type || s.type || '').toLowerCase().trim();
+      const sNum = String(s.Plot_Shop_Number || s.plot_shop_number || '').toLowerCase().trim();
+      const sTown = String(s.Town_Name || s.town_name || '').toLowerCase().trim();
+      return sType === targetType && sNum === targetNumber && sTown === targetTown;
+    });
+    if (match) {
+      return {
+        Status: 'Sold',
+        Customer_Name: match.Customer_Name || match.customer_name || '',
+        CNIC: match.CNIC || match.cnic || '',
+        Phone_Number: match.Phone_Number || match.phone_number || '',
+        Sell_Date: match.Sell_Date || match.sell_date || '',
+        Total_Amount_PKR: parseFloat(match.Total_Amount_PKR || match.total_amount_pkr) || 0,
+        Received_Amount: parseFloat(match.Received_Amount || match.received_amount || match.Advance_Amount_PKR || match.advance_amount_pkr) || 0,
+        Remaining_Amount: parseFloat(match.Remaining_Amount || match.remaining_amount) || 0,
+      };
+    }
+  }
+
+  return null;
+}
+
+function mapPlotToCloud(row, sales, resellHistory) {
   const r = stripInternal(row);
-  return {
+  const type = 'Plot';
+  const number = String(r.Plot_Number || r.Property_Number || '');
+  const townName = String(r.Town_Name || '');
+  const base = {
     Property_Type: 'Plot',
-    Property_Number: String(r.Plot_Number || r.Property_Number || ''),
-    Town_Name: String(r.Town_Name || ''),
+    Property_Number: number,
+    Town_Name: townName,
     Property_Size: cloudVal(r.Plot_Size),
     Marla: r.Plot_Marla != null && r.Plot_Marla !== '' ? parseFloat(r.Plot_Marla) : null,
     Per_Marla_Price: parseFloat(r.Per_Marla_Price) || 0,
@@ -289,14 +343,31 @@ function mapPlotToCloud(row) {
     File_Delivery_Image: cloudVal(r.File_Delivery_Image),
     Status: cloudVal(r.Status) || 'Available',
   };
+
+  const saleInfo = findPropertyStatus(type, number, townName, sales, resellHistory);
+  if (saleInfo) {
+    base.Status = saleInfo.Status;
+    if (saleInfo.Customer_Name) base.Customer_Name = saleInfo.Customer_Name;
+    if (saleInfo.CNIC) base.CNIC = saleInfo.CNIC;
+    if (saleInfo.Phone_Number) base.Phone_Number = saleInfo.Phone_Number;
+    if (saleInfo.Sell_Date) base.Sell_Date = saleInfo.Sell_Date;
+    if (saleInfo.Total_Amount_PKR) base.Total_Amount_PKR = saleInfo.Total_Amount_PKR;
+    if (saleInfo.Received_Amount) base.Received_Amount = saleInfo.Received_Amount;
+    if (saleInfo.Remaining_Amount) base.Remaining_Amount = saleInfo.Remaining_Amount;
+    if (saleInfo.Status === 'Resold') base.Resell_Status = 'Yes';
+  }
+  return base;
 }
 
-function mapShopToCloud(row) {
+function mapShopToCloud(row, sales, resellHistory) {
   const r = stripInternal(row);
-  return {
+  const type = 'Shop';
+  const number = String(r.Shop_Number || r.Property_Number || '');
+  const townName = String(r.Town_Name || '');
+  const base = {
     Property_Type: 'Shop',
-    Property_Number: String(r.Shop_Number || r.Property_Number || ''),
-    Town_Name: String(r.Town_Name || ''),
+    Property_Number: number,
+    Town_Name: townName,
     Property_Size: cloudVal(r.Shop_Size),
     Marla: r.Shop_Marla != null && r.Shop_Marla !== '' ? parseFloat(r.Shop_Marla) : null,
     Per_Marla_Price: parseFloat(r.Per_Marla_Price) || 0,
@@ -331,10 +402,25 @@ function mapShopToCloud(row) {
     File_Delivery_Image: cloudVal(r.File_Delivery_Image),
     Status: cloudVal(r.Status) || 'Available',
   };
+
+  const saleInfo = findPropertyStatus(type, number, townName, sales, resellHistory);
+  if (saleInfo) {
+    base.Status = saleInfo.Status;
+    if (saleInfo.Customer_Name) base.Customer_Name = saleInfo.Customer_Name;
+    if (saleInfo.CNIC) base.CNIC = saleInfo.CNIC;
+    if (saleInfo.Phone_Number) base.Phone_Number = saleInfo.Phone_Number;
+    if (saleInfo.Sell_Date) base.Sell_Date = saleInfo.Sell_Date;
+    if (saleInfo.Total_Amount_PKR) base.Total_Amount_PKR = saleInfo.Total_Amount_PKR;
+    if (saleInfo.Received_Amount) base.Received_Amount = saleInfo.Received_Amount;
+    if (saleInfo.Remaining_Amount) base.Remaining_Amount = saleInfo.Remaining_Amount;
+    if (saleInfo.Status === 'Resold') base.Resell_Status = 'Yes';
+  }
+  return base;
 }
 
-function mapPropertyFromCloud(row, type) {
+function mapPropertyFromCloud(row, type, sales, resellHistory) {
   const base = {
+    Property_Type: type,
     Town_Name: getRowVal(row, 'Town_Name') || '',
     Per_Marla_Price: parseFloat(getRowVal(row, 'Per_Marla_Price')) || 0,
     Total_Price: parseFloat(getRowVal(row, 'Total_Price')) || 0,
@@ -367,6 +453,20 @@ function mapPropertyFromCloud(row, type) {
     Property_Category: getRowVal(row, 'Property_Category') || (type === 'Plot' ? 'Residential' : 'Commercial'),
   };
   const number = getRowVal(row, 'Property_Number') || '';
+  
+  const saleInfo = findPropertyStatus(type, number, base.Town_Name, sales, resellHistory);
+  if (saleInfo) {
+    base.Status = saleInfo.Status;
+    if (saleInfo.Customer_Name) base.Customer_Name = saleInfo.Customer_Name;
+    if (saleInfo.CNIC) base.CNIC = saleInfo.CNIC;
+    if (saleInfo.Phone_Number) base.Phone_Number = saleInfo.Phone_Number;
+    if (saleInfo.Sell_Date) base.Sell_Date = saleInfo.Sell_Date;
+    if (saleInfo.Total_Amount_PKR) base.Total_Amount_PKR = saleInfo.Total_Amount_PKR;
+    if (saleInfo.Received_Amount) base.Received_Amount = saleInfo.Received_Amount;
+    if (saleInfo.Remaining_Amount) base.Remaining_Amount = saleInfo.Remaining_Amount;
+    if (saleInfo.Status === 'Resold') base.Resell_Status = 'Yes';
+  }
+
   if (type === 'Plot') {
     return { ...base, Plot_Number: number, Plot_Size: getRowVal(row, 'Property_Size') || '', Plot_Marla: getRowVal(row, 'Marla') ?? '' };
   }
@@ -623,6 +723,27 @@ function toCloudRow(table, row) {
     if (!cloudKey || skip.has(k) || skip.has(cloudKey)) continue;
     out[cloudKey] = sanitizeCloudValue(cloudKey, v);
   }
+
+  const now = new Date();
+  const timeStr = now.toTimeString().split(' ')[0];
+  const dateStr = now.toISOString().split('T')[0];
+
+  if (!out.created_at) {
+    const origDate = getRowVal(row, 'Created_At') || getRowVal(row, 'Date') || getRowVal(row, 'Sell_Date') || getRowVal(row, 'Payment_Date') || dateStr;
+    out.created_at = sanitizeCloudValue('created_at', origDate);
+  }
+  if (!out.time) {
+    out.time = getRowVal(row, 'Time') || getRowVal(row, 'time') || timeStr;
+  }
+  const creator = getRowVal(row, 'Created_By') || getRowVal(row, 'Added_By') || getRowVal(row, 'Recorded_By') || getRowVal(row, 'Paid_By') || getRowVal(row, 'done_by') || 'System';
+  if (!out.created_by) out.created_by = creator;
+  if (!out.done_by) out.done_by = creator;
+
+  const editor = getRowVal(row, 'Updated_By') || getRowVal(row, 'Edited_By') || getRowVal(row, 'edited_by') || creator;
+  if (!out.updated_by) out.updated_by = editor;
+  if (!out.edited_by) out.edited_by = editor;
+  out.updated_at = now.toISOString();
+
   return out;
 }
 

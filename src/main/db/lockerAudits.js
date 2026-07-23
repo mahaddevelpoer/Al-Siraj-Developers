@@ -79,18 +79,48 @@ async function generateAuditReport(townName) {
 }
 
 async function getLockerAuditSchedule(townName) {
-  const fp = path.join(getGlobalsPath(), 'Audit_Schedules.xlsx');
+  const globalsPath = getGlobalsPath();
+  const auditsFp = path.join(globalsPath, 'Locker_Audits.xlsx');
+  const fp = path.join(globalsPath, 'Audit_Schedules.xlsx');
+  const todayStr = getTodayStr();
+
+  // Guard: If an audit was ALREADY completed today for this town, do not prompt again!
+  if (fs.existsSync(auditsFp)) {
+    try {
+      const auditRows = await readExcelFile(auditsFp, 'Data');
+      const doneToday = (auditRows || []).some(a => {
+        const tMatch = String(a.Town_Name || a.town_name || '').trim().toLowerCase() === String(townName || '').trim().toLowerCase();
+        const aDate = String(a.Audit_Date || a.audit_date || a.Created_At || a.created_at || '').slice(0, 10);
+        return tMatch && aDate >= todayStr;
+      });
+      if (doneToday) return null;
+    } catch (_) {}
+  }
+
   if (!fs.existsSync(fp)) return null;
 
   try {
     const rows = await readExcelFile(fp, 'Data');
-    const todayStr = getTodayStr();
     
-    // Find a pending schedule where scheduled_date <= today
-    const schedule = rows.find(r => 
-      String(r.Town_Name || '').trim() === String(townName || '').trim() &&
+    // 1. Auto-expire past overdue pending schedules (scheduled_date < todayStr)
+    const pastPending = (rows || []).filter(r => 
+      String(r.Town_Name || '').trim().toLowerCase() === String(townName || '').trim().toLowerCase() &&
       String(r.Status || '').trim().toLowerCase() === 'pending' &&
-      String(r.Scheduled_Date || '') <= todayStr
+      String(r.Scheduled_Date || '').slice(0, 10) < todayStr &&
+      r._rowNumber
+    );
+
+    for (const p of pastPending) {
+      try {
+        await writeExcelRow(fp, 'Data', { ...p, Status: 'expired' }, 'Schedule_ID', p._rowNumber);
+      } catch (_) {}
+    }
+
+    // 2. Find a pending schedule specifically for TODAY
+    const schedule = (rows || []).find(r => 
+      String(r.Town_Name || '').trim().toLowerCase() === String(townName || '').trim().toLowerCase() &&
+      String(r.Status || '').trim().toLowerCase() === 'pending' &&
+      String(r.Scheduled_Date || '').slice(0, 10) === todayStr
     );
     
     if (schedule) {
@@ -117,6 +147,7 @@ async function submitLockerAudit({ id, townName, auditDate, systemBalance, physi
   const globalsPath = getGlobalsPath();
   const auditsFp = path.join(globalsPath, 'Locker_Audits.xlsx');
   const schedulesFp = path.join(globalsPath, 'Audit_Schedules.xlsx');
+  const todayStr = getTodayStr();
 
   // 1. Write to Locker_Audits.xlsx
   await ensureSheetColumns(auditsFp, 'Data', LOCKER_AUDIT_COLS);
@@ -124,7 +155,7 @@ async function submitLockerAudit({ id, townName, auditDate, systemBalance, physi
   const auditRow = {
     Audit_ID: auditId,
     Town_Name: townName,
-    Audit_Date: auditDate || getTodayStr(),
+    Audit_Date: todayStr,
     System_Balance: Number(systemBalance) || 0,
     Physical_Balance: Number(physicalBalance) || 0,
     Discrepancy: Number(discrepancy) || 0,
@@ -138,17 +169,15 @@ async function submitLockerAudit({ id, townName, auditDate, systemBalance, physi
     try {
       await ensureSheetColumns(schedulesFp, 'Data', AUDIT_SCHED_COLS);
       const schedules = await readExcelFile(schedulesFp, 'Data');
-      const targetSchedule = schedules.find(s => 
-        String(s.Town_Name || '').trim() === String(townName || '').trim() &&
-        String(s.Status || '').trim().toLowerCase() === 'pending' &&
-        String(s.Scheduled_Date || '') <= (auditDate || getTodayStr())
-      );
-      if (targetSchedule && targetSchedule._rowNumber) {
-        const updatedSchedule = {
-          ...targetSchedule,
-          Status: 'completed'
-        };
-        await writeExcelRow(schedulesFp, 'Data', updatedSchedule, 'Schedule_ID', targetSchedule._rowNumber);
+      for (const s of (schedules || [])) {
+        if (
+          String(s.Town_Name || '').trim().toLowerCase() === String(townName || '').trim().toLowerCase() &&
+          String(s.Status || '').trim().toLowerCase() === 'pending' &&
+          String(s.Scheduled_Date || '').slice(0, 10) <= todayStr &&
+          s._rowNumber
+        ) {
+          await writeExcelRow(schedulesFp, 'Data', { ...s, Status: 'completed' }, 'Schedule_ID', s._rowNumber);
+        }
       }
     } catch (err) {
       console.error('[locker-audits] Error updating schedule status:', err);

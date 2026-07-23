@@ -34,6 +34,7 @@ export default function OfficialReceipt({ data, onClose, townName }) {
   const isInvestor = data?.type === 'investor';
   const isConstruction = data?.type === 'construction_deal' || data?.type === 'construction_payment';
   const isResell = data?.resellMode === true;
+  const isInstallment = data?.type === 'installment_payment' || data?.receiptType === 'installment_payment';
   const propertyKind = String(data?.type || '').toLowerCase() === 'shop' ? 'Shop' : 'Plot';
   const propertyNumberLabel = lang === 'en'
     ? `${propertyKind} No:`
@@ -482,6 +483,37 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                   </div>
                 )}
 
+                {data?.paymentMethod && (
+                  <div style={{ marginBottom: 14, fontSize: printSize === 'thermal' ? 9 : 12, border: '1px solid black', padding: 8, borderRadius: 4 }}>
+                    <div style={{ fontWeight: 800, marginBottom: 4 }}>{lang === 'en' ? 'PAYMENT DETAILS' : 'ادائیگی کی تفصیل'}</div>
+                    <div>
+                      <strong>{lang === 'en' ? 'Payment Method:' : 'ادائیگی کا طریقہ:'}</strong>{' '}
+                      {lang === 'en'
+                        ? (data?.paymentMethod || 'Cash')
+                        : data?.paymentMethod === 'Cash' ? 'نقد'
+                          : data?.paymentMethod === 'Cheque' ? 'چیک'
+                            : data?.paymentMethod === 'Bank Transfer' ? 'بینک ٹرانسفر'
+                              : (data?.paymentMethod || 'نقد')
+                      }
+                    </div>
+                    {(data?.paymentAccountName || data?.Payment_Account_Name) && (
+                      <div><strong>{lang === 'en' ? 'Account:' : 'اکاؤنٹ:'}</strong> {data?.paymentAccountName || data?.Payment_Account_Name}</div>
+                    )}
+                    {data?.paymentMethod === 'Cheque' && (
+                      <>
+                        <div><strong>{lang === 'en' ? 'Cheque No:' : 'چیک نمبر:'}</strong> {data?.chequeNumber || ''}</div>
+                        <div><strong>{lang === 'en' ? 'Bank:' : 'بینک:'}</strong> {data?.chequeBankName || ''}</div>
+                      </>
+                    )}
+                    {data?.paymentMethod === 'Bank Transfer' && (
+                      <>
+                        <div><strong>{lang === 'en' ? 'Transaction ID:' : 'ٹرانزیکشن ID:'}</strong> {data?.transactionId || ''}</div>
+                        <div><strong>{lang === 'en' ? 'Bank:' : 'بینک:'}</strong> {data?.transferBankName || ''}</div>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: 22, marginBottom: 10 }}>
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ borderTop: '1px solid black', width: 150, marginTop: 30 }} />
@@ -582,6 +614,37 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                     <div style={{ border: '1px solid black', padding: 12, minHeight: 65, marginTop: 8 }}>
                       {data?.note || (data?.type === 'construction_deal' ? 'Constructor agrees to complete the selected construction work according to the finalized deal amount.' : '-')}
                     </div>
+                  </div>
+                )}
+
+                {data?.paymentMethod && (
+                  <div style={{ marginBottom: 14, fontSize: printSize === 'thermal' ? 9 : 12, border: '1px solid black', padding: 8, borderRadius: 4 }}>
+                    <div style={{ fontWeight: 800, marginBottom: 4 }}>{lang === 'en' ? 'PAYMENT DETAILS' : 'ادائیگی کی تفصیل'}</div>
+                    <div>
+                      <strong>{lang === 'en' ? 'Payment Method:' : 'ادائیگی کا طریقہ:'}</strong>{' '}
+                      {lang === 'en'
+                        ? (data?.paymentMethod || 'Cash')
+                        : data?.paymentMethod === 'Cash' ? 'نقد'
+                          : data?.paymentMethod === 'Cheque' ? 'چیک'
+                            : data?.paymentMethod === 'Bank Transfer' ? 'بینک ٹرانسفر'
+                              : (data?.paymentMethod || 'نقد')
+                      }
+                    </div>
+                    {(data?.paymentAccountName || data?.Payment_Account_Name) && (
+                      <div><strong>{lang === 'en' ? 'Account:' : 'اکاؤنٹ:'}</strong> {data?.paymentAccountName || data?.Payment_Account_Name}</div>
+                    )}
+                    {data?.paymentMethod === 'Cheque' && (
+                      <>
+                        <div><strong>{lang === 'en' ? 'Cheque No:' : 'چیک نمبر:'}</strong> {data?.chequeNumber || ''}</div>
+                        <div><strong>{lang === 'en' ? 'Bank:' : 'بینک:'}</strong> {data?.chequeBankName || ''}</div>
+                      </>
+                    )}
+                    {data?.paymentMethod === 'Bank Transfer' && (
+                      <>
+                        <div><strong>{lang === 'en' ? 'Transaction ID:' : 'ٹرانزیکشن ID:'}</strong> {data?.transactionId || ''}</div>
+                        <div><strong>{lang === 'en' ? 'Bank:' : 'بینک:'}</strong> {data?.transferBankName || ''}</div>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -737,6 +800,37 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                   </table>
                 </div>
 
+                {data?.paymentMethod && (
+                  <div style={{ marginBottom: 14, fontSize: printSize === 'thermal' ? 9 : 12, border: '1px solid black', padding: 8, borderRadius: 4 }}>
+                    <div style={{ fontWeight: 800, marginBottom: 4 }}>{lang === 'en' ? 'PAYMENT DETAILS' : 'ادائیگی کی تفصیل'}</div>
+                    <div>
+                      <strong>{lang === 'en' ? 'Payment Method:' : 'ادائیگی کا طریقہ:'}</strong>{' '}
+                      {lang === 'en'
+                        ? (data?.paymentMethod || 'Cash')
+                        : data?.paymentMethod === 'Cash' ? 'نقد'
+                          : data?.paymentMethod === 'Cheque' ? 'چیک'
+                            : data?.paymentMethod === 'Bank Transfer' ? 'بینک ٹرانسفر'
+                              : (data?.paymentMethod || 'نقد')
+                      }
+                    </div>
+                    {(data?.paymentAccountName || data?.Payment_Account_Name) && (
+                      <div><strong>{lang === 'en' ? 'Account:' : 'اکاؤنٹ:'}</strong> {data?.paymentAccountName || data?.Payment_Account_Name}</div>
+                    )}
+                    {data?.paymentMethod === 'Cheque' && (
+                      <>
+                        <div><strong>{lang === 'en' ? 'Cheque No:' : 'چیک نمبر:'}</strong> {data?.chequeNumber || ''}</div>
+                        <div><strong>{lang === 'en' ? 'Bank:' : 'بینک:'}</strong> {data?.chequeBankName || ''}</div>
+                      </>
+                    )}
+                    {data?.paymentMethod === 'Bank Transfer' && (
+                      <>
+                        <div><strong>{lang === 'en' ? 'Transaction ID:' : 'ٹرانزیکشن ID:'}</strong> {data?.transactionId || ''}</div>
+                        <div><strong>{lang === 'en' ? 'Bank:' : 'بینک:'}</strong> {data?.transferBankName || ''}</div>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {/* Signatures */}
                 <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: 20, marginBottom: 10 }}>
                   <div style={{ textAlign: 'center' }}>
@@ -793,7 +887,9 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                       <div style={{ display: 'inline-block', border: '2px solid black', padding: '4px 25px', fontWeight: 900, fontSize: 16, textTransform: 'uppercase', backgroundColor: '#000', color: '#fff' }}>
                         {isResell
                           ? (lang === 'en' ? 'RENEWAL FORM OF AGREEMENT' : 'فارم تجدید معاہدہ')
-                          : (lang === 'en' ? 'PROPERTY SALE AGREEMENT' : 'معاہدہ فروخت')}
+                          : isInstallment
+                            ? (lang === 'en' ? 'INSTALLMENT PAYMENT RECEIPT' : 'اقساط کی ادائیگی کی رسید')
+                            : (lang === 'en' ? 'PROPERTY SALE AGREEMENT' : 'معاہدہ فروخت')}
                       </div>
                     </div>
                     <div style={{ borderBottom: '1px solid black', marginBottom: 20 }} />
@@ -841,6 +937,19 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                     </div>
                   )}
 
+                  {isInstallment && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 10, border: '1px solid black', padding: 8, borderRadius: 4, fontSize: 12 }}>
+                      <div>
+                        <strong>{lang === 'en' ? 'Installment Month:' : 'قسط کا مہینہ:'}</strong> {data?.installmentNumber} / {data?.totalInstallments}
+                      </div>
+                      {data?.dueDate && (
+                        <div>
+                          <strong>{lang === 'en' ? 'Due Date:' : 'تاریخ ادائیگی:'}</strong> {data?.dueDate}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Amount boxes */}
                   {(() => {
                     const expectedAmount = parseFloat(data?.expectedAmount || data?.Expected_Amount_PKR) || 0;
@@ -857,16 +966,28 @@ export default function OfficialReceipt({ data, onClose, townName }) {
                   })()}
                   <div style={{ display: 'grid', gridTemplateColumns: printSize === 'thermal' ? '1fr 1fr' : 'repeat(3, 1fr)', gap: printSize === 'thermal' ? 6 : 15, marginBottom: printSize === 'thermal' ? 6 : 15 }}>
                     <div style={{ border: printSize === 'thermal' ? '1px dashed black' : '1px solid black', padding: '6px', textAlign: 'center' }}>
-                      <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 8 : 11 }}>{lang === 'en' ? 'TOTAL' : 'کل زرپع'}</div>
-                      <div style={{ fontWeight: 900, fontSize: printSize === 'thermal' ? 10 : 16 }}>{fmtPkr(data?.totalAmount || data?.Total_Amount_PKR)}</div>
+                      <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 8 : 11 }}>
+                        {isInstallment ? (lang === 'en' ? 'INSTALLMENT AMOUNT' : 'قسط کی رقم') : (lang === 'en' ? 'TOTAL' : 'کل زرپع')}
+                      </div>
+                      <div style={{ fontWeight: 900, fontSize: printSize === 'thermal' ? 10 : 16 }}>
+                        {fmtPkr(isInstallment ? data?.amount : (data?.totalAmount || data?.Total_Amount_PKR))}
+                      </div>
                     </div>
                     <div style={{ border: printSize === 'thermal' ? '1px dashed black' : '1px solid black', padding: '6px', textAlign: 'center' }}>
-                      <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 8 : 11 }}>{lang === 'en' ? 'PAID' : 'اداشدہ'}</div>
-                      <div style={{ fontWeight: 900, fontSize: printSize === 'thermal' ? 10 : 16 }}>{fmtPkr(data?.paidAmount || data?.Advance_Amount_PKR)}</div>
+                      <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 8 : 11 }}>
+                        {isInstallment ? (lang === 'en' ? 'PAID TODAY' : 'آج ادا شدہ') : (lang === 'en' ? 'PAID' : 'اداشدہ')}
+                      </div>
+                      <div style={{ fontWeight: 900, fontSize: printSize === 'thermal' ? 10 : 16 }}>
+                        {fmtPkr(isInstallment ? data?.amount : (data?.paidAmount || data?.Advance_Amount_PKR))}
+                      </div>
                     </div>
                     <div style={{ border: printSize === 'thermal' ? '1px dashed black' : '1px solid black', padding: '6px', textAlign: 'center', gridColumn: printSize === 'thermal' ? '1 / -1' : undefined }}>
-                      <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 8 : 11 }}>{lang === 'en' ? 'REMAINING' : 'بقایا'}</div>
-                      <div style={{ fontWeight: 900, fontSize: printSize === 'thermal' ? 10 : 16 }}>{fmtPkr(data?.remainingAmount || (parseFloat(data?.Total_Amount_PKR) - parseFloat(data?.Advance_Amount_PKR)))}</div>
+                      <div style={{ fontWeight: 800, fontSize: printSize === 'thermal' ? 8 : 11 }}>
+                        {isInstallment ? (lang === 'en' ? 'REMAINING BALANCE' : 'بقایا بقا') : (lang === 'en' ? 'REMAINING' : 'بقایا')}
+                      </div>
+                      <div style={{ fontWeight: 900, fontSize: printSize === 'thermal' ? 10 : 16 }}>
+                        {fmtPkr(data?.remainingAmount || (parseFloat(data?.Total_Amount_PKR) - parseFloat(data?.Advance_Amount_PKR)))}
+                      </div>
                     </div>
                   </div>
 
