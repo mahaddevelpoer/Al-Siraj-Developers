@@ -69,6 +69,8 @@ class CeoRepository {
     }).toList();
   }
 
+  DashboardSummary? _lastKnownSummary;
+
   Future<DashboardSummary> loadDashboard({bool force = false}) {
     if (!force && _dashboardInFlight != null) return _dashboardInFlight!;
     final future = _loadDashboard().whenComplete(() => _dashboardInFlight = null);
@@ -77,13 +79,20 @@ class CeoRepository {
   }
 
   Future<DashboardSummary> _loadDashboard() async {
-    final results = await Future.wait<List<Map<String, dynamic>>>([
-      _activeTowns(),
-      _tableRows('appeals', limit: 500),
-      _tableRows('daily_entries', limit: 700),
-      _tableRows('all_sales', limit: 700),
-      _tableRows('town_financial_summary', orderColumn: null, limit: 200),
-    ]);
+    List<List<Map<String, dynamic>>> results;
+    try {
+      results = await Future.wait<List<Map<String, dynamic>>>([
+        _activeTowns(),
+        _tableRows('appeals', limit: 500),
+        _tableRows('daily_entries', limit: 700),
+        _tableRows('all_sales', limit: 700),
+        _tableRows('town_financial_summary', orderColumn: null, limit: 200),
+      ]);
+    } catch (_) {
+      if (_lastKnownSummary != null) return _lastKnownSummary!;
+      results = const [[], [], [], [], []];
+    }
+
     final towns = results[0];
     final appeals = results[1];
     final entries = results[2];
@@ -144,7 +153,7 @@ class CeoRepository {
       );
     }).toList();
 
-    return DashboardSummary(
+    final resultSummary = DashboardSummary(
       towns: summaries,
       pendingApprovals: summaries.fold<int>(0, (sum, town) => sum + town.pendingApprovals),
       received: summaries.fold<num>(0, (sum, town) => sum + town.received),
@@ -152,6 +161,14 @@ class CeoRepository {
       pendingCollection: summaries.fold<num>(0, (sum, town) => sum + town.pendingCollection),
       salesCount: summaries.fold<int>(0, (sum, town) => sum + town.salesCount),
     );
+
+    if (resultSummary.towns.isNotEmpty || resultSummary.received > 0) {
+      _lastKnownSummary = resultSummary;
+    } else if (_lastKnownSummary != null) {
+      return _lastKnownSummary!;
+    }
+
+    return resultSummary;
   }
 
   Future<List<ReviewItem>> loadReviews(String status, {bool force = false}) {

@@ -770,19 +770,14 @@ function extractMissingColumn(msg) {
   return null;
 }
 
-function isMissingTableError(msg) {
-  return String(msg || '').includes('Could not find the table');
-}
-
-function isMissingConflictConstraint(msg) {
-  return String(msg || '').toLowerCase().includes('no unique or exclusion constraint matching the on conflict specification');
-}
-
-async function insertBatchFallback(admin, table, batch) {
-  const { error } = await admin.from(table).insert(batch);
-  if (!error) return;
-  if (String(error.message || '').toLowerCase().includes('duplicate')) return;
-  throw error;
+function isNetworkFetchError(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return msg.includes('fetch failed') ||
+    msg.includes('network') ||
+    msg.includes('econnreset') ||
+    msg.includes('etimedout') ||
+    msg.includes('socket hang up') ||
+    msg.includes('failed to fetch');
 }
 
 async function upsertAll(admin, table, rows) {
@@ -806,13 +801,11 @@ async function upsertAll(admin, table, rows) {
       const keys = conflict.split(',').map((k) => k.trim());
       const seen = new Map();
       for (const row of filtered) {
-        // Only deduplicate if the conflict keys are actually present
         const hasKeys = keys.every(k => row[k] !== undefined && row[k] !== null);
         if (hasKeys) {
           const keyVal = keys.map((k) => String(row[k])).join('|');
           seen.set(keyVal, row);
         } else {
-          // If a row is missing primary key parts, just add it with a unique token so it's not dropped
           seen.set(`__nomatch__${Math.random()}`, row);
         }
       }
@@ -823,16 +816,41 @@ async function upsertAll(admin, table, rows) {
       for (let i = 0; i < filtered.length; i += BATCH_SIZE) {
         const batch = filtered.slice(i, i + BATCH_SIZE);
         const opts = conflict ? { onConflict: conflict, ignoreDuplicates: false } : { ignoreDuplicates: false };
-        const { error } = await admin.from(table).upsert(batch, opts);
-        if (error) {
-          if (conflict && isMissingConflictConstraint(error.message)) {
-            console.warn(`[syncUp] "${table}" is missing unique constraint for "${conflict}". Falling back to insert.`);
-            await insertBatchFallback(admin, table, batch);
-            continue;
+        
+        let lastError = null;
+        for (let retry = 0; retry < 3; retry++) {
+          try {
+            const { error } = await admin.from(table).upsert(batch, opts);
+            if (!error) {
+              lastError = null;
+              break;
+            }
+            lastError = error;
+            if (conflict && isMissingConflictConstraint(error.message)) {
+              console.warn(`[syncUp] "${table}" is missing unique constraint for "${conflict}". Falling back to insert.`);
+              await insertBatchFallback(admin, table, batch);
+              lastError = null;
+              break;
+            }
+            if (isNetworkFetchError(error.message)) {
+              await new Promise(r => setTimeout(r, 800 * (retry + 1)));
+              continue;
+            }
+            break;
+          } catch (netErr) {
+            lastError = netErr;
+            if (isNetworkFetchError(netErr.message || netErr)) {
+              await new Promise(r => setTimeout(r, 800 * (retry + 1)));
+              continue;
+            }
+            throw netErr;
           }
+        }
+
+        if (lastError) {
           const sample = batch.find((row) => Object.values(row || {}).some((v) => typeof v === 'string' && v.length > 10)) || batch[0];
-          error.message = `${error.message} [table=${table}, batch=${Math.floor(i / BATCH_SIZE) + 1}, sample=${JSON.stringify(sample).slice(0, 300)}]`;
-          throw error;
+          lastError.message = `${lastError.message || lastError} [table=${table}, batch=${Math.floor(i / BATCH_SIZE) + 1}, sample=${JSON.stringify(sample).slice(0, 300)}]`;
+          throw lastError;
         }
       }
       return;
@@ -857,6 +875,10 @@ async function upsertAllSafe(admin, table, rows) {
     if (isMissingTableError(e.message)) {
       console.warn(`[syncUp] Skipping "${table}" — table not found in cloud`);
       return { ok: false, skipped: true, reason: e.message };
+    }
+    if (isNetworkFetchError(e.message || e)) {
+      console.warn(`[syncUp] Network offline/unstable during sync for "${table}". Queued background sync.`);
+      return { ok: false, offline: true, reason: e.message || String(e) };
     }
     throw e;
   }
