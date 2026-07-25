@@ -1299,15 +1299,41 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            Text(
-                              textOf(
-                                rowValue(media, 'Pdf_Path') ??
-                                    media['pdf_path'] ??
-                                    rowValue(media, 'File_Path') ??
-                                    media['file_path'],
-                                'No file path saved',
-                              ),
-                              style: const TextStyle(color: kMuted),
+                            Builder(
+                              builder: (context) {
+                                final hasBase64 = (rowValue(media, 'Pdf_Base64') ?? media['pdf_base64'] ?? rowValue(media, 'Html_Content') ?? media['html_content'] ?? '').toString().isNotEmpty;
+                                if (hasBase64) {
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.green.withOpacity(0.3)),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.picture_as_pdf, size: 14, color: Colors.green),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          '📄 PDF Report Attached (Mobile Ready)',
+                                          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 11),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
+                                return Text(
+                                  textOf(
+                                    rowValue(media, 'Pdf_Path') ??
+                                        media['pdf_path'] ??
+                                        rowValue(media, 'File_Path') ??
+                                        media['file_path'],
+                                    'PDF Report Sync Active',
+                                  ),
+                                  style: const TextStyle(color: kMuted),
+                                );
+                              },
                             ),
                           ],
                         ),

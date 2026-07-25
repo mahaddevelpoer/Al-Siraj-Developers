@@ -118,13 +118,18 @@ class CeoNotificationService {
     final routeData = _routeFromMessage(message);
     final route = '${routeData['route'] ?? ''}';
     final table = '${message.data['table'] ?? ''}';
-    final isApproval = route == 'approvals' || table == 'appeals';
-    final isReport = route == 'reports' || route == 'daily_report';
-    if (!isApproval && !isReport) return;
+    final type = '${message.data['type'] ?? ''}';
+    final isApproval = route == 'approvals' || table == 'appeals' || type == 'appeal_created';
+    final isReport = route == 'reports' ||
+        route == 'daily_report' ||
+        route == 'daily_ledger_receipts' ||
+        type == 'daily_ledger_report_ready';
+    final title = message.notification?.title ?? message.data['title'] ??
+        (isReport ? '📊 Daily Ledger Report Ready (8 PM)' : '⚠️ Pending CEO Action');
+    final body = message.notification?.body ?? message.data['body'] ?? 'Open AL SIRAJ CEO to review.';
     await showLocal(
-      title: message.notification?.title ??
-          (isReport ? 'Daily ledger receipt ready' : 'Pending CEO approval'),
-      body: message.notification?.body ?? 'Open AL SIRAJ CEO to review.',
+      title: title,
+      body: body,
       routeData: routeData,
       channelId: isReport ? 'ceo_daily_reports' : 'ceo_approvals',
     );
