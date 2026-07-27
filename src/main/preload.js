@@ -224,4 +224,13 @@ contextBridge.exposeInMainWorld('api', {
   updateSystemSettings: (patch) => ipcRenderer.invoke('updateSystemSettings', patch),
   getLockerAuditSchedule: (params) => ipcRenderer.invoke('getLockerAuditSchedule', params),
   submitLockerAudit: (params) => ipcRenderer.invoke('submitLockerAudit', params),
+  // System Diagnostics & Health Check
+  runSystemDiagnostics: () => ipcRenderer.invoke('run-system-diagnostics'),
+  onDiagnosticsProgress: (callback) => {
+    try { ipcRenderer.removeAllListeners('diagnostics-progress'); } catch {}
+    ipcRenderer.on('diagnostics-progress', (_, data) => callback(data));
+  },
+  removeDiagnosticsProgress: () => {
+    try { ipcRenderer.removeAllListeners('diagnostics-progress'); } catch {}
+  },
 });

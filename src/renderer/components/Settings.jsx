@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { getSoundSettings, saveSoundSettings, playClick, playSuccess, playFailed, playWarning, playNotify } from '../services/soundService';
+import SystemDiagnosticsModal from './SystemDiagnosticsModal';
 
 export default function Settings({ onClose }) {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -14,6 +15,7 @@ export default function Settings({ onClose }) {
   const [resetBusy, setResetBusy] = useState(false);
   const [soundSettings, setSoundSettings] = useState(() => getSoundSettings());
   const [confirmModal, setConfirmModal] = useState(null);
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
 
   useEffect(() => {
     if (window.api?.onSyncProgress) {
@@ -257,7 +259,10 @@ export default function Settings({ onClose }) {
           )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={handleRunAudit} className="btn btn-primary" disabled={auditBusy}>
-              {auditBusy ? 'Running Audit...' : 'Run System Audit'}
+              {auditBusy ? 'Running Audit...' : 'Run Quick Audit'}
+            </button>
+            <button onClick={() => setShowDiagnosticsModal(true)} className="btn btn-secondary" style={{ background: '#0284c7', color: '#ffffff', fontWeight: 800 }}>
+              🩺 Run Live Diagnostics (Real-Time UI)
             </button>
             <button onClick={handleRunHandoverAudit} className="btn btn-ghost" disabled={auditBusy}>
               Handover Audit
@@ -450,6 +455,8 @@ export default function Settings({ onClose }) {
           </div>
         </div>
       )}
+
+      <SystemDiagnosticsModal isOpen={showDiagnosticsModal} onClose={() => setShowDiagnosticsModal(false)} />
     </div>
   );
 }

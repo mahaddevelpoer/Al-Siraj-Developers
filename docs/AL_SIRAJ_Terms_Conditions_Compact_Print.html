@@ -2,171 +2,441 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>AL SIRAJ DEVELOPERS SOFTWARE — Terms & Conditions</title>
+  <title>AL SIRAJ DEVELOPERS SOFTWARE — Handover & Support Certificate</title>
   <style>
-    @page { size: A4; margin: 12mm; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #1e293b; line-height: 1.38; margin: 0; }
-    .page { page-break-after: always; height: 95%; position: relative; }
-    .page:last-child { page-break-after: avoid; }
-    h1 { text-align: center; font-size: 17px; margin: 0 0 2px; text-transform: uppercase; font-weight: 900; }
-    .subtitle { text-align: center; font-size: 10px; color: #475569; margin-bottom: 10px; font-weight: 700; }
-    table.meta { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-    table.meta td { border: 1px solid #cbd5e1; padding: 5px 8px; font-size: 10px; }
-    table.meta td strong { color: #0f172a; }
-    .clause { margin-bottom: 7px; }
-    .clause-title { font-weight: 800; font-size: 10.5px; color: #0f172a; margin-bottom: 2px; }
-    
-    h2.sec-title { text-align: center; font-size: 16px; margin: 0 0 4px; text-transform: uppercase; font-weight: 900; }
-    .sec-subtitle { text-align: center; font-size: 9.5px; color: #64748b; margin-bottom: 12px; }
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 11pt;
+      color: #1e293b;
+      line-height: 1.5;
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+    }
+    .page {
+      width: 210mm;
+      height: 297mm;
+      padding: 18mm 20mm 20mm 20mm;
+      position: relative;
+      page-break-after: always;
+      background: #ffffff;
+      overflow: hidden;
+    }
+    .page:last-child {
+      page-break-after: avoid;
+    }
 
-    table.sig-box { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
-    table.sig-box td { border: 1px solid #94a3b8; padding: 10px; vertical-align: top; width: 50%; font-size: 10px; height: 180px; }
-    .field-line { border-bottom: 1px solid #64748b; display: inline-block; width: 220px; height: 12px; }
+    /* Header Styling */
+    .header-banner {
+      border-bottom: 3.5px solid #0284c7;
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .header-title-box h1 {
+      font-size: 21pt;
+      font-weight: 900;
+      color: #0f172a;
+      margin: 0;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .header-title-box p {
+      font-size: 11.5pt;
+      font-weight: 700;
+      color: #0369a1;
+      margin: 4px 0 0 0;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .header-tag {
+      background: #f0f9ff;
+      border: 1.5px solid #bae6fd;
+      color: #0369a1;
+      font-size: 9.5pt;
+      font-weight: 800;
+      padding: 6px 14px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
 
-    table.ack-box { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    table.ack-box td { border: 1px solid #cbd5e1; padding: 8px; font-size: 9.5px; }
+    /* Meta Table */
+    table.meta-grid {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 18px;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    table.meta-grid td {
+      border: 1px solid #cbd5e1;
+      padding: 10px 14px;
+      font-size: 10.5pt;
+      vertical-align: middle;
+    }
+    table.meta-grid td strong {
+      color: #0f172a;
+      font-weight: 800;
+      font-size: 11pt;
+    }
+    .meta-label {
+      color: #475569;
+      font-size: 9pt;
+      text-transform: uppercase;
+      font-weight: 800;
+      display: block;
+      margin-bottom: 3px;
+      letter-spacing: 0.4px;
+    }
 
-    .page-footer { position: absolute; bottom: 0; left: 0; right: 0; font-size: 8.5px; color: #64748b; text-align: center; font-style: italic; }
+    /* Clauses List */
+    .clause-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .clause-card {
+      background: #ffffff;
+      border-left: 4px solid #0284c7;
+      padding: 4px 0 4px 14px;
+    }
+    .clause-header {
+      font-size: 11.5pt;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .clause-num {
+      background: #0284c7;
+      color: #ffffff;
+      font-size: 9pt;
+      font-weight: 900;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .clause-body {
+      font-size: 10.5pt;
+      color: #334155;
+      line-height: 1.5;
+    }
+
+    /* Page 3 Header */
+    .sec-page-title {
+      font-size: 16pt;
+      font-weight: 900;
+      color: #0f172a;
+      margin: 0 0 4px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      text-align: center;
+    }
+    .sec-page-subtitle {
+      font-size: 10pt;
+      color: #64748b;
+      margin-bottom: 20px;
+      text-align: center;
+      font-weight: 600;
+    }
+
+    /* Signature Boxes */
+    .sig-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .sig-card {
+      border: 1.5px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 14px;
+      background: #fafafa;
+    }
+    .sig-card-title {
+      font-size: 11pt;
+      font-weight: 900;
+      color: #0f172a;
+      border-bottom: 1.5px solid #cbd5e1;
+      padding-bottom: 6px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .sig-field {
+      margin-bottom: 10px;
+      font-size: 10pt;
+      color: #334155;
+    }
+    .sig-line {
+      border-bottom: 1.5px solid #64748b;
+      display: inline-block;
+      width: 180px;
+      height: 12px;
+    }
+    .stamp-box {
+      margin-top: 12px;
+      border: 1.5px dashed #94a3b8;
+      border-radius: 8px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-size: 9pt;
+      font-weight: 800;
+      text-transform: uppercase;
+      background: #ffffff;
+      letter-spacing: 0.5px;
+    }
+
+    /* Ack Table */
+    table.ack-grid {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    table.ack-grid td {
+      border: 1px solid #cbd5e1;
+      padding: 10px 14px;
+      font-size: 10pt;
+      background: #f8fafc;
+    }
+
+    /* Footer Fixed at Bottom */
+    .footer-bar {
+      position: absolute;
+      bottom: 14mm;
+      left: 20mm;
+      right: 20mm;
+      border-top: 1px solid #cbd5e1;
+      padding-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 8.5pt;
+      color: #64748b;
+    }
+    .footer-left {
+      font-weight: 700;
+      color: #0369a1;
+    }
+    .footer-right {
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
 
   <!-- PAGE 1 -->
   <div class="page">
-    <h1>AL SIRAJ DEVELOPERS SOFTWARE</h1>
-    <div class="subtitle">Terms & Conditions, Service Disclaimer and Limitation of Liability - Compact Print Version</div>
+    <div class="header-banner">
+      <div class="header-title-box">
+        <h1>AL SIRAJ DEVELOPERS</h1>
+        <p>System Handover & Support Certificate</p>
+      </div>
+      <div class="header-tag">Official Document</div>
+    </div>
 
-    <table class="meta">
+    <table class="meta-grid">
       <tr>
-        <td><strong>Client / Owner / CEO:</strong> Dilawar Khan</td>
-        <td><strong>Service Provider / Developer Company:</strong> Mahad and Mahdi Developers</td>
+        <td style="width: 50%;">
+          <span class="meta-label">Client / Owner / CEO</span>
+          <strong>Dilawar Khan</strong>
+        </td>
+        <td style="width: 50%;">
+          <span class="meta-label">Developer Company</span>
+          <strong>Mahad and Mahdi Developers</strong>
+        </td>
       </tr>
       <tr>
-        <td><strong>Software:</strong> AL SIRAJ DEVELOPERS Desktop ERP + CEO Android App</td>
-        <td><strong>Support Term:</strong> 2 months from final handover/installation</td>
-      </tr>
-      <tr>
-        <td><strong>Effective Date:</strong> _____ / _____ / ________</td>
-        <td><strong>Document Version:</strong> Compact Terms v3.1</td>
+        <td>
+          <span class="meta-label">Software Package</span>
+          <strong>AL SIRAJ DEVELOPERS ERP + CEO App</strong>
+        </td>
+        <td>
+          <span class="meta-label">Dedicated Support Period</span>
+          <strong>2 Months from Handover Date</strong>
+        </td>
       </tr>
     </table>
 
-    <div class="clause">
-      <div class="clause-title">1. Purpose and Scope</div>
-      AL SIRAJ DEVELOPERS is a real-estate town management and record-keeping system for towns, plots/shops, sales, installments, remaining payments, cash/banks, accounts, salaries, investors, contractors, agents, receipts, reports, approvals, local Excel records, cloud sync and CEO monitoring. It helps reduce mistakes and improve transparency, but final business supervision, verification and decisions remain the Client/Owner/CEO responsibility.
+    <div class="clause-list">
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">01</span> Purpose & System Scope</div>
+        <div class="clause-body">
+          AL SIRAJ DEVELOPERS is custom-designed to streamline town management, plot/shop records, sales, installment collections, expenses, cash/bank accounts, staff salaries, investor records, contractor payments, official receipts, and CEO mobile monitoring. The system provides clear real-time visibility, transparent calculations, and automated reporting to support smooth daily business administration.
+        </div>
+      </div>
+
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">02</span> Two-Month Dedicated Technical Assistance</div>
+        <div class="clause-body">
+          Mahad and Mahdi Developers will provide <strong>two (2) months</strong> of dedicated technical support and assistance from the handover date. This includes smooth system onboarding, bug fixes, calculation verifications, and operational guidance. Any future feature expansions or new module additions beyond the delivered system scope can be planned and implemented upon mutual consultation.
+        </div>
+      </div>
+
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">03</span> Data Protection & Safety Guidelines</div>
+        <div class="clause-body">
+          The software uses a high-performance local-first storage architecture with real-time cloud synchronization for maximum reliability. To maintain complete office data safety, regular local USB backups and periodic printouts of key summary reports are recommended as standard office administrative practices.
+        </div>
+      </div>
+
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">04</span> System Assurance & Contingency Care</div>
+        <div class="clause-body">
+          The Developer utilizes robust database integrity safeguards to ensure reliable operation. In the event of hardware issues, power outages, or system environment disruptions, the Developer will provide active technical support to assist in restoring data and smooth system continuity.
+        </div>
+      </div>
     </div>
 
-    <div class="clause">
-      <div class="clause-title">2. Two-Month Service Support</div>
-      Mahad and Mahdi Developers will provide two months of software support from final handover/installation for bugs, errors, calculation issues caused by the software, and reasonable technical guidance. This does not include new major modules, major redesigns, hardware repair, internet issues, third-party outages, cloud provider problems, manual file changes, employee/accountant fraud, misuse, negligence, or new business requirements unless separately agreed and paid.
+    <div class="footer-bar">
+      <div class="footer-left">AL SIRAJ DEVELOPERS — Handover & Support Certificate</div>
+      <div class="footer-right">Page 1 of 3</div>
     </div>
-
-    <div class="clause">
-      <div class="clause-title">3. Data Storage, Backups and Hard Records</div>
-      The system is local-first and may store data in local Excel files and sync with Supabase/cloud where configured. Local Excel files are an office-readable record/cache/backup. The Client must keep regular local backups, external/USB backups, printed important reports, and handwritten/manual hard records for critical property and financial transactions. The software must not be treated as the only business record.
-    </div>
-
-    <div class="clause">
-      <div class="clause-title">4. No Absolute Data-Loss Guarantee</div>
-      The Service Provider will make reasonable efforts to keep the software safe and resolve software errors, but does not give an absolute guarantee that data loss, mismatch, delay or corruption can never occur. Data issues may occur due to power failure, Windows corruption, hard disk/SSD failure, virus/malware, internet failure, wrong cleanup use, manual deletion/editing, cloud outage, third-party restrictions, multiple-PC conflict, user negligence or misuse.
-    </div>
-
-    <div class="clause">
-      <div class="clause-title">5. Cloud Sync and Third-Party Services</div>
-      Cloud sync is provided for backup, monitoring and CEO app connectivity, but depends on internet, Supabase, Firebase/FCM, credentials, storage and third-party service availability. Cloud-side data loss, outage, delayed sync, failed upload/download, account suspension, pricing/limit changes, API/policy changes, or cloud deletion by Client/staff is not the Service Provider responsibility. The Client must verify sync status regularly.
-    </div>
-
-    <div class="clause">
-      <div class="clause-title">6. Offline Mode and Pending Approvals</div>
-      Offline work may be supported so entries can continue without internet. Approval-required actions may remain pending until internet is connected and CEO review is completed. The Client/CEO/accountant must connect internet, review pending approvals, check pending sync, and prevent misuse of offline mode. The Service Provider is not responsible for loss caused by failure to connect internet, review pending items, or maintain backups.
-    </div>
-
-    <div class="clause">
-      <div class="clause-title">7. Employee, Accountant, Agent or User Fraud</div>
-      The software is designed to reduce fraud through approvals, audit logs, receipts, reports and CEO monitoring. However, the Service Provider is not responsible if any accountant, employee, agent, contractor, investor, operator or user enters false values, manipulates entries, hides information, shares passwords, uses another login, misuses offline mode, creates fake records, or performs fraud inside or outside the software. Staff supervision, permissions, password safety, office discipline and business audit are the Client/Owner/CEO responsibility.
-    </div>
-
-    <div class="clause">
-      <div class="clause-title">8. Manual Alteration and Security Responsibilities</div>
-      If any person manually opens, edits, deletes, renames, moves, corrupts or alters Excel files, app data, reports, receipts, configuration files or synced records outside the software, the Service Provider is not responsible for resulting errors, wrong balances, data loss, mismatch or sync issues. The Client is also responsible for strong passwords, not sharing logins, protecting devices/Windows accounts, restricting staff access, preventing malware/virus, protecting cloud accounts and keeping backups.
-    </div>
-
-    <div class="clause">
-      <div class="clause-title">9. Approvals, Receipts, Reports and Verification</div>
-      Pending/rejected items should not affect totals; approved items may affect records according to business rules. The CEO/authorized person is responsible for reviewing approvals carefully. Receipts and reports are generated from entered data; if wrong or false data is entered, wrong receipts/reports may be produced. The Client must manually verify agreements, receipts, balances, payments, file delivery and property records.
-    </div>
-
-    <div class="clause">
-      <div class="clause-title">10. Limitation of Liability and Acceptance</div>
-      To the maximum extent permitted by law, Mahad and Mahdi Developers shall not be liable for business loss, profit loss, property loss, employee/accountant fraud, cloud data loss, manual data alteration, missing backups, wrong business decisions, third-party failure, internet/hardware failure, or indirect/consequential damages. By installing, using or continuing to use the software, the Client accepts that no absolute data-loss guarantee is provided; cloud/third-party loss is not the Service Provider responsibility; employee/accountant fraud is Client/Owner responsibility; backups and hard/manual records are required; and the Service Provider role is limited to software support and bug fixing as described above.
-    </div>
-
-    <div class="page-footer">AL SIRAJ DEVELOPERS Terms - Page 1</div>
   </div>
 
   <!-- PAGE 2 -->
   <div class="page">
-    <h2 class="sec-title">SIGNATURES AND ACCEPTANCE</h2>
-    <div class="sec-subtitle">Please fill the blank spaces by pen. Company/office stamps may be placed in the stamp boxes.</div>
+    <div class="header-banner">
+      <div class="header-title-box">
+        <h1>AL SIRAJ DEVELOPERS</h1>
+        <p>Operating Guidelines & System Terms</p>
+      </div>
+      <div class="header-tag">Official Document</div>
+    </div>
 
-    <table class="sig-box">
-      <tr>
-        <td>
-          <strong>Client / Owner / CEO</strong><br><br>
-          <strong>Name:</strong> Dilawar Khan / <span class="field-line"></span><br><br>
-          <strong>CNIC/ID:</strong> <span class="field-line"></span><br><br>
-          <strong>Business/Town:</strong> <span class="field-line"></span><br><br>
-          <strong>Signature:</strong> <span class="field-line"></span><br><br>
-          <strong>Date:</strong> _________ / _________ / _____________ <br><br>
-          <strong>Client Stamp:</strong>
-        </td>
-        <td>
-          <strong>Service Provider / Developer Company</strong><br><br>
-          <strong>Company:</strong> Mahad and Mahdi Developers<br><br>
-          <strong>Authorized Person:</strong> <span class="field-line"></span><br><br>
-          <strong>CNIC/ID:</strong> <span class="field-line"></span><br><br>
-          <strong>Signature:</strong> <span class="field-line"></span><br><br>
-          <strong>Date:</strong> _________ / _________ / _____________ <br><br>
-          <strong>Company Stamp:</strong>
-        </td>
-      </tr>
-    </table>
+    <div class="clause-list">
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">05</span> Cloud Connectivity & Real-Time CEO Monitoring</div>
+        <div class="clause-body">
+          Cloud synchronization provides real-time mobile app access, CEO notifications, and secure remote backup. Maintaining active office internet connectivity ensures seamless data updates between desktop computers and mobile devices.
+        </div>
+      </div>
 
-    <table class="sig-box">
-      <tr>
-        <td>
-          <strong>Witness 1</strong><br><br>
-          <strong>Name:</strong> <span class="field-line"></span><br><br>
-          <strong>CNIC/ID:</strong> <span class="field-line"></span><br><br>
-          <strong>Signature:</strong> <span class="field-line"></span><br><br>
-          <strong>Date:</strong> _________ / _________ / _____________
-        </td>
-        <td>
-          <strong>Witness 2</strong><br><br>
-          <strong>Name:</strong> <span class="field-line"></span><br><br>
-          <strong>CNIC/ID:</strong> <span class="field-line"></span><br><br>
-          <strong>Signature:</strong> <span class="field-line"></span><br><br>
-          <strong>Date:</strong> _________ / _________ / _____________
-        </td>
-      </tr>
-    </table>
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">06</span> Offline Operation & Automatic Sync</div>
+        <div class="clause-body">
+          Offline operation allows continuous office data entry even during internet downtime. Any entries recorded offline will automatically upload and present for CEO approval as soon as internet connection is re-established.
+        </div>
+      </div>
 
-    <table class="ack-box">
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">07</span> Role-Based Security & CEO Approval System</div>
+        <div class="clause-body">
+          To maintain office transparency and accuracy, the software features role-based access control, multi-step CEO approvals, system audit logs, and digital receipts. Office management maintains full administrative control over staff permissions and password security.
+        </div>
+      </div>
+
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">08</span> System Integrity & Best Usage</div>
+        <div class="clause-body">
+          To ensure calculation accuracy and audit trail consistency, all financial and property transactions should be recorded through the software interface. Following standard computer security procedures ensures optimal long-term software performance.
+        </div>
+      </div>
+
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">09</span> Report Verification & Reconciliation</div>
+        <div class="clause-body">
+          System receipts and reports reflect data entered by authorized office users. Timely review of pending approvals and daily summary reports ensures full accuracy across property files and town ledgers.
+        </div>
+      </div>
+
+      <div class="clause-card">
+        <div class="clause-header"><span class="clause-num">10</span> Handover Confirmation & Mutual Cooperation</div>
+        <div class="clause-body">
+          This Certificate confirms successful software installation, completion of initial setup, and the official start of the 2-month dedicated technical support period. Both parties affirm their commitment to smooth cooperation and efficient business management.
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-bar">
+      <div class="footer-left">AL SIRAJ DEVELOPERS — Handover & Support Certificate</div>
+      <div class="footer-right">Page 2 of 3</div>
+    </div>
+  </div>
+
+  <!-- PAGE 3 -->
+  <div class="page">
+    <div class="sec-page-title">HANDOVER CONFIRMATION & ACCEPTANCE</div>
+    <div class="sec-page-subtitle">Please complete the details and sign below. Office stamps may be placed in designated boxes.</div>
+
+    <div class="sig-section">
+      <div class="sig-card">
+        <div class="sig-card-title">Client / Owner / CEO</div>
+        <div class="sig-field"><strong>Name:</strong> Dilawar Khan / <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>CNIC/ID:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>Business / Town:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>Signature:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>Date:</strong> _____ / _____ / __________</div>
+        <div class="stamp-box">Client Stamp Box</div>
+      </div>
+
+      <div class="sig-card">
+        <div class="sig-card-title">Developer Company</div>
+        <div class="sig-field"><strong>Company:</strong> Mahad & Mahdi Developers</div>
+        <div class="sig-field"><strong>Authorized Person:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>CNIC/ID:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>Signature:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>Date:</strong> _____ / _____ / __________</div>
+        <div class="stamp-box">Company Stamp Box</div>
+      </div>
+    </div>
+
+    <div class="sig-section">
+      <div class="sig-card">
+        <div class="sig-card-title">Witness 1</div>
+        <div class="sig-field"><strong>Name:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>CNIC/ID:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>Signature:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>Date:</strong> _____ / _____ / __________</div>
+      </div>
+
+      <div class="sig-card">
+        <div class="sig-card-title">Witness 2</div>
+        <div class="sig-field"><strong>Name:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>CNIC/ID:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>Signature:</strong> <span class="sig-line"></span></div>
+        <div class="sig-field"><strong>Date:</strong> _____ / _____ / __________</div>
+      </div>
+    </div>
+
+    <table class="ack-grid">
       <tr>
         <td style="width: 30%;"><strong>Acknowledgement Initials</strong></td>
         <td style="width: 35%;">Client Initials: ______________</td>
-        <td style="width: 35%;">Service Provider Initials: ______________</td>
+        <td style="width: 35%;">Developer Initials: ______________</td>
       </tr>
       <tr>
         <td><strong>Handover / Installation Date</strong></td>
-        <td>Date: _________ / _________ / _____________</td>
-        <td>Place: ____________________________</td>
+        <td>Date: _____ / _____ / ________</td>
+        <td>Place: __________________________</td>
       </tr>
     </table>
 
-    <div class="footer-note" style="margin-top: 16px;">Note: This is a software/service agreement draft. The parties may obtain legal review before signing. Document Version: Compact Terms v3.1 (2-Month Support)</div>
-
-    <div class="page-footer">AL SIRAJ DEVELOPERS Terms - Page 2</div>
+    <div class="footer-bar">
+      <div class="footer-left">AL SIRAJ DEVELOPERS — Handover & Support Certificate</div>
+      <div class="footer-right">Page 3 of 3</div>
+    </div>
   </div>
 
 </body>
