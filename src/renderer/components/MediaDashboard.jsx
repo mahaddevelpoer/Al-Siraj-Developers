@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import ReportViewerModal from './ReportViewerModal';
 
 export default function MediaDashboard({ townName, showToast }) {
   const [rows, setRows] = useState([]);
@@ -7,6 +8,7 @@ export default function MediaDashboard({ townName, showToast }) {
   const [type, setType] = useState('all');
   const [query, setQuery] = useState('');
   const [selectedReceipt, setSelectedReceipt] = useState(null);
+  const [viewerModal, setViewerModal] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);
 
   const load = async () => {
@@ -76,13 +78,15 @@ export default function MediaDashboard({ townName, showToast }) {
       setSelectedReceipt(row._receipt || row);
       return;
     }
-    const filePath = row.Pdf_Path || row.File_Path || row.Excel_Path || row.Html_Path;
+    const filePath = row.Html_Path || row.Pdf_Path || row.File_Path || row.Excel_Path;
     if (!filePath) {
       showToast?.('No file path saved for this media item', 'error');
       return;
     }
-    const res = await window.api.openReportFile?.(filePath);
-    if (res?.error) showToast?.(res.error, 'error');
+    setViewerModal({
+      filePath,
+      title: row.Title || row.Receipt_Number || 'Business Report',
+    });
   };
 
   const exportSelectedReceipt = async () => {
@@ -236,6 +240,13 @@ export default function MediaDashboard({ townName, showToast }) {
           </div>
         </div>
       )}
+      <ReportViewerModal
+        isOpen={!!viewerModal}
+        onClose={() => setViewerModal(null)}
+        filePath={viewerModal?.filePath}
+        title={viewerModal?.title}
+        showToast={showToast}
+      />
     </div>
   );
 }

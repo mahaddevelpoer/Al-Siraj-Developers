@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('api', {
   getMediaLibrary: (params) => ipcRenderer.invoke('get-media-library', params),
   exportReceiptArchivePdf: (params) => ipcRenderer.invoke('export-receipt-archive-pdf', params),
   openReportFile: (filePath) => ipcRenderer.invoke('open-report-file', filePath),
+  readReportFile: (filePath) => ipcRenderer.invoke('read-report-file', filePath),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   getDevConfig: () => ipcRenderer.invoke('get-dev-config'),
   searchLocation: (query) => ipcRenderer.invoke('searchLocation', query),
@@ -224,13 +225,4 @@ contextBridge.exposeInMainWorld('api', {
   updateSystemSettings: (patch) => ipcRenderer.invoke('updateSystemSettings', patch),
   getLockerAuditSchedule: (params) => ipcRenderer.invoke('getLockerAuditSchedule', params),
   submitLockerAudit: (params) => ipcRenderer.invoke('submitLockerAudit', params),
-  // System Diagnostics & Health Check
-  runSystemDiagnostics: () => ipcRenderer.invoke('run-system-diagnostics'),
-  onDiagnosticsProgress: (callback) => {
-    try { ipcRenderer.removeAllListeners('diagnostics-progress'); } catch {}
-    ipcRenderer.on('diagnostics-progress', (_, data) => callback(data));
-  },
-  removeDiagnosticsProgress: () => {
-    try { ipcRenderer.removeAllListeners('diagnostics-progress'); } catch {}
-  },
 });

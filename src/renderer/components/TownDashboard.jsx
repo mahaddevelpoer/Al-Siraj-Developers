@@ -17,9 +17,9 @@ import AccountingReports from './AccountingReports';
 import AccountsDashboard from './AccountsDashboard';
 import MediaDashboard from './MediaDashboard';
 import CashBanksDashboard from './CashBanksDashboard';
-import PendingAppeals from './PendingAppeals';
 import DailyLedger from '../systems/DailySystem/DailyLedger';
 import { EmployeeSalary } from '../systems/ExpenseSystem';
+import ReportViewerModal from './ReportViewerModal';
 import {
   ChartIcon, WalletIcon, PlotIcon, ShopIcon, SoldIcon, ResellIcon,
   HistoryIcon, CalendarIcon, BriefcaseIcon, NeighborhoodIcon, PinIcon, HandshakeIcon, TrendUpIcon, BookIcon, DollarIcon, UsersIcon
@@ -226,6 +226,7 @@ function TownOverview({ town, refreshKey = 0, onNavigate }) {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportMessage, setReportMessage] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [viewerModal, setViewerModal] = useState(null);
 
   useEffect(() => { loadStats(); }, []);
 
@@ -291,8 +292,12 @@ function TownOverview({ town, refreshKey = 0, onNavigate }) {
       });
       if (res?.error) throw new Error(res.error);
       setReport(res.report);
-      await window.api.openReportFile?.(kind === 'excel' ? res.excelPath : res.pdfPath || res.htmlPath);
       setReportMessage(`${kind === 'excel' ? 'Excel' : 'PDF'} report ready`);
+      setViewerModal({
+        filePath: res.htmlPath || res.pdfPath,
+        reportData: res.report,
+        title: `${town.Town_Name} Town Ledger Report`,
+      });
     } catch (e) {
       setReportMessage(e.message || 'Report export failed');
     } finally {
@@ -509,6 +514,14 @@ function TownOverview({ town, refreshKey = 0, onNavigate }) {
           )}
         </div>
       </div>
+      <ReportViewerModal
+        isOpen={!!viewerModal}
+        onClose={() => setViewerModal(null)}
+        filePath={viewerModal?.filePath}
+        reportData={viewerModal?.reportData}
+        title={viewerModal?.title}
+        showToast={showToast}
+      />
     </div>
   );
 }

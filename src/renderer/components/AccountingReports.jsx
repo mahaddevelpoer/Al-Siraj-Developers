@@ -44,7 +44,7 @@ function ReportTable({ empty, columns, rows }) {
   );
 }
 
-export default function AccountingReports({ townName, showToast }) {
+export default function AccountingReports({ townName = '', showToast }) {
   const [fromDate, setFromDate] = useState(firstDay());
   const [toDate, setToDate] = useState(today());
   const [report, setReport] = useState(null);
@@ -54,6 +54,7 @@ export default function AccountingReports({ townName, showToast }) {
   const [active, setActive] = useState('accounts');
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [viewerModal, setViewerModal] = useState(null);
 
   useEffect(() => {
     load();
@@ -87,9 +88,13 @@ export default function AccountingReports({ townName, showToast }) {
     try {
       const res = await window.api.exportTownLedgerReport({ townName, fromDate, toDate });
       if (res?.error) throw new Error(res.error);
-      const file = kind === 'excel' ? res.excelPath : res.pdfPath || res.htmlPath;
-      await window.api.openReportFile?.(file);
+      const file = kind === 'excel' ? res.excelPath : res.htmlPath || res.pdfPath;
       showToast?.(`${kind === 'excel' ? 'Excel' : 'PDF'} accounting report ready`);
+      setViewerModal({
+        filePath: file,
+        reportData: res.report,
+        title: `${townName || 'All Towns'} Accounting Ledger Report`,
+      });
     } catch (e) {
       showToast?.(e.message || 'Report export failed', 'error');
     } finally {
@@ -348,6 +353,14 @@ export default function AccountingReports({ townName, showToast }) {
         <BookIcon size={15} />
         <span>Cash Receipt Vouchers and Cash Payment Vouchers are handled in Daily Entries; reports here are generated from those approved cash rows.</span>
       </div>
+      <ReportViewerModal
+        isOpen={!!viewerModal}
+        onClose={() => setViewerModal(null)}
+        filePath={viewerModal?.filePath}
+        reportData={viewerModal?.reportData}
+        title={viewerModal?.title}
+        showToast={showToast}
+      />
     </div>
   );
 }

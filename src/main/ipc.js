@@ -2208,6 +2208,17 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       return err ? { error: err } : { success: true };
     } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
+  ipcMain.handle('read-report-file', async (_, filePath) => {
+    try {
+      if (!filePath || !fs.existsSync(filePath)) throw new Error('Report file not found');
+      const ext = path.extname(filePath).toLowerCase();
+      if (ext === '.html' || ext === '.txt' || ext === '.json' || ext === '.csv') {
+        const content = fs.readFileSync(filePath, 'utf8');
+        return { success: true, content, type: ext.replace('.', '') };
+      }
+      return { success: true, filePath, type: 'binary' };
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
+  });
 
   // Installment Properties (for daily income entry)
   ipcMain.handle('getInstallmentProperties', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getInstallmentProperties(town), () => onlineDb.getInstallmentProperties(town)); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
@@ -4158,171 +4169,6 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       return { success: true };
     } catch (e) {
       return { error: e.message || String(e) || 'Unknown error' };
-    }
-  });
-
-  ipcMain.handle('run-system-diagnostics', async () => {
-    const logs = [];
-    const items = [];
-    let passedCount = 0;
-    let warningCount = 0;
-    let failedCount = 0;
-
-    const emitProgress = (step, totalSteps, percent, title, detail, status = 'info') => {
-      const payload = { step, totalSteps, percent, title, detail, status, timestamp: new Date().toISOString() };
-      logs.push(payload);
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('diagnostics-progress', payload);
-      }
-    };
-
-    try {
-      emitProgress(1, 8, 10, 'Checking Local Excel Files', 'Auditing existence and sheet structure of 12 core Excel databases...');
-      
-      const { getGlobalsPath, readExcelFile } = require('./db/core');
-      const gPath = getGlobalsPath();
-      const excelFiles = [
-        { name: 'Towns.xlsx', sheet: 'Data' },
-        { name: 'All_Sales.xlsx', sheet: 'Data' },
-        { name: 'Installments_Tracker.xlsx', sheet: 'Data' },
-        { name: 'All_Expenses.xlsx', sheet: 'Data' },
-        { name: 'Money_Ledger.xlsx', sheet: 'Data' },
-        { name: 'Employees_V2.xlsx', sheet: 'Data' },
-        { name: 'Advance_Salaries.xlsx', sheet: 'Data' },
-        { name: 'Salary_Records.xlsx', sheet: 'Data' },
-        { name: 'Daily_Entries.xlsx', sheet: 'Data' },
-        { name: 'Investor_Ledger.xlsx', sheet: 'Data' },
-        { name: 'Cash_Bank_Accounts.xlsx', sheet: 'Data' },
-        { name: 'Town_Financial_Summary.xlsx', sheet: 'Data' },
-      ];
-
-      let filePassed = 0;
-      for (const ef of excelFiles) {
-        const fp = path.join(gPath, ef.name);
-        if (fs.existsSync(fp)) {
-          try {
-            const rows = await readExcelFile(fp, ef.sheet);
-            filePassed++;
-            items.push({ category: 'Excel Database', name: ef.name, status: 'PASS', detail: `Valid sheet "${ef.sheet}" with ${rows.length} rows` });
-          } catch (err) {
-            items.push({ category: 'Excel Database', name: ef.name, status: 'WARN', detail: `Exists but sheet read error: ${err.message}` });
-            warningCount++;
-          }
-        } else {
-          items.push({ category: 'Excel Database', name: ef.name, status: 'WARN', detail: 'File will be initialized on first record entry' });
-          warningCount++;
-        }
-      }
-      passedCount += filePassed;
-      emitProgress(1, 8, 25, 'Excel Verification Complete', `Verified ${filePassed}/${excelFiles.length} local Excel database files.`, 'success');
-
-      // STEP 2: Pending Dual-Write Sync Queue
-      emitProgress(2, 8, 35, 'Checking Dual-Write Sync Queue', 'Inspecting pending background sync queue...');
-      const pendingSync = require('./db/pendingSync');
-      const pendingRows = await pendingSync.getPendingQueue().catch(() => []);
-      const failedSyncs = pendingRows.filter(r => (r.Attempt_Count || 0) >= 3);
-      if (failedSyncs.length === 0) {
-        items.push({ category: 'Dual-Write Sync', name: 'Background Queue', status: 'PASS', detail: `0 failed background syncs (${pendingRows.length} total pending)` });
-        passedCount++;
-      } else {
-        items.push({ category: 'Dual-Write Sync', name: 'Background Queue', status: 'WARN', detail: `${failedSyncs.length} items failed retry limit and queued for background retry` });
-        warningCount++;
-      }
-      emitProgress(2, 8, 45, 'Sync Queue Verified', `Pending queue clean: ${pendingRows.length} items queued.`, 'success');
-
-      // STEP 3: Financial & Math Integrity
-      emitProgress(3, 8, 55, 'Validating Financial & Math Integrity', 'Verifying sales, received amounts, and town ledger totals...');
-      const { getAllSales, getInstallments } = require('./db/globals');
-      const sales = await getAllSales().catch(() => []);
-      const installments = await getInstallments().catch(() => []);
-      let mathMismatches = 0;
-      for (const sale of sales) {
-        const propId = sale.Property_ID || sale.Property_Number;
-        const total = Number(sale.Total_Amount_PKR || sale.Sale_Price_PKR || 0);
-        const advance = Number(sale.Advance_Amount_PKR || 0);
-        const propInsts = installments.filter(i => (i.Property_ID === propId || i.Property_Number === propId) && String(i.Status).toLowerCase() === 'paid');
-        const paidInstSum = propInsts.reduce((s, i) => s + Number(i.Amount_PKR || i.Amount || 0), 0);
-        const actualReceived = Number(sale.Received_Amount || 0);
-        const expectedReceived = advance + paidInstSum;
-        if (actualReceived > 0 && Math.abs(actualReceived - expectedReceived) > 1) {
-          mathMismatches++;
-        }
-      }
-      if (mathMismatches === 0) {
-        items.push({ category: 'Financial Integrity', name: 'Sales & Installments Math', status: 'PASS', detail: `All ${sales.length} sales math & installment ledgers 100% matched` });
-        passedCount++;
-      } else {
-        items.push({ category: 'Financial Integrity', name: 'Sales & Installments Math', status: 'WARN', detail: `Detected ${mathMismatches} minor rounding/advance discrepancies` });
-        warningCount++;
-      }
-      emitProgress(3, 8, 65, 'Financial Validation Complete', `Math audit passed for ${sales.length} property sales.`, 'success');
-
-      // STEP 4: Cloud Supabase Connection & Reachability
-      emitProgress(4, 8, 75, 'Testing Cloud Sync & Supabase Connection', 'Pinging Supabase REST API & table RLS policies...');
-      const supabaseClient = require('./db/supabase');
-      if (supabaseClient) {
-        try {
-          const { data, error } = await supabaseClient.from('towns').select('count', { count: 'exact', head: true });
-          if (!error) {
-            items.push({ category: 'Cloud Supabase', name: 'Cloud Database Connection', status: 'PASS', detail: 'Supabase REST API connected, RLS active' });
-            passedCount++;
-          } else {
-            items.push({ category: 'Cloud Supabase', name: 'Cloud Database Connection', status: 'WARN', detail: `Cloud query response: ${error.message}` });
-            warningCount++;
-          }
-        } catch (cloudErr) {
-          items.push({ category: 'Cloud Supabase', name: 'Cloud Database Connection', status: 'WARN', detail: `Cloud offline/unreachable: ${cloudErr.message}` });
-          warningCount++;
-        }
-      } else {
-        items.push({ category: 'Cloud Supabase', name: 'Cloud Database Connection', status: 'WARN', detail: 'Supabase client credentials uninitialized' });
-        warningCount++;
-      }
-      emitProgress(4, 8, 85, 'Cloud Check Complete', 'Supabase REST API connection checked.', 'success');
-
-      // STEP 5: CEO Mobile App FCM Push Notifications
-      emitProgress(5, 8, 90, 'Checking CEO Push & Edge Functions', 'Verifying FCM notification service...');
-      items.push({ category: 'CEO Push Alerts', name: 'FCM Edge Function', status: 'PASS', detail: 'Topic "ceo-alerts" configured for 8PM reports' });
-      passedCount++;
-
-      // STEP 6: Media Library & Base64 Receipts
-      emitProgress(6, 8, 93, 'Auditing Media Library & Receipts', 'Checking PDF report archiving...');
-      const { getMediaItems } = require('./db/mediaLibrary');
-      const mediaItems = await getMediaItems().catch(() => []);
-      items.push({ category: 'Media Library', name: 'PDF Receipts Archive', status: 'PASS', detail: `${mediaItems.length} PDF receipt bundles archived` });
-      passedCount++;
-
-      // STEP 7: Security & Accountant Auth
-      emitProgress(7, 8, 97, 'Verifying Auth & Security Settings', 'Checking Accountant offline logins & town scoping...');
-      const accountantAuth = require('./db/accountantAuth');
-      const localAccs = await accountantAuth.getAccountantsLocal(gPath).catch(() => []);
-      items.push({ category: 'Security & Auth', name: 'Accountant Accounts', status: 'PASS', detail: `${localAccs.length} registered accountant profiles active` });
-      passedCount++;
-
-      // STEP 8: Locker Audit Schedule
-      emitProgress(8, 8, 100, 'Checking Locker Audit Schedule', 'Validating audit schedules...');
-      const lockerAudits = require('./db/lockerAudits');
-      const auditSched = await lockerAudits.getLockerAuditSchedule(gPath).catch(() => null);
-      items.push({ category: 'Locker Audits', name: 'Audit Schedule', status: 'PASS', detail: auditSched ? `Scheduled for town ${auditSched.town_name}` : 'No pending overdue audits' });
-      passedCount++;
-
-      const healthScore = Math.round((passedCount / (passedCount + warningCount + failedCount)) * 100) || 100;
-      const finalReport = {
-        success: true,
-        overallHealth: `${healthScore}% HEALTHY`,
-        totalChecks: items.length,
-        passed: passedCount,
-        warnings: warningCount,
-        failed: failedCount,
-        items,
-        logs,
-        timestamp: new Date().toISOString(),
-      };
-
-      emitProgress(8, 8, 100, 'Diagnostics Complete', `System Health: ${finalReport.overallHealth}. All modules verified!`, 'success');
-      return finalReport;
-    } catch (e) {
-      return { success: false, error: e.message || String(e) };
     }
   });
 }

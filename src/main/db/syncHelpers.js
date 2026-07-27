@@ -770,6 +770,21 @@ function extractMissingColumn(msg) {
   return null;
 }
 
+function isMissingTableError(msg) {
+  return String(msg || '').includes('Could not find the table');
+}
+
+function isMissingConflictConstraint(msg) {
+  return String(msg || '').toLowerCase().includes('no unique or exclusion constraint matching the on conflict specification');
+}
+
+async function insertBatchFallback(admin, table, batch) {
+  const { error } = await admin.from(table).insert(batch);
+  if (!error) return;
+  if (String(error.message || '').toLowerCase().includes('duplicate')) return;
+  throw error;
+}
+
 function isNetworkFetchError(err) {
   const msg = String(err?.message || err || '').toLowerCase();
   return msg.includes('fetch failed') ||
