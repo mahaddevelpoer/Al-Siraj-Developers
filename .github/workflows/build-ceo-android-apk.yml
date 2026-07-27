@@ -3,13 +3,8 @@ name: Build CEO Android APK
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "ceo_mobile_app/lib/**"
-      - "ceo_mobile_app/android/**"
-      - "ceo_mobile_app/assets/**"
-      - "ceo_mobile_app/pubspec.yaml"
-      - "ceo_mobile_app/pubspec.lock"
-      - ".github/workflows/build-ceo-android-apk.yml"
+    branches:
+      - main
 
 jobs:
   build-debug-apk:
