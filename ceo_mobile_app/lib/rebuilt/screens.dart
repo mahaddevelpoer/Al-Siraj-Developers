@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:printing/printing.dart';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -1286,6 +1288,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     for (final media in receipt.mediaRows)
                       AppCard(
                         padding: const EdgeInsets.all(12),
+                        onTap: () => _handlePdfTap(context, media),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1387,6 +1390,84 @@ class _ReportsScreenState extends State<ReportsScreen> {
         );
       },
     );
+  }
+
+  void _handlePdfTap(BuildContext context, Map<String, dynamic> media) async {
+    final title = (rowValue(media, 'Title') ?? media['title'] ?? 'PDF Report').toString();
+    final base64Str = (rowValue(media, 'Pdf_Base64') ?? media['pdf_base64'] ?? rowValue(media, 'Html_Content') ?? media['html_content'] ?? '').toString();
+    
+    if (base64Str.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No PDF content attached to this report.')),
+      );
+      return;
+    }
+
+    try {
+      final bytes = base64Decode(base64Str);
+      showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: kSurface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) {
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: const Icon(Icons.picture_as_pdf, color: Colors.green),
+                  title: const Text('View / Print PDF', style: TextStyle(fontWeight: FontWeight.w700)),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Printing.layoutPdf(
+                        onLayout: (_) async => bytes,
+                        name: title,
+                      );
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Failed to preview PDF: $e')),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.share, color: Colors.blue),
+                  title: const Text('Share PDF', style: TextStyle(fontWeight: FontWeight.w700)),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Printing.sharePdf(
+                        bytes: bytes,
+                        filename: '${title.replaceAll(RegExp(r"[^\w\s\-]"), "_")}.pdf',
+                      );
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Failed to share PDF: $e')),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          );
+        },
+      );
+    } catch (err) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading PDF: $err')),
+      );
+    }
   }
 }
 
