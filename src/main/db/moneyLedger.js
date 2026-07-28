@@ -744,6 +744,8 @@ async function backfillMoneyLedger() {
       description: 'Agent commission paid',
       receiptNumber: c.Receipt_Number,
     });
+  }
+
   // Cleanup duplicates from Money_Ledger.xlsx on disk
   try {
     const fp = await ensureMoneyLedgerFile();
