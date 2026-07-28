@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('api', {
   getSoldProperties: () => ipcRenderer.invoke('get-sold-properties'),
   updateFileStatus: (params) => ipcRenderer.invoke('updateFileStatus', params),
   getDailyEntries: (params) => ipcRenderer.invoke('getDailyEntries', params),
+  getTownBalanceOnDate: (params) => ipcRenderer.invoke('getTownBalanceOnDate', params),
   addDailyEntry: (params) => ipcRenderer.invoke('addDailyEntry', params),
   deleteDailyEntry: (params) => ipcRenderer.invoke('deleteDailyEntry', params),
   getAllSales: () => ipcRenderer.invoke('get-all-sales'),

@@ -2224,12 +2224,18 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
   ipcMain.handle('getInstallmentProperties', async (_, townName) => { try { const town = scopedTown(townName, true); return await dataLayer.read(() => getInstallmentProperties(town), () => onlineDb.getInstallmentProperties(town)); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
   ipcMain.handle('getPropertyInstallments', async (_, propertyId) => { try { if (!isNonEmpty(propertyId)) throw new Error('Property ID is required'); return await dataLayer.read(() => getPropertyInstallments(propertyId), () => onlineDb.getPropertyInstallments(propertyId)); } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; } });
 
-  // Daily Entries
   ipcMain.handle('getDailyEntries', async (_, params) => {
     try {
       assertObjectPayload(params, 'getDailyEntries payload');
       const t = scopedTown(params.townName, isAccountantScoped());
       return await dataLayer.read(() => getDailyEntries({ ...params, townName: t }), async () => { const all = await onlineDb.getAll('daily_entries'); return t ? (all || []).filter(e => e.Town_Name === t) : (all || []); });
+    } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
+  });
+  ipcMain.handle('getTownBalanceOnDate', async (_, params) => {
+    try {
+      const { getTownBalanceOnDate } = require('./db/moneyLedger');
+      const town = scopedTown(params.townName, true);
+      return await getTownBalanceOnDate(town, params.date);
     } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('addDailyEntry', async (_, params) => {

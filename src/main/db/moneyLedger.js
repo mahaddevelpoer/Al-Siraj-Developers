@@ -891,6 +891,29 @@ async function getBankAccountTransactions({ townName, accountId, fromDate, toDat
   };
 }
 
+async function getTownBalanceOnDate(townName, date) {
+  const ledger = await getMoneyLedger({ townName });
+  const targetDate = String(date || '').trim();
+  const upToDate = ledger.filter(row => {
+    const rDate = String(row.Date || row.Created_At || '').slice(0, 10);
+    return rDate <= targetDate;
+  });
+
+  const totalReceived = upToDate
+    .filter(row => String(row.Direction || '').toLowerCase() === 'income')
+    .reduce((sum, row) => sum + (parseFloat(row.Amount) || 0), 0);
+
+  const totalExpenses = upToDate
+    .filter(row => String(row.Direction || '').toLowerCase() === 'expense')
+    .reduce((sum, row) => sum + (parseFloat(row.Amount) || 0), 0);
+
+  return {
+    cashBalance: totalReceived - totalExpenses,
+    totalReceived,
+    totalExpenses,
+  };
+}
+
 module.exports = {
   COLUMNS,
   SUMMARY_COLUMNS,
@@ -908,4 +931,5 @@ module.exports = {
   backfillLedgerReceipts,
   backfillMoneyLedger,
   getBankAccountTransactions,
+  getTownBalanceOnDate,
 };

@@ -39,8 +39,18 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
   const totalExpense = expenses.reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
   const netBalance = totalIncome - totalExpense;
 
-  const townIncome = parseFloat(townData?.Total_Income_PKR) || 0;
-  const townExpense = parseFloat(townData?.Total_Expenses_PKR) || 0;
+  const [historicalBalance, setHistoricalBalance] = useState(null);
+
+  useEffect(() => {
+    if (window.api && townName && date) {
+      window.api.getTownBalanceOnDate({ townName, date }).then(res => {
+        if (res && !res.error) setHistoricalBalance(res);
+      }).catch(() => {});
+    }
+  }, [townName, date]);
+
+  const townIncome = historicalBalance ? historicalBalance.totalReceived : (parseFloat(townData?.Total_Income_PKR) || 0);
+  const townExpense = historicalBalance ? historicalBalance.totalExpenses : (parseFloat(townData?.Total_Expenses_PKR) || 0);
   const townNet = townIncome - townExpense;
   const runningBalance = townNet;
   const startingBalance = townNet - netBalance;
