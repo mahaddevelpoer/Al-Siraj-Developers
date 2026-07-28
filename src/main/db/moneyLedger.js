@@ -415,6 +415,27 @@ async function refreshTownFinancialSummary(townName) {
   } else {
     await appendToExcel(fp, 'Data', row);
   }
+
+  // Sync to online Supabase town_financial_summary table
+  try {
+    const onlineDb = require('./online');
+    if (onlineDb && typeof onlineDb.insert === 'function') {
+      onlineDb.insert('town_financial_summary', {
+        Town_Name: row.Town_Name,
+        Total_Received: row.Total_Received,
+        Total_Expenses: row.Total_Expenses,
+        Cash_Balance: row.Cash_Balance,
+        Pending_Collection: row.Pending_Collection,
+        Investor_Balance: row.Investor_Balance,
+        Updated_At: row.Updated_At,
+      }).catch(err => {
+        console.error('[moneyLedger] Background cloud sync error for town_financial_summary:', err);
+      });
+    }
+  } catch (err) {
+    console.warn('[moneyLedger] onlineDb require deferred:', err.message || err);
+  }
+
   return {
     totalReceived: row.Total_Received,
     totalExpenses: row.Total_Expenses,

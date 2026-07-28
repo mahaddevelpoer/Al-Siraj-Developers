@@ -31,10 +31,10 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
 
   const filtered = mode === 'full'
     ? entries
-    : entries.filter(e => e.Type?.toLowerCase() === mode);
+    : entries.filter(e => String(e.Type || e.type || '').toLowerCase() === mode.toLowerCase());
 
-  const incomes = filtered.filter(e => e.Type === 'Income');
-  const expenses = filtered.filter(e => e.Type === 'Expense');
+  const incomes = filtered.filter(e => String(e.Type || e.type || '').toLowerCase() === 'income');
+  const expenses = filtered.filter(e => String(e.Type || e.type || '').toLowerCase() === 'expense');
   const totalIncome = incomes.reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
   const totalExpense = expenses.reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
   const netBalance = totalIncome - totalExpense;
@@ -177,9 +177,9 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
                           <td style={{ padding: '7px 6px' }}>
                             <span style={{
                               fontSize: 10, fontWeight: 700,
-                              color: e.Type === 'Income' ? '#107c41' : '#c5221f',
+                              color: String(e.Type || e.type || '').toLowerCase() === 'income' ? '#107c41' : '#c5221f',
                             }}>
-                              {e.Type === 'Income' ? 'IN' : 'EXP'}
+                              {String(e.Type || e.type || '').toLowerCase() === 'income' ? 'IN' : 'EXP'}
                             </span>
                           </td>
                         )}
@@ -189,7 +189,7 @@ export default function DailyReceipt({ entries, date, townName, mode, onClose })
                         <td style={{
                           padding: '7px 6px', textAlign: 'right', fontWeight: 700,
                           color: mode === 'full'
-                            ? (e.Type === 'Income' ? '#107c41' : '#c5221f')
+                            ? (String(e.Type || e.type || '').toLowerCase() === 'income' ? '#107c41' : '#c5221f')
                             : (mode === 'income' ? '#107c41' : '#c5221f'),
                         }}>
                           {fmt(e.Amount)}

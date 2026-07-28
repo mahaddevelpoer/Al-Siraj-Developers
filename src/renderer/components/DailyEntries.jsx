@@ -239,11 +239,11 @@ export default function DailyEntries({ showToast, townName }) {
 
   // Calculations for Today's Summary
   const totalIncome = entries
-    .filter(e => e.Type === 'Income')
+    .filter(e => String(e.Type || e.type || '').toLowerCase() === 'income')
     .reduce((sum, e) => sum + (parseFloat(e.Amount) || 0), 0);
 
   const totalExpense = entries
-    .filter(e => e.Type === 'Expense')
+    .filter(e => String(e.Type || e.type || '').toLowerCase() === 'expense')
     .reduce((sum, e) => sum + (parseFloat(e.Amount) || 0), 0);
 
   const netAmount = totalIncome - totalExpense;
@@ -484,16 +484,16 @@ export default function DailyEntries({ showToast, townName }) {
                         <td>
                           <span style={{
                             padding: '2px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: '700',
-                            background: e.Type === 'Income' ? '#E6F4EA' : '#FCE8E6',
-                            color: e.Type === 'Income' ? '#137333' : '#C5221F',
-                            border: e.Type === 'Income' ? '1px solid #C4EED0' : '1px solid #FAD2CF'
+                            background: String(e.Type || e.type || '').toLowerCase() === 'income' ? '#E6F4EA' : '#FCE8E6',
+                            color: String(e.Type || e.type || '').toLowerCase() === 'income' ? '#137333' : '#C5221F',
+                            border: String(e.Type || e.type || '').toLowerCase() === 'income' ? '1px solid #C4EED0' : '1px solid #FAD2CF'
                           }}>
-                            {e.Type}
+                            {e.Type || e.type}
                           </span>
                         </td>
                         <td style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{entryAccount(e)}</td>
                         <td>{e.Description}</td>
-                        <td className={`num-col ${e.Type === 'Income' ? 'text-green' : 'text-red'}`} style={{ fontWeight: '700' }}>
+                        <td className={`num-col ${String(e.Type || e.type || '').toLowerCase() === 'income' ? 'text-green' : 'text-red'}`} style={{ fontWeight: '700' }}>
                           {fmtPkr(e.Amount)}
                         </td>
                         <td>

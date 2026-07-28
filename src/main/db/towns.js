@@ -69,12 +69,25 @@ async function getTowns() {
   if (!fs.existsSync(townsPath)) return [];
   const files = fs.readdirSync(townsPath).filter(f => f.endsWith('.xlsx'));
   const towns = [];
+
+  let summaries = [];
+  try {
+    const { getAllTownFinancialSummaries } = require('./moneyLedger');
+    summaries = await getAllTownFinancialSummaries();
+  } catch (_) {}
+
   for (const file of files) {
     const rows = await readExcelFile(path.join(townsPath, file), 'Data');
     if (rows.length > 0) {
       const row = rows[0];
+      const townName = row.Town_Name || '';
+      const summary = summaries.find(s => String(s.Town_Name || '').toLowerCase() === townName.toLowerCase());
+
       towns.push({
         ...row,
+        Total_Income_PKR: summary ? summary.Total_Received : (parseFloat(row.Total_Income_PKR) || 0),
+        Total_Expenses_PKR: summary ? summary.Total_Expenses : (parseFloat(row.Total_Expenses_PKR) || 0),
+        Profit_Loss: summary ? summary.Cash_Balance : (parseFloat(row.Profit_Loss) || 0),
         Location_Text: row.Location_Text || '',
         Location_Lat: parseFloat(row.Location_Lat) || null,
         Location_Lng: parseFloat(row.Location_Lng) || null,
@@ -88,7 +101,25 @@ async function getTownDetails(townName) {
   const filePath = path.join(getTownsPath(), `${townName}.xlsx`);
   if (!fs.existsSync(filePath)) return null;
   const rows = await readExcelFile(filePath, 'Data');
-  return rows.length > 0 ? rows[0] : null;
+  const townRow = rows.length > 0 ? rows[0] : null;
+  if (!townRow) return null;
+
+  try {
+    const { getTownFinancialSummary } = require('./moneyLedger');
+    const summary = await getTownFinancialSummary(townName);
+    if (summary) {
+      return {
+        ...townRow,
+        Total_Income_PKR: summary.totalReceived,
+        Total_Expenses_PKR: summary.totalExpenses,
+        Profit_Loss: summary.cashBalance,
+      };
+    }
+  } catch (err) {
+    console.warn('[towns] Failed to merge latest financials in getTownDetails:', err.message || err);
+  }
+
+  return townRow;
 }
 
 async function getTownPrices(townName) {

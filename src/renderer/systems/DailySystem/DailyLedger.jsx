@@ -361,8 +361,8 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
 
   const closeModal = () => { setModalStep(null); setPendingPayload(null); };
 
-  const totalIncome = entries.filter(e => e.Type === 'Income').reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
-  const totalExpense = entries.filter(e => e.Type === 'Expense').reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
+  const totalIncome = entries.filter(e => String(e.Type || e.type || '').toLowerCase() === 'income').reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
+  const totalExpense = entries.filter(e => String(e.Type || e.type || '').toLowerCase() === 'expense').reduce((s, e) => s + (parseFloat(e.Amount) || 0), 0);
   const netAmount = totalIncome - totalExpense;
   const cleanCell = (value) => {
     const text = String(value ?? '').trim();
@@ -490,13 +490,13 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
                         onMouseLeave={el => { el.currentTarget.style.background = 'transparent'; }}>
                         <td style={{ padding: '10px 14px', fontWeight: 600 }}>{entryTime(e)}</td>
                         <td style={{ padding: '10px 14px' }}>
-                          <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: e.Type === 'Income' ? '#E6F4EA' : '#FCE8E6', color: e.Type === 'Income' ? '#137333' : '#C5221F', border: e.Type === 'Income' ? '1px solid #C4EED0' : '1px solid #FAD2CF' }}>{e.Type}</span>
+                          <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: String(e.Type || e.type || '').toLowerCase() === 'income' ? '#E6F4EA' : '#FCE8E6', color: String(e.Type || e.type || '').toLowerCase() === 'income' ? '#137333' : '#C5221F', border: String(e.Type || e.type || '').toLowerCase() === 'income' ? '1px solid #C4EED0' : '1px solid #FAD2CF' }}>{e.Type || e.type}</span>
                         </td>
                         <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                           {entryAccount(e)}
                         </td>
                         <td style={{ padding: '10px 14px' }}>{e.Description}</td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: e.Type === 'Income' ? '#137333' : '#C5221F' }}>{fmtPkr(e.Amount)}</td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: String(e.Type || e.type || '').toLowerCase() === 'income' ? '#137333' : '#C5221F' }}>{fmtPkr(e.Amount)}</td>
                         <td style={{ padding: '10px 14px', textAlign: 'center' }}>
                           <button onClick={() => handleDeleteEntry(e.Entry_ID)} style={{ padding: '4px 10px', border: 'none', background: 'transparent', color: '#C5221F', cursor: 'pointer', fontSize: 11, fontWeight: 600, borderRadius: 4 }}>Delete</button>
                         </td>
