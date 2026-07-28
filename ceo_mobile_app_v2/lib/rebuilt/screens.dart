@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:printing/printing.dart';
+import 'package:printing/printing.dart'; // Direct PDF viewing and sharing enabled
+
+
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
