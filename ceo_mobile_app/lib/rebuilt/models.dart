@@ -99,6 +99,7 @@ class OperatorPresence {
     required this.townName,
     required this.online,
     required this.lastSeenText,
+    required this.status,
   });
 
   final String name;
@@ -106,6 +107,7 @@ class OperatorPresence {
   final String townName;
   final bool online;
   final String lastSeenText;
+  final String status;
 }
 
 class TownDashboardDetail {

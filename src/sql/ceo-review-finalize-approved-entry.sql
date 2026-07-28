@@ -60,6 +60,7 @@ BEGIN
     rd->>'town_name',
     rd->>'town',
     rd->>'Town',
+    appeal_row.town_name,
     ''
   ));
 

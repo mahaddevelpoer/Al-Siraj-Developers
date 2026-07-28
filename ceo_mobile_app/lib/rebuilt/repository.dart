@@ -481,9 +481,9 @@ class CeoRepository {
     
     // If RPC failed or returned nothing, fallback to direct query by Date
     if (rows.isEmpty) {
-      var entryQuery = supabase.from('daily_entries').select('*').eq('Date', day);
+      var entryQuery = supabase.from('daily_entries').select('*').eq('date', day);
       if (townName != null) {
-        entryQuery = entryQuery.eq('Town_Name', townName);
+        entryQuery = entryQuery.eq('town_name', townName);
       }
       rows = await _safeRows(() => entryQuery, timeout: const Duration(seconds: 8));
     }
@@ -575,9 +575,18 @@ class CeoRepository {
       final lastSeen = textOf(
         row['last_seen_at'] ?? row['updated_at'] ?? row['created_at'],
       );
-      final online =
-          (onlineStatus == 'online' || onlineStatus == 'active') &&
-              _seenRecently(lastSeen);
+      final isSeenRecently = _seenRecently(lastSeen);
+      final online = (onlineStatus == 'online' || onlineStatus == 'active') && isSeenRecently;
+      
+      String status = 'offline';
+      if (isSeenRecently) {
+        if (onlineStatus == 'online' || onlineStatus == 'active') {
+          status = 'online';
+        } else if (onlineStatus == 'away') {
+          status = 'away';
+        }
+      }
+
       return OperatorPresence(
         name: textOf(
           row['full_name'] ?? row['name'] ?? row['email'],
@@ -587,6 +596,7 @@ class CeoRepository {
         townName: textOf(row['town_name'] ?? row['Town_Name'] ?? row['town'], 'No town'),
         online: online,
         lastSeenText: lastSeen.isEmpty ? 'No activity time' : formatAnyDate(lastSeen),
+        status: status,
       );
     }).toList();
   }

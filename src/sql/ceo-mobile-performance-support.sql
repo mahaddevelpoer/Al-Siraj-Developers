@@ -56,6 +56,8 @@ from public.towns
 where coalesce(deleted_at::text, '') = ''
   and lower(coalesce(status::text, 'active')) not in ('deleted', 'inactive', 'archived');
 
+DROP FUNCTION IF EXISTS public.ceo_mobile_review_inbox(text, integer);
+
 create or replace function public.ceo_mobile_review_inbox(
   p_status text default 'pending',
   p_limit integer default 40
@@ -147,6 +149,8 @@ as $$
   order by created_at desc
   limit greatest(coalesce(p_limit, 40), 1);
 $$;
+
+DROP FUNCTION IF EXISTS public.ceo_mobile_daily_receipt_rows(date);
 
 create or replace function public.ceo_mobile_daily_receipt_rows(
   p_report_date date default current_date

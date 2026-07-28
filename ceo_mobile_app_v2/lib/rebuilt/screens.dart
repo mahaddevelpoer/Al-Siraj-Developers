@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart'; // Direct PDF viewing and sharing enabled
 
 
@@ -1256,6 +1259,73 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     'Daily ledger receipt | ${receipt.reportDate}',
                     style: const TextStyle(color: kMuted),
                   ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      try {
+                        final bytes = await _generateReportPdfBytes(receipt);
+                        if (!context.mounted) return;
+                        showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: kSurface,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                          ),
+                          builder: (context) {
+                            return SafeArea(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'PDF Report - ${receipt.townName}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  ListTile(
+                                    leading: const Icon(Icons.picture_as_pdf, color: Colors.green),
+                                    title: const Text('View / Print PDF', style: TextStyle(fontWeight: FontWeight.w700)),
+                                    onTap: () async {
+                                      Navigator.pop(context);
+                                      await Printing.layoutPdf(
+                                        onLayout: (_) async => bytes,
+                                        name: 'Report_${receipt.townName}',
+                                      );
+                                    },
+                                  ),
+                                  ListTile(
+                                    leading: const Icon(Icons.share, color: Colors.blue),
+                                    title: const Text('Share PDF', style: TextStyle(fontWeight: FontWeight.w700)),
+                                    onTap: () async {
+                                      Navigator.pop(context);
+                                      await Printing.sharePdf(
+                                        bytes: bytes,
+                                        filename: 'Report_${receipt.townName}_${receipt.reportDate}.pdf',
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to generate PDF: $e')),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.picture_as_pdf_rounded),
+                    label: const Text('Generate & Share PDF Report'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kBlue,
+                      foregroundColor: kSurface,
+                      minimumSize: const Size.fromHeight(48),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
                   const SizedBox(height: 14),
                   MetricCard(
                     label: 'Income',
@@ -1391,6 +1461,132 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         );
       },
+    );
+  }
+
+  Future<Uint8List> _generateReportPdfBytes(LedgerReceiptSummary receipt) async {
+    final pdf = pw.Document();
+    
+    // Custom font styling
+    final theme = pw.ThemeData.withFont(
+      base: await PdfGoogleFonts.interRegular(),
+      bold: await PdfGoogleFonts.interBold(),
+    );
+
+    pdf.addPage(
+      pw.MultiPage(
+        theme: theme,
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) {
+          return [
+            // Header
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'AL SIRAJ DEVELOPERS',
+                      style: pw.TextStyle(
+                        fontSize: 22,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.blue900,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'Daily Ledger Report - ${receipt.townName}',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Text(
+                      'Date: ${receipt.reportDate}',
+                      style: const pw.TextStyle(fontSize: 11),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'Generated on CEO Mobile App',
+                      style: pw.TextStyle(fontSize: 9, color: PdfColors.grey500),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            pw.Divider(thickness: 1.5, color: PdfColors.grey300),
+            pw.SizedBox(height: 12),
+
+            // Financial Summary
+            pw.Text(
+              'Financial Summary',
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 6),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                _buildPdfSummaryCard('Total Income', 'PKR ${receipt.income.toStringAsFixed(0)}', PdfColors.green800),
+                _buildPdfSummaryCard('Total Expense', 'PKR ${receipt.expense.toStringAsFixed(0)}', PdfColors.red800),
+                _buildPdfSummaryCard('Net Cash Movement', 'PKR ${(receipt.income - receipt.expense).toStringAsFixed(0)}', PdfColors.blue800),
+              ],
+            ),
+            pw.SizedBox(height: 20),
+
+            // Ledger Rows Table
+            pw.Text(
+              'Ledger Rows (${receipt.rows.length})',
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 6),
+            pw.TableHelper.fromTextArray(
+              headers: ['Type', 'Category', 'Description', 'Amount (PKR)'],
+              data: receipt.rows.map((row) {
+                final type = (row['type'] ?? row['Type'] ?? '').toString();
+                final cat = (row['category'] ?? row['Category'] ?? '').toString();
+                final desc = (row['description'] ?? row['Description'] ?? '').toString();
+                final amt = (row['amount'] ?? row['Amount'] ?? 0).toString();
+                return [type, cat, desc, amt];
+              }).toList(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.blue900),
+              rowDecoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300))),
+              cellAlignment: pw.Alignment.centerLeft,
+              cellAlignments: {3: pw.Alignment.centerRight},
+            ),
+          ];
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  pw.Widget _buildPdfSummaryCard(String title, String val, PdfColor col) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(10),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.grey100,
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+        border: pw.Border.all(color: PdfColors.grey300),
+      ),
+      width: 150,
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(title, style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
+          pw.SizedBox(height: 4),
+          pw.Text(val, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: col)),
+        ],
+      ),
     );
   }
 
@@ -1713,16 +1909,22 @@ class _WhoOnlineScreenState extends State<WhoOnlineScreen> {
                       width: 46,
                       height: 46,
                       decoration: BoxDecoration(
-                        color: (row.online ? kGreen : kMuted).withValues(
+                        color: (row.status == 'online'
+                            ? kGreen
+                            : (row.status == 'away' ? kAmber : kMuted)).withValues(
                           alpha: 0.12,
                         ),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Icon(
-                        row.online
+                        row.status == 'online'
                             ? Icons.check_circle_rounded
-                            : Icons.schedule_rounded,
-                        color: row.online ? kGreen : kMuted,
+                            : (row.status == 'away'
+                                ? Icons.schedule_rounded
+                                : Icons.remove_circle_outline_rounded),
+                        color: row.status == 'online'
+                            ? kGreen
+                            : (row.status == 'away' ? kAmber : kMuted),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1748,8 +1950,10 @@ class _WhoOnlineScreenState extends State<WhoOnlineScreen> {
                       ),
                     ),
                     StatusPill(
-                      text: row.online ? 'online' : 'away',
-                      color: row.online ? kGreen : kAmber,
+                      text: row.status,
+                      color: row.status == 'online'
+                          ? kGreen
+                          : (row.status == 'away' ? kAmber : kMuted),
                     ),
                   ],
                 ),

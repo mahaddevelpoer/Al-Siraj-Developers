@@ -157,23 +157,6 @@ class _AdminPasswordSetupState extends State<AdminPasswordSetup> {
                       prefixIcon: Icon(Icons.lock_outline),
                     ),
                   ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(_error!, style: const TextStyle(color: kRed)),
-                  ],
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _loading ? null : _setPassword,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: _loading
-                          ? const CircularProgressIndicator()
-                          : const Text('Set Password'),
-                    ),
-                  ),
                   const SizedBox(height: 24),
                   const Divider(),
                   const SizedBox(height: 16),
@@ -187,7 +170,7 @@ class _AdminPasswordSetupState extends State<AdminPasswordSetup> {
                         ? 'Use fingerprint or device PIN to open the app — just like WhatsApp.'
                         : 'Use your device PIN/pattern/password to open the app — just like WhatsApp.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: kMuted, fontSize: 13),
+                    style: const TextStyle(color: kMuted, fontSize: 13),
                   ),
                   const SizedBox(height: 12),
                   SwitchListTile(
@@ -198,6 +181,27 @@ class _AdminPasswordSetupState extends State<AdminPasswordSetup> {
                     value: _biometricEnabled,
                     onChanged: _toggleBiometric,
                   ),
+                  const SizedBox(height: 24),
+                  if (_error != null) ...[
+                    Text(_error!, style: const TextStyle(color: kRed)),
+                    const SizedBox(height: 12),
+                  ],
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _loading ? null : _setPassword,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: kBlue,
+                        foregroundColor: kSurface,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: _loading
+                          ? const CircularProgressIndicator()
+                          : const Text('Set Password & Complete Setup', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                 ],
               ),
             ),

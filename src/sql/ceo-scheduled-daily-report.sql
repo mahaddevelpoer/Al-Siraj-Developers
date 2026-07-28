@@ -1,12 +1,10 @@
--- Scheduled Daily Report for CEO Mobile
--- Run this SQL in Supabase SQL Editor after deploying the Edge Function
--- This sets up a pg_cron job that triggers the Edge Function at 8PM daily
--- If pg_cron is not available, use Supabase Dashboard → Database → Scheduled Functions
+-- Create system_config table for secure database-level settings
+CREATE TABLE IF NOT EXISTS public.system_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 
 -- 1. Enable pg_cron (requires Supabase project with pg_cron enabled)
---    If pg_cron is not available, skip to step 2.
-
--- Check if pg_cron extension is available
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
@@ -17,23 +15,21 @@ BEGIN
     PERFORM cron.schedule(
       'ceo-daily-report',
       '0 15 * * *',  -- 8PM PKT = 15:00 UTC (during PKT = UTC+5)
-      $$
+      $cron_job$
         SELECT net.http_post(
-          url := current_setting('app.settings.edge_function_url') || '/functions/v1/scheduled-daily-report',
+          url := COALESCE((SELECT value FROM public.system_config WHERE key = 'edge_function_url'), 'https://wdislbdftnwmaexqtfmn.supabase.co') || '/functions/v1/scheduled-daily-report',
           headers := jsonb_build_object(
             'Content-Type', 'application/json',
-            'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
+            'Authorization', 'Bearer ' || COALESCE((SELECT value FROM public.system_config WHERE key = 'service_role_key'), '')
           ),
           body := '{}'::jsonb
         );
-      $$
+      $cron_job$
     );
   END IF;
 END $$;
 
--- 2. Alternative: Create a database function that Supabase Scheduled Functions can call
---    Use this if using Supabase Dashboard's "Database → Scheduled Functions" UI
-
+-- 2. Create database function trigger_daily_report
 CREATE OR REPLACE FUNCTION public.trigger_daily_report()
 RETURNS text
 LANGUAGE plpgsql
@@ -41,32 +37,26 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  edge_url text;
   result text;
+  edge_url text;
+  service_key text;
 BEGIN
-  -- Get the Edge Function URL from app settings
-  edge_url := current_setting('app.settings.edge_function_url', true);
+  SELECT value INTO edge_url FROM public.system_config WHERE key = 'edge_function_url';
+  SELECT value INTO service_key FROM public.system_config WHERE key = 'service_role_key';
+  
   IF edge_url IS NULL THEN
     edge_url := 'https://wdislbdftnwmaexqtfmn.supabase.co';
   END IF;
-
+  
   SELECT content::text INTO result
   FROM net.http_post(
     url := edge_url || '/functions/v1/scheduled-daily-report',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
+      'Authorization', 'Bearer ' || COALESCE(service_key, '')
     ),
     body := '{}'::jsonb
   );
 
   RETURN result;
 END $$;
-
--- 3. Set app settings (replace with your actual values)
--- These must be set in Supabase Dashboard → Project Settings → API
--- or via SQL:
--- SELECT set_config('app.settings.edge_function_url',
---   'https://wdislbdftnwmaexqtfmn.supabase.co', false);
--- SELECT set_config('app.settings.service_role_key',
---   'your_service_role_key_here', false);
