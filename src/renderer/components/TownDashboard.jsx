@@ -292,18 +292,26 @@ function TownOverview({ town, refreshKey = 0, onNavigate, showToast }) {
       });
       if (res?.error) throw new Error(res.error);
       setReport(res.report);
-      setReportMessage(`${kind === 'excel' ? 'Excel' : 'PDF'} report ready`);
-      setViewerModal({
-        filePath: res.htmlPath || res.pdfPath,
-        reportData: res.report,
-        title: `${town.Town_Name} Town Ledger Report`,
-      });
+      if (kind === 'excel') {
+        setReportMessage('Excel report ready');
+        if (res.excelPath) await window.api.openReportFile?.(res.excelPath);
+      } else {
+        setReportMessage('PDF report ready — opening now');
+        const pdfFile = res.pdfPath || res.htmlPath;
+        if (pdfFile) await window.api.openReportFile?.(pdfFile);
+        setViewerModal({
+          filePath: res.htmlPath || res.pdfPath,
+          reportData: res.report,
+          title: `${town.Town_Name} Town Ledger Report`,
+        });
+      }
     } catch (e) {
       setReportMessage(e.message || 'Report export failed');
     } finally {
       setExporting(false);
     }
   };
+
 
   const townData = town || {};
   const totalPlots = parseInt(townData.Total_Plots) || 0;

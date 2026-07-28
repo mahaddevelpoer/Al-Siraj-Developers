@@ -89,19 +89,28 @@ export default function AccountingReports({ townName = '', showToast }) {
     try {
       const res = await window.api.exportTownLedgerReport({ townName, fromDate, toDate });
       if (res?.error) throw new Error(res.error);
-      const file = kind === 'excel' ? res.excelPath : res.htmlPath || res.pdfPath;
-      showToast?.(`${kind === 'excel' ? 'Excel' : 'PDF'} accounting report ready`);
-      setViewerModal({
-        filePath: file,
-        reportData: res.report,
-        title: `${townName || 'All Towns'} Accounting Ledger Report`,
-      });
+      if (kind === 'excel') {
+        const file = res.excelPath;
+        showToast?.('Excel accounting report ready');
+        if (file) await window.api.openReportFile?.(file);
+      } else {
+        // PDF: prefer pdfPath, fallback to htmlPath
+        const pdfFile = res.pdfPath || res.htmlPath;
+        showToast?.('PDF accounting report ready — opening now');
+        if (pdfFile) await window.api.openReportFile?.(pdfFile);
+        setViewerModal({
+          filePath: res.htmlPath || res.pdfPath,
+          reportData: res.report,
+          title: `${townName || 'All Towns'} Accounting Ledger Report`,
+        });
+      }
     } catch (e) {
       showToast?.(e.message || 'Report export failed', 'error');
     } finally {
       setExporting(false);
     }
   };
+
 
   const summary = report?.summary || {};
   const accountList = useMemo(() => {
