@@ -20,6 +20,7 @@ import CashBanksDashboard from './CashBanksDashboard';
 import DailyLedger from '../systems/DailySystem/DailyLedger';
 import { EmployeeSalary } from '../systems/ExpenseSystem';
 import ReportViewerModal from './ReportViewerModal';
+import PendingAppeals from './PendingAppeals';
 import {
   ChartIcon, WalletIcon, PlotIcon, ShopIcon, SoldIcon, ResellIcon,
   HistoryIcon, CalendarIcon, BriefcaseIcon, NeighborhoodIcon, PinIcon, HandshakeIcon, TrendUpIcon, BookIcon, DollarIcon, UsersIcon

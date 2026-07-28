@@ -101,6 +101,9 @@ BEGIN
 
     DELETE FROM public.expenses
     WHERE expense_id = appeal_row.entity_id;
+
+    DELETE FROM public.money_ledger
+    WHERE source_type = 'daily_entry' AND source_id = appeal_row.entity_id;
   END IF;
 
   IF new_status = 'approved'
@@ -156,6 +159,56 @@ BEGIN
       review_status = EXCLUDED.review_status,
       reviewed_by = EXCLUDED.reviewed_by,
       reviewed_at = EXCLUDED.reviewed_at;
+
+    -- Propagate to public.money_ledger so sync down updates local ledger & balances
+    INSERT INTO public.money_ledger (
+      ledger_id,
+      town_name,
+      date,
+      source_type,
+      source_id,
+      direction,
+      amount,
+      debit_account,
+      credit_account,
+      payment_account_id,
+      payment_account_name,
+      payment_account_type,
+      party_name,
+      description,
+      status,
+      created_by,
+      created_at
+    )
+    VALUES (
+      new_entry_id,
+      entry_town,
+      entry_date,
+      'daily_entry',
+      new_entry_id,
+      lower(entry_type),
+      entry_amount,
+      '',
+      '',
+      COALESCE(rd->>'paymentAccountId', rd->>'Payment_Account_ID', 'cash-in-hand'),
+      COALESCE(rd->>'paymentAccountName', rd->>'Payment_Account_Name', 'Cash in Hand'),
+      COALESCE(rd->>'paymentAccountType', rd->>'Payment_Account_Type', 'cash'),
+      COALESCE(rd->>'accountName', rd->>'Account_Name', ''),
+      entry_description,
+      'approved',
+      'CEO Approved Daily Entry',
+      NOW()
+    )
+    ON CONFLICT (source_type, source_id, direction) DO UPDATE SET
+      town_name = EXCLUDED.town_name,
+      date = EXCLUDED.date,
+      amount = EXCLUDED.amount,
+      payment_account_id = EXCLUDED.payment_account_id,
+      payment_account_name = EXCLUDED.payment_account_name,
+      payment_account_type = EXCLUDED.payment_account_type,
+      party_name = EXCLUDED.party_name,
+      description = EXCLUDED.description,
+      status = EXCLUDED.status;
 
     IF lower(entry_type) = 'expense' THEN
       INSERT INTO public.expenses (
