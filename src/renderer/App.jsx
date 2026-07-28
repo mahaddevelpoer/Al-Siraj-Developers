@@ -1031,7 +1031,11 @@ function AppInner() {
                 const body = `${rd.type || 'Entry'} ${rd.date || ''} approved by CEO`;
                 showToast(body, 'success');
                 window.api?.showNotification?.('Daily Entry Approved', body);
-                setDataRefreshKey((k) => k + 1);
+                window.api?.syncFromCloud?.().then(() => {
+                  setDataRefreshKey((k) => k + 1);
+                }).catch(() => {
+                  setDataRefreshKey((k) => k + 1);
+                });
                 return;
               }
 
@@ -1057,6 +1061,25 @@ function AppInner() {
                 setDataRefreshKey((k) => k + 1);
                 return;
               }
+            }
+
+            if (type === 'custom_installment_plan' || type === 'date_change' || type === 'date_change_otp') {
+              const seenKey = `appeal_updated_notified_${a.id}_${status}`;
+              if (localStorage.getItem(seenKey)) return;
+              localStorage.setItem(seenKey, '1');
+
+              const rd = a.requested_data || {};
+              const title = type === 'custom_installment_plan' ? 'Installment Plan' : 'Date Change Request';
+              const body = `${title} has been ${status} by CEO`;
+              showToast(body, status === 'approved' ? 'success' : 'error');
+              window.api?.showNotification?.(`${title} ${status.toUpperCase()}`, body);
+              
+              window.api?.syncFromCloud?.().then(() => {
+                setDataRefreshKey((k) => k + 1);
+              }).catch(() => {
+                setDataRefreshKey((k) => k + 1);
+              });
+              return;
             }
 
             if (type === 'salary_increase') {
