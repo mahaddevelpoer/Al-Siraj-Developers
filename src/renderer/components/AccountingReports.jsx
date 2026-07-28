@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChartIcon, WalletIcon, CalendarIcon, BookIcon, SoldIcon, PlotIcon, ShopIcon } from './Icons';
+import ReportViewerModal from './ReportViewerModal';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const firstDay = () => {

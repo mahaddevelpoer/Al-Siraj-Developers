@@ -195,13 +195,19 @@ async function getMoneyLedger({ townName } = {}) {
     (!townName || String(r.Town_Name || '') === String(townName))
   );
 
-  // Deduplicate by sourceKey to prevent double-counting from past race conditions
+  // Deduplicate by sourceKey and Source_ID to prevent double-counting from past race conditions
   const unique = [];
   const seenKeys = new Set();
   for (const row of filtered) {
     const key = sourceKey(row);
-    if (!seenKeys.has(key)) {
+    const sId = String(row.Source_ID || '').trim();
+    const sTown = String(row.Town_Name || '').trim().toLowerCase();
+    const sDir = String(row.Direction || '').trim().toLowerCase();
+    const idKey = sId ? `id|${sTown}|${sId}|${sDir}` : key;
+
+    if (!seenKeys.has(key) && !seenKeys.has(idKey)) {
       seenKeys.add(key);
+      if (sId) seenKeys.add(idKey);
       unique.push(row);
     }
   }
@@ -262,7 +268,18 @@ async function _recordMoneyEvent(data) {
   const fp = await ensureMoneyLedgerFile();
   const existing = await readExcelFile(fp, 'Data');
   const key = `${String(sourceType).trim().toLowerCase()}|${String(sourceId).trim()}|${direction}`;
-  const match = existing.find(r => sourceKey(r) === key);
+  const dTown = String(data.townName || data.Town_Name || '').trim().toLowerCase();
+  const match = existing.find(r => {
+    if (sourceKey(r) === key) return true;
+    if (sourceId && r.Source_ID && String(r.Source_ID).trim() === String(sourceId).trim()) {
+      const rTown = String(r.Town_Name || '').trim().toLowerCase();
+      const rDir = String(r.Direction || '').trim().toLowerCase();
+      if ((!rTown || !dTown || rTown === dTown) && rDir === direction) {
+        return true;
+      }
+    }
+    return false;
+  });
   if (match) {
     if (!match.Receipt_Number && match._rowNumber) {
       const receiptNumber = stableReceiptNumber({
@@ -589,7 +606,15 @@ async function backfillMoneyLedger() {
     if (!isActiveTown(e.Town_Name)) continue;
     const category = String(e.Category || '').toLowerCase();
     const name = String(e.Expense_Name || '').toLowerCase();
+    const dailyEntryId = e.Daily_Entry_ID || e.daily_entry_id;
+    const expId = String(e.Expense_ID || '');
+
+    // Skip daily entry expenses (addDailyEntry already called recordMoneyEvent with sourceType='daily_entry')
     if (
+      dailyEntryId ||
+      expId.startsWith('de_') ||
+      category === 'daily' ||
+      category === 'daily_entry' ||
       category === 'ceo' ||
       category === 'salary' ||
       category.includes('investor') ||
@@ -599,10 +624,10 @@ async function backfillMoneyLedger() {
     ) {
       continue;
     }
-    const expenseSourceType = category === 'sale' ? 'sale_expense' : (e.Daily_Entry_ID ? 'daily_entry' : 'expense');
+    const expenseSourceType = category === 'sale' ? 'sale_expense' : 'expense';
     await recordMoneyEvent({
       sourceType: expenseSourceType,
-      sourceId: e.Daily_Entry_ID || e.Expense_ID || `${e.Town_Name}|${e.Date}|${e.Expense_Name}|${e.Amount_PKR}`,
+      sourceId: e.Expense_ID || `${e.Town_Name}|${e.Date}|${e.Expense_Name}|${e.Amount_PKR}`,
       direction: 'expense',
       amount: e.Amount_PKR,
       townName: e.Town_Name,
@@ -719,6 +744,33 @@ async function backfillMoneyLedger() {
       description: 'Agent commission paid',
       receiptNumber: c.Receipt_Number,
     });
+  // Cleanup duplicates from Money_Ledger.xlsx on disk
+  try {
+    const fp = await ensureMoneyLedgerFile();
+    const rows = await readExcelFile(fp, 'Data');
+    const seen = new Set();
+    const cleanRows = [];
+    let hadDuplicates = false;
+    for (const r of rows) {
+      const sId = String(r.Source_ID || '').trim();
+      const sTown = String(r.Town_Name || '').trim().toLowerCase();
+      const sDir = String(r.Direction || '').trim().toLowerCase();
+      const key = `${String(r.Source_Type || '').trim().toLowerCase()}|${sId}|${sDir}`;
+      const idKey = sId ? `id|${sTown}|${sId}|${sDir}` : key;
+      if (seen.has(key) || seen.has(idKey)) {
+        hadDuplicates = true;
+        continue;
+      }
+      seen.add(key);
+      if (sId) seen.add(idKey);
+      cleanRows.push(r);
+    }
+    if (hadDuplicates) {
+      const { overwriteExcelFile } = require('./core');
+      await overwriteExcelFile(fp, 'Data', COLUMNS, cleanRows);
+    }
+  } catch (e) {
+    console.error('Ledger cleanup failed:', e);
   }
 
   return await getMoneySummary();
