@@ -217,7 +217,7 @@ function RupeeGuardPanel({ report, reportLoading, cashBalance, pendingReceivable
 
 // ─── Overview Tab ───────────────────────────────────────────────────────────
 
-function TownOverview({ town, refreshKey = 0, onNavigate }) {
+function TownOverview({ town, refreshKey = 0, onNavigate, showToast }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reportFrom, setReportFrom] = useState(firstDayOfMonth());
@@ -550,9 +550,9 @@ export default function TownDashboard({
       const today = new Date().toISOString().slice(0, 10);
       const res = await window.api.generateDailyTownReceipts(today);
       if (res && res.error) {
-        showToast?.('error', `Upload failed: ${res.error}`);
+        showToast?.(`Upload failed: ${res.error}`, 'error');
       } else {
-        showToast?.('success', '8 PM Report successfully uploaded to cloud.');
+        showToast?.('8 PM Report successfully uploaded to cloud.', 'success');
       }
     } catch (error) {
       showToast?.('error', 'Error uploading report.');
@@ -598,7 +598,7 @@ export default function TownDashboard({
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'overview': return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={setActiveTab} />;
+      case 'overview': return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={setActiveTab} showToast={showToast} />;
       case 'townMap': return <TownMap townName={townData.Town_Name} showToast={showToast} readOnly={isAccountant} onNavigate={setActiveTab} />;
       case 'accounts': return <AccountsDashboard townName={townData.Town_Name} showToast={showToast} />;
       case 'media': return <MediaDashboard townName={townData.Town_Name} showToast={showToast} />;
