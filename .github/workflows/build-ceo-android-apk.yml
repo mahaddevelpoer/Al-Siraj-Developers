@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'ceo_mobile_app/**'
+      - '.github/workflows/build-ceo-android-apk.yml'
 
 jobs:
   build-debug-apk:
@@ -31,6 +34,16 @@ jobs:
           flutter-version: "3.35.7"
           channel: stable
           cache: true
+          cache-key: flutter-${{ hashFiles('ceo_mobile_app/pubspec.lock') }}
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: pub-${{ hashFiles('ceo_mobile_app/pubspec.lock') }}
+          restore-keys: |
+            pub-
 
       - name: Verify Firebase config
         shell: bash
@@ -44,12 +57,17 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Print Flutter version and dependencies
+        run: |
+          flutter --version
+          flutter pub deps
+
       - name: Build debug APK
         run: flutter build apk --debug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: al-siraj-ceo-debug-apk
+          name: al-siraj-ceo-debug-apk-${{ github.run_number }}
           path: ceo_mobile_app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
