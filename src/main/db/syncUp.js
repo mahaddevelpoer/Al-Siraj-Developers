@@ -140,6 +140,8 @@ async function performFullSyncUp(reportProgress, options = {}) {
     ['money_ledger', 'Money_Ledger.xlsx'],
     ['town_financial_summary', 'Town_Financial_Summary.xlsx'],
     ['town_map_shapes', 'Town_Map_Shapes.xlsx'],
+    ['audit_schedules', 'Audit_Schedules.xlsx'],
+    ['locker_audits', 'Locker_Audits.xlsx'],
   ];
   for (let index = 0; index < extraTables.length; index += 1) {
     const [table, fileName] = extraTables[index];

@@ -34,6 +34,8 @@ const UPSERT_CONFLICT = {
   money_ledger: 'source_type,source_id,direction',
   town_financial_summary: 'town_name',
   town_map_shapes: 'shape_id',
+  audit_schedules: 'id',
+  locker_audits: 'id',
 };
 
 const GLOBAL_KEY_MAP = {
@@ -117,9 +119,29 @@ const TABLE_KEY_MAP = {
     Payment_Account_Name: 'payment_account_name',
     Payment_Account_Type: 'payment_account_type',
   },
+  audit_schedules: {
+    Schedule_ID: 'id',
+    Town_Name: 'town_name',
+    Scheduled_Date: 'scheduled_date',
+    Status: 'status',
+  },
+  locker_audits: {
+    Audit_ID: 'id',
+    Town_Name: 'town_name',
+    Audit_Date: 'audit_date',
+    System_Balance: 'system_balance',
+    Physical_Balance: 'physical_balance',
+    Discrepancy: 'discrepancy',
+    Audited_By: 'audited_by',
+    Audit_Report_JSON: 'audit_report',
+  },
 };
 
-const TABLE_SKIP_KEYS = {};
+const TABLE_SKIP_KEYS = {
+  commissions: new Set(['agent_email']),
+  installments: new Set(['receipt_number', 'paid_by', 'payee_name']),
+  daily_entries: new Set(['account_name', 'account_type']),
+};
 
 const PROPERTY_TYPES = new Set(['Plot', 'Shop']);
 
@@ -156,6 +178,8 @@ const TABLE_COLUMNS = {
   money_ledger: ['Ledger_ID','Town_Name','Date','Source_Type','Source_ID','Direction','Amount','Debit_Account','Credit_Account','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type','Party_Name','Description','Receipt_Number','Status','Created_By','Created_At'],
   town_financial_summary: ['Town_Name','Total_Received','Total_Expenses','Cash_Balance','Pending_Collection','Investor_Balance','Updated_At'],
   town_map_shapes: ['Shape_ID','Town_Name','Property_Type','Property_Number','Shape_Type','Label','Status','Geometry_JSON','Style_JSON','Sort_Order','Updated_At'],
+  audit_schedules: ['Schedule_ID','Town_Name','Scheduled_Date','Status'],
+  locker_audits: ['Audit_ID','Town_Name','Audit_Date','System_Balance','Physical_Balance','Discrepancy','Audited_By','Audit_Report_JSON'],
 };
 
 function getRowVal(row, key) {
