@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Native Android splash: white card with logo-matching vector design centered on light background -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="180dp"
+    android:height="180dp"
+    android:viewportWidth="180"
+    android:viewportHeight="180">
+
+    <!-- White rounded card background -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,0 L160,0 A20,20 0 0,1 180,20 L180,160 A20,20 0 0,1 160,180 L20,180 A20,20 0 0,1 0,160 L0,20 A20,20 0 0,1 20,0 Z" />
+
+    <!-- Card border (very light) -->
+    <path
+        android:fillColor="#F0F4F8"
+        android:pathData="M20,1 L160,1 A19,19 0 0,1 179,20 L179,160 A19,19 0 0,1 160,179 L20,179 A19,19 0 0,1 1,160 L1,20 A19,19 0 0,1 20,1 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,2 L160,2 A18,18 0 0,1 178,20 L178,160 A18,18 0 0,1 160,178 L20,178 A18,18 0 0,1 2,160 L2,20 A18,18 0 0,1 20,2 Z" />
+
+    <!-- Building base platform (teal) -->
+    <path
+        android:fillColor="#14B8A6"
+        android:pathData="M47,133 L133,133 L133,142 A4,4 0 0,1 129,146 L51,146 A4,4 0 0,1 47,142 Z" />
+
+    <!-- Left column -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,80 L68,80 L68,133 L54,133 Z" />
+
+    <!-- Center column (tallest) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M83,62 L97,62 L97,133 L83,133 Z" />
+
+    <!-- Right column -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M112,72 L126,72 L126,133 L112,133 Z" />
+
+    <!-- Roof / triangle peak (blue) -->
+    <path
+        android:fillColor="#60A5FA"
+        android:pathData="M34,80 L90,42 L146,80 L140,90 L90,58 L40,90 Z" />
+
+    <!-- Subtle roof shadow line -->
+    <path
+        android:fillColor="#93C5FD"
+        android:pathData="M52,147 L128,147 L128,150 L52,150 Z" />
+
+</vector>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Splash background: matches Flutter splash gradient start color -->
+    <color name="splash_background">#F8FAFC</color>
+    <color name="notification_color">#0F766E</color>
+
+    <!-- Theme shown while Flutter engine is loading (native splash) -->
+    <style name="LaunchTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <!-- Remove status bar on splash for edge-to-edge look -->
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
+    <!-- Theme applied once Flutter engine is ready -->
+    <style name="NormalTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@color/splash_background</item>
+    </style>
+</resources>

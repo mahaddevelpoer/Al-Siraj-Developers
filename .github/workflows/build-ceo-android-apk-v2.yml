@@ -1,0 +1,63 @@
+name: Build CEO Android APK v2 Clean
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'ceo_mobile_app_v2/**'
+      - '.github/workflows/build-ceo-android-apk-v2.yml'
+
+jobs:
+  build-debug-apk:
+    name: Build debug APK from v2 Clean Folder
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ceo_mobile_app_v2
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.35.7"
+          channel: stable
+          cache: false # Disabled cache entirely to guarantee absolute clean fresh build
+
+      - name: Verify Firebase config
+        shell: bash
+        run: |
+          test -f android/app/google-services.json
+          grep -q "com.mahad.alsiraj.ceo" android/app/google-services.json
+
+      - name: Clean Flutter build outputs
+        run: flutter clean
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Print Flutter version and dependencies
+        run: |
+          flutter --version
+          flutter pub deps
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: al-siraj-ceo-v2-clean-debug-apk
+          path: ceo_mobile_app_v2/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
