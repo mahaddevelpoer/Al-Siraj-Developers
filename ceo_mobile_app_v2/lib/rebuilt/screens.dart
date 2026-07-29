@@ -1608,15 +1608,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
             pw.SizedBox(height: 6),
             pw.TableHelper.fromTextArray(
               headers: ['Type', 'Category', 'Description', 'Amount (PKR)'],
-              data: receipt.rows.map((row) {
-                final type = (row['type'] ?? row['Type'] ?? '').toString();
-                final cat = (row['category'] ?? row['Category'] ?? '')
-                    .toString();
-                final desc = (row['description'] ?? row['Description'] ?? '')
-                    .toString();
-                final amt = (row['amount'] ?? row['Amount'] ?? 0).toString();
-                return [type, cat, desc, amt];
-              }).toList(),
+              data: receipt.rows.isNotEmpty
+                  ? receipt.rows.map((row) {
+                      final type = (row['type'] ?? row['Type'] ?? 'Entry').toString();
+                      final cat = (row['category'] ?? row['Category'] ?? 'Daily').toString();
+                      final desc = (row['description'] ?? row['Description'] ?? 'Ledger transaction').toString();
+                      final amt = (row['amount'] ?? row['Amount'] ?? 0).toString();
+                      return [type, cat, desc, amt];
+                    }).toList()
+                  : [
+                      ['Income Summary', 'Daily Report', 'Total Received Today', 'PKR ${receipt.income.toStringAsFixed(0)}'],
+                      ['Expense Summary', 'Daily Report', 'Total Expenses Today', 'PKR ${receipt.expense.toStringAsFixed(0)}'],
+                      ['Net Movement', 'Daily Summary', 'Net Cash Balance', 'PKR ${(receipt.income - receipt.expense).toStringAsFixed(0)}'],
+                    ],
               headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,

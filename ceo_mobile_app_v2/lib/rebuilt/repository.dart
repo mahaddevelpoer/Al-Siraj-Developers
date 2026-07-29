@@ -465,6 +465,13 @@ class CeoRepository {
   Future<List<LedgerReceiptSummary>> _loadDailyReceipts(DateTime date, {String? townName}) async {
     final day = shortDate.format(date);
     
+    // Fetch EOD daily reports uploaded at 8 PM by desktop app
+    var reportQuery = supabase.from('daily_reports').select('*').eq('date', day);
+    if (townName != null) {
+      reportQuery = reportQuery.eq('town_name', townName);
+    }
+    final dailyReportsFuture = _safeRows(() => reportQuery, timeout: const Duration(seconds: 8));
+
     // Fetch media library rows for this specific date and town (100% reliable)
     var mediaQuery = supabase.from('media_library').select('*').eq('report_date', day);
     if (townName != null) {
@@ -492,6 +499,7 @@ class CeoRepository {
       rows = await _safeRows(() => entryQuery, timeout: const Duration(seconds: 8));
     }
 
+    final dailyReportRows = await dailyReportsFuture;
     final mediaRows = (await mediaFuture).where((row) {
       final type = textOf(rowValue(row, 'Type') ?? row['type']).toLowerCase();
       return type == 'daily_ledger_receipt';
@@ -507,6 +515,7 @@ class CeoRepository {
     final towns = cleanRows
         .map((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town'))
         .followedBy(mediaRows.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'], 'No town')))
+        .followedBy(dailyReportRows.map((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town')))
         .toSet()
         .toList()
       ..sort();
@@ -515,12 +524,24 @@ class CeoRepository {
       final townRows = cleanRows
           .where((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town') == town)
           .toList();
-      final income = townRows
+      final townEodReport = dailyReportRows.firstWhere(
+        (row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town') == town,
+        orElse: () => <String, dynamic>{},
+      );
+
+      num income = townRows
           .where((row) => textOf(row['type'] ?? rowValue(row, 'Type')).toLowerCase() == 'income')
           .fold<num>(0, (sum, row) => sum + asNum(row['amount'] ?? rowValue(row, 'Amount')));
-      final expense = townRows
+      num expense = townRows
           .where((row) => textOf(row['type'] ?? rowValue(row, 'Type')).toLowerCase() == 'expense')
           .fold<num>(0, (sum, row) => sum + asNum(row['amount'] ?? rowValue(row, 'Amount')));
+
+      // Fallback to EOD report snapshot totals if raw entry rows were empty
+      if (income == 0 && expense == 0 && townEodReport.isNotEmpty) {
+        income = asNum(townEodReport['total_received'] ?? rowValue(townEodReport, 'Total_Received'));
+        expense = asNum(townEodReport['total_expenses'] ?? rowValue(townEodReport, 'Total_Expenses'));
+      }
+
       return LedgerReceiptSummary(
         townName: town,
         reportDate: day,
