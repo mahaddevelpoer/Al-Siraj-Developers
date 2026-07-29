@@ -43,12 +43,7 @@ export default function SoldProperties({ showToast, loadNotifications, townName,
     const tName = p.Town_Name;
     setCancelReceipt('');
     setCancelPaymentAccount(null);
-    if (userRole === 'accountant') {
-      setPendingCancelInfo({ type, number, townName: tName });
-      setShowAdminConfirm(true);
-    } else {
-      setCancelCtx({ type, number, townName: tName });
-    }
+    setCancelCtx({ type, number, townName: tName });
   };
 
   const confirmCancelDeal = async () => {

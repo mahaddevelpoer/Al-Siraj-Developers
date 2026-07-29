@@ -214,8 +214,30 @@ export default function DailyEntries({ showToast, townName }) {
     const entryId = deleteConfirmId;
     setDeleteConfirmId(null);
     if (userRole === 'accountant') {
-      setPendingDeleteId(entryId);
-      setShowAdminConfirm(true);
+      try {
+        const entryToDel = entries.find(e => String(e.Entry_ID || e.entryId) === String(entryId));
+        const { createBusinessAppeal } = require('../lib/supabase');
+        const { data, error } = await createBusinessAppeal({
+          requested_by_user_id: user?.id,
+          requested_by_role: 'accountant',
+          appeal_type: 'delete_daily_entry',
+          entity_type: 'daily_entry',
+          entity_id: String(entryId),
+          town_name: townName,
+          requested_data: { 
+            entryId, 
+            townName, 
+            description: entryToDel?.Description || entryToDel?.description || 'Daily Entry',
+            amount: entryToDel?.Amount || entryToDel?.amount || 0,
+            date: entryToDel?.Date || entryToDel?.date || '',
+          },
+          status: 'pending',
+        });
+        if (error) throw error;
+        showToast?.('Deletion appeal sent to CEO for approval!', 'success');
+      } catch (e) {
+        showToast?.('Could not create deletion appeal: ' + e.message, 'error');
+      }
       return;
     }
     await doDeleteEntry(entryId);
