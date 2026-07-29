@@ -216,7 +216,7 @@ export default function DailyEntries({ showToast, townName }) {
     if (userRole === 'accountant') {
       try {
         const entryToDel = entries.find(e => String(e.Entry_ID || e.entryId) === String(entryId));
-        const { createBusinessAppeal } = require('../lib/supabase');
+        const { createBusinessAppeal } = await import('../lib/appeals');
         const { data, error } = await createBusinessAppeal({
           requested_by_user_id: user?.id,
           requested_by_role: 'accountant',
@@ -631,10 +631,37 @@ export default function DailyEntries({ showToast, townName }) {
           </div>
         </div>
       )}
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal — fixed viewport overlay so it centers properly */}
       {deleteConfirmId && (
-        <div className="modal-overlay" onClick={() => setDeleteConfirmId(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,padding:24}}>
+        <div
+          onClick={() => setDeleteConfirmId(null)}
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            width: '100vw', height: '100vh',
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            zIndex: 999999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff',
+              borderRadius: '16px',
+              padding: '28px 32px',
+              maxWidth: 440,
+              width: '90%',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)',
+              border: '1px solid rgba(226,232,240,0.8)',
+              position: 'relative',
+              zIndex: 1000000,
+            }}
+          >
             <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700}}>Confirm Deletion</h3>
             <p style={{margin:'0 0 20px',color:'var(--text-secondary)',fontSize:14,lineHeight:1.6}}>Are you sure you want to delete this entry?</p>
             <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>

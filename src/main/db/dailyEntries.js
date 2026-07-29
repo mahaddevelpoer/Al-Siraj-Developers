@@ -40,14 +40,36 @@ async function ensureDailyEntriesFile() {
   }
 }
 
+// Normalize any date value (Date object, ISO string, or YYYY-MM-DD) to 'YYYY-MM-DD'
+function normalizeDate(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    return val.toISOString().split('T')[0];
+  }
+  const s = String(val).trim();
+  if (!s) return '';
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // ISO string with time
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+  // Try parsing anything else
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  return s;
+}
+
 async function getDailyEntries({ date, townName }) {
   await ensureDailyEntriesFile();
   const filePath = getDailyEntriesPath();
   const rows = await readExcelFile(filePath, 'Data');
   
+  const normalizedQueryDate = normalizeDate(date);
+  const normalizedQueryTown = townName ? String(townName).trim().toLowerCase() : '';
+
   return rows.filter(r => {
-    const matchDate = !date || String(r.Date) === String(date);
-    const matchTown = !townName || String(r.Town_Name) === String(townName);
+    const matchDate = !normalizedQueryDate || normalizeDate(r.Date) === normalizedQueryDate;
+    const matchTown = !normalizedQueryTown || String(r.Town_Name || '').trim().toLowerCase() === normalizedQueryTown;
     return matchDate && matchTown;
   });
 }

@@ -12,8 +12,31 @@ function repairError(error) {
 }
 
 export async function createBusinessAppeal(payload) {
+  // ─── PRIORITY 1: Electron IPC bridge (works with ANY login type) ─────────
+  // This uses the Service Role Admin key in main process — bypasses RLS,
+  // works regardless of whether user logged in via Email, Passkey, Admin Password
+  if (window?.api?.createAppeal) {
+    try {
+      const normalized = {
+        ...payload,
+        town_name: String(payload.town_name || payload.townName || payload.requested_data?.townName || payload.requested_data?.town || '').trim(),
+        status: 'pending',
+      };
+      const result = await window.api.createAppeal(normalized);
+      if (result && !result.error) {
+        return { data: result.data, error: null };
+      }
+      // If IPC returned an error, fall through to Supabase client
+      console.warn('[createBusinessAppeal] IPC returned error, trying Supabase client:', result?.error?.message);
+    } catch (ipcErr) {
+      console.warn('[createBusinessAppeal] IPC call failed, trying Supabase client:', ipcErr.message);
+    }
+  }
+
+  // ─── PRIORITY 2: Supabase client (for browser/web context) ───────────────
   const { data: authData, error: authError } = await supabase.auth.getUser().catch(() => ({ data: null, error: new Error('Network error') }));
   if (authError || !authData?.user?.id) {
+    // No auth — save locally and queue for later sync
     const localId = 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2);
     const now = new Date();
     const localAppeal = {
@@ -66,26 +89,29 @@ export async function createBusinessAppeal(payload) {
   };
   normalized.town_name = String(normalized.town_name || '').trim();
 
-  const rpc = await supabase.rpc('create_business_appeal', {
-    p_requested_by_user_id: normalized.requested_by_user_id,
-    p_requested_by_role: normalized.requested_by_role,
-    p_appeal_type: normalized.appeal_type,
-    p_entity_type: normalized.entity_type,
-    p_entity_id: String(normalized.entity_id || ''),
-    p_town_name: normalized.town_name,
-    p_original_data: normalized.original_data || null,
-    p_requested_data: normalized.requested_data || {},
-    p_reason: normalized.reason || '',
-    p_otp_code: normalized.otp_code || null,
-    p_otp_expires_at: normalized.otp_expires_at || null,
-  });
+  const { data, error } = await supabase
+    .from('appeals')
+    .insert({
+      requested_by_user_id: normalized.requested_by_user_id,
+      requested_by_role: normalized.requested_by_role,
+      appeal_type: normalized.appeal_type,
+      entity_type: normalized.entity_type,
+      entity_id: String(normalized.entity_id || ''),
+      town_name: normalized.town_name,
+      original_data: normalized.original_data || null,
+      requested_data: normalized.requested_data || {},
+      reason: normalized.reason || '',
+      otp_code: normalized.otp_code || null,
+      otp_expires_at: normalized.otp_expires_at || null,
+      status: 'pending',
+    })
+    .select()
+    .single();
 
-  if (rpc.error) {
-    if (isMissingRpc(rpc.error, 'create_business_appeal')) return { data: null, error: repairError(rpc.error) };
-    return { data: null, error: rpc.error };
-  }
-  return { data: rpc.data, error: null };
+  if (error) return { data: null, error };
+  return { data, error: null };
 }
+
 
 export async function setBusinessAppealOtp(appealId, otpCode, expiresAt) {
   const rpc = await supabase.rpc('set_business_appeal_otp', {

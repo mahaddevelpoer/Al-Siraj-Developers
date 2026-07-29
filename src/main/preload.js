@@ -221,6 +221,8 @@ contextBridge.exposeInMainWorld('api', {
   saveLocalPendingAppeal: (data) => ipcRenderer.invoke('save-pending-appeal', data),
   getLocalPendingAppeals: () => ipcRenderer.invoke('get-local-pending-appeals'),
   dismissLocalPendingAppeal: (id) => ipcRenderer.invoke('dismiss-local-pending-appeal', id),
+  // Main-process appeal creation — works with ANY login (Email, Passkey, Admin Password, Offline)
+  createAppeal: (payload) => ipcRenderer.invoke('create-appeal', payload),
   // System Settings and Locker Audits
   getSystemSettings: () => ipcRenderer.invoke('getSystemSettings'),
   updateSystemSettings: (patch) => ipcRenderer.invoke('updateSystemSettings', patch),

@@ -1027,22 +1027,12 @@ function AppInner() {
                   if (localStorage.getItem(seenApprovedKey)) continue;
                   localStorage.setItem(seenApprovedKey, '1');
                   const rd = a.requested_data || {};
-                  
-                  if (rd.date && rd.townName && window.api?.addDailyEntry) {
-                    const appealStableId = 'APP-' + String(a.id || '').replace(/-/g, '');
-                    await window.api.addDailyEntry({
-                      ...rd,
-                      Entry_ID: appealStableId,
-                      entryId: appealStableId,
-                      reviewStatus: 'approved',
-                      date: rd.date,
-                      time: rd.time || '00:00',
-                      type: rd.type || 'Expense',
-                      description: rd.description || '',
-                      amount: parseFloat(rd.amount) || 0,
-                      townName: rd.townName,
-                    }).catch(() => {});
-                  }
+                  const body = `${rd.type || 'Entry'} ${rd.date || ''} approved by CEO`;
+                  showToast?.(body, 'success');
+                  // DO NOT call addDailyEntry here — main process (main.js appeal engine) 
+                  // is the single source of truth for executing approved appeals.
+                  // Calling it here caused double entries. Just refresh UI.
+                  setDataRefreshKey((k) => k + 1);
                 }
               }
             }
@@ -1052,6 +1042,7 @@ function AppInner() {
         }
       };
       fetchMissedAppeals();
+
 
       const ch = supabase
         .channel(`accountant-appeals-${user.id}`)
