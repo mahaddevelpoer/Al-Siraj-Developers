@@ -108,7 +108,7 @@ async function sendFcmPush(serviceAccountJson: string, payload: PushPayload) {
             collapse_key: safeMessage.data.dedupe_key,
             ttl: "30s",
             notification: {
-              channel_id: "ceo_live_alerts",
+              channel_id: "ceo_approvals",
               click_action: "FLUTTER_NOTIFICATION_CLICK",
               tag: safeMessage.data.dedupe_key,
             },
