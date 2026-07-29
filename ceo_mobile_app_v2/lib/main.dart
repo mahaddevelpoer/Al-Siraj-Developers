@@ -16,14 +16,17 @@ Future<void> main() async {
 
   // Do not block app startup with Firebase and Notification initialization
   // to reduce the splash screen time.
-  unawaited(Future(() async {
-    try {
-      await Firebase.initializeApp();
-    } catch (_) {}
-    try {
-      await CeoNotificationService.init();
-    } catch (_) {}
-  }));
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('[Firebase] init error: $e');
+  }
+
+  try {
+    await CeoNotificationService.init();
+  } catch (e) {
+    debugPrint('[NotificationService] init error: $e');
+  }
 
   await Supabase.initialize(
     url: supabaseUrl,

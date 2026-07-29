@@ -57,6 +57,7 @@ class CeoNotificationService {
     );
     final android = plugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await android?.requestNotificationsPermission();
     await android?.createNotificationChannel(
       const AndroidNotificationChannel(
         'ceo_approvals',
@@ -101,16 +102,23 @@ class CeoNotificationService {
     try {
       FirebaseMessaging.onBackgroundMessage(ceoFirebaseBackgroundHandler);
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      final settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+      print('[FCM] Permission status: ${settings.authorizationStatus}');
       await messaging.subscribeToTopic(ceoPushTopic);
+      print('[FCM] Subscribed successfully to topic: $ceoPushTopic');
       FirebaseMessaging.onMessage.listen(showRemoteMessage);
       FirebaseMessaging.onMessageOpenedApp.listen((message) {
         notificationTapStream.add(_routeFromMessage(message));
       });
       final initial = await messaging.getInitialMessage();
       if (initial != null) notificationTapStream.add(_routeFromMessage(initial));
-    } catch (_) {
-      // FCM must never block app startup.
+    } catch (e, st) {
+      print('[FCM] Failed to initialize FCM: $e\n$st');
     }
   }
 
