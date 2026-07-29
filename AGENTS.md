@@ -3,14 +3,25 @@
 ## Goal
 Complete dual-write integration (Excel + Supabase for all writes with user-visible sync warnings) and redesign auth/registration system (only Agent self-registers; CEO creates Accountant accounts).
 
-## Constraints & Preferences
-- Every write must go to Excel first, then sync to Supabase; if sync fails, show a visible error toast to the user
-- All reads must come from local Excel (fast, offline-capable); no Supabase reads in IPC handlers
-- Existing Excel data stays unchanged — no migration
-- Only Agent role can see a Register tab on the login screen; CEO and Accountant must have no self-registration option
-- Accountant accounts can only be created by a CEO via a button in the CEO dashboard (enter email + password)
-- Login UI should be premium / improved
-- Build must pass with `npx vite build`
+## Client Context & Domain Rules
+- **Client Name:** Dilawar Khan (Owner of 4 towns).
+- **Core Motivation / Fraud Prevention:** Designed to prevent accountant financial fraud, date manipulation, illegal cash retention, and unauthorized edits.
+- **Business Entities & Ledger Rules:**
+  - **4 Town User Types:** CEO, Accountant, Employees, Agents, Residents (Property Buyers/Owners).
+  - **Property Deals:** Expected vs Actual Agreed Price. Types: (1) Advance Payment + Remaining (Selling Agreement -> Receipts), (2) Installment Plans (2-month gap, strictly pay exact installment amount).
+  - **Cash & Bank Ledger:** Locker cash tracking (`Cash in Hand`) vs Bank accounts tracking.
+  - **Resell & History:** Single-sold stays in Sold Properties; multi-sold moves to Resell History.
+  - **Appeals System:** Mandatory approval from CEO for selling date changes and backdated/future daily entries (prevents financial spoofing).
+  - **Offline/Pending Queue:** Towns with poor internet store appeals in Pending queue for up to 24h with 2-hour reminder bells before sync to CEO mobile app via FCM/Supabase.
+  - **Investors & Constructors Tabs:** Track town development funding, roads, sewage, park investments, and construction contractor payouts directly integrated into town balance/income/expense ledgers.
+  - **Commission Tracker:** Sales agents commission tracking; supports partial/installment payouts.
+
+## Strict Workflow Rules for AI Agent (Antigravity)
+- **DO NOT RUN LOCAL BUILDS:** Never run heavy local build/analyze commands (`flutter build apk`, `flutter analyze`, `npm run build`, `npx vite build`) unless explicitly instructed by user.
+- **AUTOMATIC COMMIT & PUSH FOR FLUTTER APP:** Whenever changes are made to the CEO Mobile App (`ceo_mobile_app_v2/**`), ALWAYS automatically stage (`git add`), commit with a descriptive message, and push (`git push origin main`) to GitHub so the GitHub Actions workflow (`build-ceo-android-apk-v2.yml`) triggers automatically to build the APK artifact in the cloud.
+- **ALWAYS DISPLAY STEP-BY-STEP PLAN & SUMMARY:** Always state the plan before executing changes and show a clean summary after completion.
+
+
 
 ## Progress
 ### Done
