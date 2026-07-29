@@ -472,8 +472,17 @@ async function recordMoneyEvent(data) {
 }
 
 async function addDailyEntry(data) {
-  const row = await insert('daily_entries', data);
-  const review = String(data.Review_Status || data.reviewStatus || data.status || 'approved').toLowerCase();
+  // Resolve the review status before writing so Supabase never falls back to the
+  // column DEFAULT of 'pending'. Empty Review_Status on today's entries should be
+  // treated as 'approved', otherwise the ceo_mobile_daily_receipt_rows RPC
+  // (and the 8PM PDF) will silently exclude them.
+  const resolvedReview = String(data.Review_Status || data.reviewStatus || data.status || 'approved').toLowerCase();
+  const dataWithStatus = {
+    ...data,
+    Review_Status: resolvedReview === 'pending' || resolvedReview === 'rejected' ? resolvedReview : 'approved',
+  };
+  const row = await insert('daily_entries', dataWithStatus);
+  const review = resolvedReview;
   const category = String(data.Category || data.category || data.Income_Type || data.incomeType || '').toLowerCase();
   const moduleBacked = category.includes('investor') || category.includes('construction') || category.includes('commission');
   const amount = parseFloat(data.Amount ?? data.amount) || 0;
@@ -497,6 +506,7 @@ async function addDailyEntry(data) {
   }
   return row;
 }
+
 
 async function getInstallmentsByProperty(type, number, townName) {
   return await findMany('installments', {

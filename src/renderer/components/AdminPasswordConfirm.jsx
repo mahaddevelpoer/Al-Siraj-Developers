@@ -38,7 +38,7 @@ export default function AdminPasswordConfirm({ isOpen, onClose, onConfirm, title
   };
 
   return (
-    <div className="modal-overlay" onClick={handleClose}>
+    <div className="admin-password-modal-overlay" onClick={handleClose}>
       <div className="admin-password-modal" onClick={(e) => e.stopPropagation()}>
         <div className="admin-password-modal-header">
           <IconShield size={24} />

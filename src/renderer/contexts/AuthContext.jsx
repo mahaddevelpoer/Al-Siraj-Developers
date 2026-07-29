@@ -229,13 +229,24 @@ export function AuthProvider({ children }) {
         const unlockEmail = email || saved?.profile?.email || saved?.user?.email || '';
         const local = await window.api.unlockLocalAccountant({ email: unlockEmail, adminPassword: options.adminPassword || '' });
         if (local?.success && local.profile) {
+          let sessionUser = null;
+          if (navigator.onLine && local.credentials?.password) {
+            try {
+              const { data: onlineData } = await withTimeout(auth.signInWithPassword({
+                email: unlockEmail,
+                password: local.credentials.password,
+              }), 6000, 'Online accountant auth');
+              if (onlineData?.user) sessionUser = onlineData.user;
+            } catch (_) {}
+          }
           const fakeUser = { ...(local.user || { id: local.profile.id, email: local.profile.email }), local_offline: true };
-          setUser(fakeUser);
+          const activeUser = sessionUser || fakeUser;
+          setUser(activeUser);
           setUserProfile(local.profile);
           setUserRole('accountant');
-          saveLocalAccountantSession(fakeUser, local.profile);
+          saveLocalAccountantSession(activeUser, local.profile);
           markAccountantUnlockedThisSession();
-          return { success: true, user: fakeUser, profile: local.profile, localOffline: true, unlocked: true };
+          return { success: true, user: activeUser, profile: local.profile, localOffline: !sessionUser, unlocked: true };
         }
         throw new Error(local?.error || 'Could not unlock this accountant system');
       }

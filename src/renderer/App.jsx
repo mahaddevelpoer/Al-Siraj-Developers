@@ -1076,24 +1076,6 @@ function AppInner() {
                 const body = `${rd.type || 'Entry'} ${rd.date || ''} approved by CEO`;
                 showToast(body, 'success');
                 window.api?.showNotification?.('Daily Entry Approved', body);
-                // Directly write the approved entry to local Excel + money ledger.
-                // Use the same stable ID the ceo_review_appeal RPC generates so
-                // duplicate detection in addDailyEntry prevents double-writing.
-                if (rd.date && rd.townName && window.api?.addDailyEntry) {
-                  const appealStableId = 'APP-' + String(a.id || '').replace(/-/g, '');
-                  await window.api.addDailyEntry({
-                    ...rd,
-                    Entry_ID: appealStableId,
-                    entryId: appealStableId,
-                    reviewStatus: 'approved',
-                    date: rd.date,
-                    time: rd.time || '00:00',
-                    type: rd.type || 'Expense',
-                    description: rd.description || '',
-                    amount: parseFloat(rd.amount) || 0,
-                    townName: rd.townName,
-                  }).catch(() => {});
-                }
                 window.api?.syncFromCloud?.().then(() => {
                   setDataRefreshKey((k) => k + 1);
                 }).catch(() => {

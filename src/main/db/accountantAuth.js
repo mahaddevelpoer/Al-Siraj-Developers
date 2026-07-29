@@ -147,6 +147,7 @@ function unlock(dbPath, email, adminPassword = '') {
     is_active: true,
     local_offline: true,
     admin_password_set: true,
+    credentials: { password: account.password || '' },
   };
 }
 

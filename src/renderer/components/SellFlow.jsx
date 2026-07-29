@@ -186,10 +186,10 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
   };
 
   useEffect(() => {
-    if (!user?.id || !form.number) return;
+    if (!user?.id) return;
 
     const channel = supabase
-      .channel(`sell-flow-appeals-${user.id}-${form.type}-${form.number}`)
+      .channel(`sell-flow-appeals-${user.id}-${form.type || 'none'}-${form.number || 'none'}`)
       .on('postgres_changes',
         {
           event: 'UPDATE',
@@ -200,7 +200,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         (payload) => {
           const appeal = payload.new;
           if (!appeal) return;
-          if (appeal.entity_id !== form.number || appeal.entity_type !== form.type) return;
+          if (appeal.entity_id !== (form.number || '') || appeal.entity_type !== (form.type || '')) return;
           if (!['date_change', 'date_change_otp', 'custom_installment_plan'].includes(appeal.appeal_type)) return;
 
           const status = String(appeal.status || '').trim().toLowerCase();
@@ -214,7 +214,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
   }, [user?.id, form.type, form.number]);
 
   useEffect(() => {
-    if (!user?.id || !form.type || !form.number || !form.townName) return;
+    if (!user?.id || !form.townName) return;
     let cancelled = false;
 
     const applyPersisted = () => {
@@ -235,8 +235,8 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         .from('appeals')
         .select('id, appeal_type, requested_data, reviewed_at, created_at, status')
         .eq('requested_by_user_id', user.id)
-        .eq('entity_type', form.type)
-        .eq('entity_id', form.number)
+        .eq('entity_type', form.type || '')
+        .eq('entity_id', form.number || '')
         .in('appeal_type', ['date_change', 'date_change_otp'])
         .eq('status', 'approved')
         .order('reviewed_at', { ascending: false, nullsFirst: false })

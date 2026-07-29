@@ -119,8 +119,10 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   };
 
   // Realtime: CEO approved/rejected from Dashboard
+  // Keep the channel alive for the life of the appealId — NOT gated on modalStep.
+  // This ensures the entry is saved to local Excel even if the user closed the modal.
   useEffect(() => {
-    if (modalStep !== 'dashboard' || !appealId) return;
+    if (!appealId) return;
     const ch = supabase.channel(`daily-appeal-${appealId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'appeals', filter: `id=eq.${appealId}` },
         async (p) => {
@@ -136,7 +138,7 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
         })
       .subscribe();
     return () => supabase.removeChannel(ch);
-  }, [modalStep, appealId]);
+  }, [appealId]);
 
   const loadEntries = async () => {
     setLoading(true);
