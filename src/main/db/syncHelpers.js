@@ -725,16 +725,17 @@ function toCloudKey(table, key) {
 
 function sanitizeCloudValue(col, val) {
   if (val === undefined || val === null) return null;
-  if (typeof val === 'string' && val.trim() === '') return null;
   if (col === 'is_over_limit') return boolFromExcel(val);
   if (DATE_COLUMNS.has(col)) {
     const s = String(val).trim();
-    if (!s || s === 'Invalid Date') return null;
+    if (!s || s === 'Invalid Date' || s === 'null' || s === 'undefined') return null;
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.split('T')[0];
     const d = new Date(s);
     if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
     return null;
   }
+  // Preserve string values as string (e.g. description, names, notes, references)
+  if (typeof val === 'string') return val;
   return val;
 }
 
