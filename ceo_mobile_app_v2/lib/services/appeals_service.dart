@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../rebuilt/models.dart';
 import '../rebuilt/utils.dart';
@@ -73,19 +74,55 @@ class AppealsService {
     final appealType = row['appeal_type']?.toString() ?? 'unknown';
     final townName = row['town_name']?.toString() ?? 'No town';
     final createdAt = row['created_at']?.toString() ?? '';
-    final reason = row['reason']?.toString() ?? 'No details';
+
+    // Parse requested_data for richer information on the card
+    Map<String, dynamic> rd = {};
+    final rawRd = row['requested_data'];
+    if (rawRd is Map<String, dynamic>) {
+      rd = rawRd;
+    } else if (rawRd is String && rawRd.isNotEmpty && rawRd != 'null') {
+      try {
+        final decoded = jsonDecode(rawRd);
+        if (decoded is Map<String, dynamic>) rd = decoded;
+      } catch (_) {}
+    }
+
+    // Derive amount from requested_data
+    final amountRaw = rd['amount'] ?? rd['Amount'] ?? rd['proposedSalary'] ?? 0;
+    final amount = double.tryParse(amountRaw.toString()) ?? 0.0;
+
+    // Derive summary: prefer description/category from requested_data, else reason
+    final reason = row['reason']?.toString() ?? '';
+    final rdDesc = rd['description']?.toString() ?? rd['Description']?.toString() ?? '';
+    final rdCat = rd['category']?.toString() ?? rd['Category']?.toString() ?? '';
+    final rdType = rd['type']?.toString() ?? rd['Type']?.toString() ?? '';
+    final rdDate = rd['date']?.toString() ?? rd['Date']?.toString() ?? '';
+    final summary = rdDesc.isNotEmpty
+        ? rdDesc
+        : rdCat.isNotEmpty
+            ? rdCat
+            : reason.isNotEmpty
+                ? reason
+                : 'No details';
+
+    // Build more descriptive title for daily entry appeals
+    String title;
+    if (appealType == 'backdated_daily_entry' || appealType == 'future_daily_entry') {
+      final typeLabel = rdType.isNotEmpty ? rdType : 'Entry';
+      final dateLabel = rdDate.isNotEmpty ? ' ($rdDate)' : '';
+      title = 'Daily $typeLabel$dateLabel';
+    } else {
+      title = 'Appeal: ${appealType.replaceAll('_', ' ').capitalize()}';
+    }
 
     // Safe user parsing
     String accountantName = 'Accountant';
     final userData = row['requested_by_user_id'];
     if (userData is Map<String, dynamic>) {
-      accountantName = userData['full_name']?.toString() 
-          ?? userData['email']?.toString() 
+      accountantName = userData['full_name']?.toString()
+          ?? userData['email']?.toString()
           ?? 'Accountant';
     }
-
-    // Build title
-    final title = 'Appeal: ${appealType.replaceAll('_', ' ').capitalize()}';
 
     return ReviewItem(
       id: id,
@@ -94,20 +131,33 @@ class AppealsService {
       title: title,
       townName: townName,
       accountantName: accountantName,
-      amount: 0,
-      dateText: formatAnyDate(createdAt),
-      summary: reason,
+      amount: amount,
+      dateText: rdDate.isNotEmpty ? rdDate : formatAnyDate(createdAt),
+      summary: summary,
       raw: row,
     );
   }
 
-  /// Approve/Reject wrapper
+  /// Approve/Reject wrapper — calls ceo_review_appeal RPC with direct update fallback
   Future<void> reviewAppeal(String appealId, String newStatus) async {
-    await supabase.rpc(
-      'ceo_review_appeal',
-      params: {'appeal_id': appealId, 'new_status': newStatus},
-    );
+    try {
+      await supabase.rpc(
+        'ceo_review_appeal',
+        params: {'appeal_id': appealId, 'new_status': newStatus},
+      ).timeout(const Duration(seconds: 12));
+    } catch (e) {
+      // Fallback: direct status update so the accountant gets the realtime signal
+      await supabase
+          .from('appeals')
+          .update({
+            'status': newStatus,
+            'reviewed_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', appealId)
+          .timeout(const Duration(seconds: 10));
+    }
   }
+
 }
 
 extension StringExtension on String {

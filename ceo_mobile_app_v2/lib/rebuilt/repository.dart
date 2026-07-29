@@ -114,6 +114,10 @@ class CeoRepository {
       );
       final townEntries = entries
           .where((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name']) == town)
+          .where((row) {
+            final st = normalizeStatus(row['review_status'] ?? rowValue(row, 'Review_Status') ?? 'approved');
+            return st != 'pending' && st != 'rejected';
+          })
           .toList();
       final townSales = sales
           .where((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name']) == town)

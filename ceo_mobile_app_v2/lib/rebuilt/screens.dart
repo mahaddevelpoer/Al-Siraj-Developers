@@ -5,8 +5,6 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart'; // Direct PDF viewing and sharing enabled
 
-
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -1269,7 +1267,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           context: context,
                           backgroundColor: kSurface,
                           shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                            borderRadius: BorderRadius.vertical(
+                              top: Radius.circular(20),
+                            ),
                           ),
                           builder: (context) {
                             return SafeArea(
@@ -1279,13 +1279,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                   const SizedBox(height: 12),
                                   Text(
                                     'PDF Report - ${receipt.townName}',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
                                     textAlign: TextAlign.center,
                                   ),
                                   const SizedBox(height: 12),
                                   ListTile(
-                                    leading: const Icon(Icons.picture_as_pdf, color: Colors.green),
-                                    title: const Text('View / Print PDF', style: TextStyle(fontWeight: FontWeight.w700)),
+                                    leading: const Icon(
+                                      Icons.picture_as_pdf,
+                                      color: Colors.green,
+                                    ),
+                                    title: const Text(
+                                      'View / Print PDF',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                                     onTap: () async {
                                       Navigator.pop(context);
                                       await Printing.layoutPdf(
@@ -1295,13 +1306,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     },
                                   ),
                                   ListTile(
-                                    leading: const Icon(Icons.share, color: Colors.blue),
-                                    title: const Text('Share PDF', style: TextStyle(fontWeight: FontWeight.w700)),
+                                    leading: const Icon(
+                                      Icons.share,
+                                      color: Colors.blue,
+                                    ),
+                                    title: const Text(
+                                      'Share PDF',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                                     onTap: () async {
                                       Navigator.pop(context);
                                       await Printing.sharePdf(
                                         bytes: bytes,
-                                        filename: 'Report_${receipt.townName}_${receipt.reportDate}.pdf',
+                                        filename:
+                                            'Report_${receipt.townName}_${receipt.reportDate}.pdf',
                                       );
                                     },
                                   ),
@@ -1323,7 +1343,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       backgroundColor: kBlue,
                       foregroundColor: kSurface,
                       minimumSize: const Size.fromHeight(48),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -1376,23 +1398,43 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             const SizedBox(height: 4),
                             Builder(
                               builder: (context) {
-                                final hasBase64 = (rowValue(media, 'Pdf_Base64') ?? media['pdf_base64'] ?? rowValue(media, 'Html_Content') ?? media['html_content'] ?? '').toString().isNotEmpty;
+                                final hasBase64 =
+                                    (rowValue(media, 'Pdf_Base64') ??
+                                            media['pdf_base64'] ??
+                                            rowValue(media, 'Html_Content') ??
+                                            media['html_content'] ??
+                                            '')
+                                        .toString()
+                                        .isNotEmpty;
                                 if (hasBase64) {
                                   return Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: Colors.green.withOpacity(0.12),
                                       borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: Colors.green.withOpacity(0.3)),
+                                      border: Border.all(
+                                        color: Colors.green.withOpacity(0.3),
+                                      ),
                                     ),
                                     child: const Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Icon(Icons.picture_as_pdf, size: 14, color: Colors.green),
+                                        Icon(
+                                          Icons.picture_as_pdf,
+                                          size: 14,
+                                          color: Colors.green,
+                                        ),
                                         SizedBox(width: 4),
                                         Text(
                                           '📄 PDF Report Attached (Mobile Ready)',
-                                          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 11),
+                                          style: TextStyle(
+                                            color: Colors.green,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 11,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -1464,9 +1506,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Future<Uint8List> _generateReportPdfBytes(LedgerReceiptSummary receipt) async {
+  Future<Uint8List> _generateReportPdfBytes(
+    LedgerReceiptSummary receipt,
+  ) async {
     final pdf = pw.Document();
-    
+
     // Custom font styling
     final theme = pw.ThemeData.withFont(
       base: await PdfGoogleFonts.interRegular(),
@@ -1516,7 +1560,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     pw.SizedBox(height: 4),
                     pw.Text(
                       'Generated on CEO Mobile App',
-                      style: pw.TextStyle(fontSize: 9, color: PdfColors.grey500),
+                      style: pw.TextStyle(
+                        fontSize: 9,
+                        color: PdfColors.grey500,
+                      ),
                     ),
                   ],
                 ),
@@ -1534,9 +1581,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                _buildPdfSummaryCard('Total Income', 'PKR ${receipt.income.toStringAsFixed(0)}', PdfColors.green800),
-                _buildPdfSummaryCard('Total Expense', 'PKR ${receipt.expense.toStringAsFixed(0)}', PdfColors.red800),
-                _buildPdfSummaryCard('Net Cash Movement', 'PKR ${(receipt.income - receipt.expense).toStringAsFixed(0)}', PdfColors.blue800),
+                _buildPdfSummaryCard(
+                  'Total Income',
+                  'PKR ${receipt.income.toStringAsFixed(0)}',
+                  PdfColors.green800,
+                ),
+                _buildPdfSummaryCard(
+                  'Total Expense',
+                  'PKR ${receipt.expense.toStringAsFixed(0)}',
+                  PdfColors.red800,
+                ),
+                _buildPdfSummaryCard(
+                  'Net Cash Movement',
+                  'PKR ${(receipt.income - receipt.expense).toStringAsFixed(0)}',
+                  PdfColors.blue800,
+                ),
               ],
             ),
             pw.SizedBox(height: 20),
@@ -1551,14 +1610,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
               headers: ['Type', 'Category', 'Description', 'Amount (PKR)'],
               data: receipt.rows.map((row) {
                 final type = (row['type'] ?? row['Type'] ?? '').toString();
-                final cat = (row['category'] ?? row['Category'] ?? '').toString();
-                final desc = (row['description'] ?? row['Description'] ?? '').toString();
+                final cat = (row['category'] ?? row['Category'] ?? '')
+                    .toString();
+                final desc = (row['description'] ?? row['Description'] ?? '')
+                    .toString();
                 final amt = (row['amount'] ?? row['Amount'] ?? 0).toString();
                 return [type, cat, desc, amt];
               }).toList(),
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.blue900),
-              rowDecoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300))),
+              headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.white,
+              ),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.blue900,
+              ),
+              rowDecoration: const pw.BoxDecoration(
+                border: pw.Border(
+                  bottom: pw.BorderSide(color: PdfColors.grey300),
+                ),
+              ),
               cellAlignment: pw.Alignment.centerLeft,
               cellAlignments: {3: pw.Alignment.centerRight},
             ),
@@ -1582,21 +1652,40 @@ class _ReportsScreenState extends State<ReportsScreen> {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(title, style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
+          pw.Text(
+            title,
+            style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+          ),
           pw.SizedBox(height: 4),
-          pw.Text(val, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: col)),
+          pw.Text(
+            val,
+            style: pw.TextStyle(
+              fontSize: 12,
+              fontWeight: pw.FontWeight.bold,
+              color: col,
+            ),
+          ),
         ],
       ),
     );
   }
 
   void _handlePdfTap(BuildContext context, Map<String, dynamic> media) async {
-    final title = (rowValue(media, 'Title') ?? media['title'] ?? 'PDF Report').toString();
-    final base64Str = (rowValue(media, 'Pdf_Base64') ?? media['pdf_base64'] ?? rowValue(media, 'Html_Content') ?? media['html_content'] ?? '').toString();
-    
+    final title = (rowValue(media, 'Title') ?? media['title'] ?? 'PDF Report')
+        .toString();
+    final base64Str =
+        (rowValue(media, 'Pdf_Base64') ??
+                media['pdf_base64'] ??
+                rowValue(media, 'Html_Content') ??
+                media['html_content'] ??
+                '')
+            .toString();
+
     if (base64Str.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No PDF content attached to this report.')),
+        const SnackBar(
+          content: Text('No PDF content attached to this report.'),
+        ),
       );
       return;
     }
@@ -1617,13 +1706,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 const SizedBox(height: 12),
                 Text(
                   title,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
                 ListTile(
-                  leading: const Icon(Icons.picture_as_pdf, color: Colors.green),
-                  title: const Text('View / Print PDF', style: TextStyle(fontWeight: FontWeight.w700)),
+                  leading: const Icon(
+                    Icons.picture_as_pdf,
+                    color: Colors.green,
+                  ),
+                  title: const Text(
+                    'View / Print PDF',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   onTap: () async {
                     Navigator.pop(context);
                     try {
@@ -1640,13 +1738,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
                 ListTile(
                   leading: const Icon(Icons.share, color: Colors.blue),
-                  title: const Text('Share PDF', style: TextStyle(fontWeight: FontWeight.w700)),
+                  title: const Text(
+                    'Share PDF',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   onTap: () async {
                     Navigator.pop(context);
                     try {
                       await Printing.sharePdf(
                         bytes: bytes,
-                        filename: '${title.replaceAll(RegExp(r"[^\w\s\-]"), "_")}.pdf',
+                        filename:
+                            '${title.replaceAll(RegExp(r"[^\w\s\-]"), "_")}.pdf',
                       );
                     } catch (e) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -1662,9 +1764,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
         },
       );
     } catch (err) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading PDF: $err')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error loading PDF: $err')));
     }
   }
 }
@@ -1909,19 +2011,19 @@ class _WhoOnlineScreenState extends State<WhoOnlineScreen> {
                       width: 46,
                       height: 46,
                       decoration: BoxDecoration(
-                        color: (row.status == 'online'
-                            ? kGreen
-                            : (row.status == 'away' ? kAmber : kMuted)).withValues(
-                          alpha: 0.12,
-                        ),
+                        color:
+                            (row.status == 'online'
+                                    ? kGreen
+                                    : (row.status == 'away' ? kAmber : kMuted))
+                                .withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Icon(
                         row.status == 'online'
                             ? Icons.check_circle_rounded
                             : (row.status == 'away'
-                                ? Icons.schedule_rounded
-                                : Icons.remove_circle_outline_rounded),
+                                  ? Icons.schedule_rounded
+                                  : Icons.remove_circle_outline_rounded),
                         color: row.status == 'online'
                             ? kGreen
                             : (row.status == 'away' ? kAmber : kMuted),
@@ -2213,7 +2315,8 @@ class AuditScreen extends StatefulWidget {
 
 class _AuditScreenState extends State<AuditScreen> {
   late Future<List<LockerAudit>> _auditsFuture = widget.repo.loadLockerAudits();
-  late Future<List<AuditSchedule>> _schedulesFuture = widget.repo.loadAuditSchedules();
+  late Future<List<AuditSchedule>> _schedulesFuture = widget.repo
+      .loadAuditSchedules();
   late Future<DashboardSummary> _dashboardFuture = widget.repo.loadDashboard();
   bool _busy = false;
 
@@ -2240,15 +2343,19 @@ class _AuditScreenState extends State<AuditScreen> {
       await widget.repo.scheduleAudit(townName, picked);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Audit scheduled for $townName on ${picked.toIso8601String().split('T')[0]}!')),
+          SnackBar(
+            content: Text(
+              'Audit scheduled for $townName on ${picked.toIso8601String().split('T')[0]}!',
+            ),
+          ),
         );
       }
       await _refresh();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to schedule audit: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to schedule audit: $e')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -2276,7 +2383,11 @@ class _AuditScreenState extends State<AuditScreen> {
                   children: [
                     Text(
                       'Audit Report: ${audit.townName}',
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: kText),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 20,
+                        color: kText,
+                      ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.close_rounded),
@@ -2287,10 +2398,13 @@ class _AuditScreenState extends State<AuditScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'Date: ${audit.auditDate} | Audited by: ${audit.auditedBy}',
-                  style: const TextStyle(color: kMuted, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    color: kMuted,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const Divider(height: 32, color: kLine),
-                
+
                 // Numbers summary
                 Row(
                   children: [
@@ -2304,9 +2418,18 @@ class _AuditScreenState extends State<AuditScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('System Cash', style: TextStyle(fontSize: 12, color: kMuted)),
+                            const Text(
+                              'System Cash',
+                              style: TextStyle(fontSize: 12, color: kMuted),
+                            ),
                             const SizedBox(height: 4),
-                            Text(money.format(audit.systemBalance), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                            Text(
+                              money.format(audit.systemBalance),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -2322,9 +2445,18 @@ class _AuditScreenState extends State<AuditScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Locker Physical', style: TextStyle(fontSize: 12, color: kMuted)),
+                            const Text(
+                              'Locker Physical',
+                              style: TextStyle(fontSize: 12, color: kMuted),
+                            ),
                             const SizedBox(height: 4),
-                            Text(money.format(audit.physicalBalance), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                            Text(
+                              money.format(audit.physicalBalance),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -2332,20 +2464,27 @@ class _AuditScreenState extends State<AuditScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                
+
                 // Discrepancy indicator
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: mismatch ? kRed.withValues(alpha: 0.1) : kGreen.withValues(alpha: 0.1),
+                    color: mismatch
+                        ? kRed.withValues(alpha: 0.1)
+                        : kGreen.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: mismatch ? kRed : kGreen, width: 1.5),
+                    border: Border.all(
+                      color: mismatch ? kRed : kGreen,
+                      width: 1.5,
+                    ),
                   ),
                   child: Row(
                     children: [
                       Icon(
-                        mismatch ? Icons.warning_amber_rounded : Icons.check_circle_outline_rounded,
+                        mismatch
+                            ? Icons.warning_amber_rounded
+                            : Icons.check_circle_outline_rounded,
                         color: mismatch ? kRed : kGreen,
                       ),
                       const SizedBox(width: 12),
@@ -2354,16 +2493,26 @@ class _AuditScreenState extends State<AuditScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              mismatch ? 'Locker Discrepancy Detected!' : 'Locker Balances Match Perfectly',
-                              style: TextStyle(fontWeight: FontWeight.w900, color: mismatch ? kRed : kGreen, fontSize: 15),
+                              mismatch
+                                  ? 'Locker Discrepancy Detected!'
+                                  : 'Locker Balances Match Perfectly',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                color: mismatch ? kRed : kGreen,
+                                fontSize: 15,
+                              ),
                             ),
                             if (mismatch) ...[
                               const SizedBox(height: 4),
                               Text(
                                 'Difference: ${money.format(audit.discrepancy)}',
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: kRed),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                  color: kRed,
+                                ),
                               ),
-                            ]
+                            ],
                           ],
                         ),
                       ),
@@ -2371,18 +2520,39 @@ class _AuditScreenState extends State<AuditScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                
+
                 // Detailed sections from report
-                const Text('Audit Breakdown', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                const Text(
+                  'Audit Breakdown',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                ),
                 const SizedBox(height: 12),
-                
-                _buildReportRow('Active Sales Count', '${audit.report['activeSalesCount'] ?? 0}'),
-                _buildReportRow('Expected Sales Revenue', money.format(audit.report['expectedRevenue'] ?? 0)),
-                _buildReportRow('Actual Collected Amount', money.format(audit.report['collectedAmount'] ?? 0)),
-                _buildReportRow('Uncollected Balance', money.format(audit.report['remainingRevenue'] ?? 0)),
-                _buildReportRow('Recorded Expenses', money.format(audit.report['recordedExpenses'] ?? 0)),
-                _buildReportRow('Employee Salary Payments', money.format(audit.report['recordedSalaries'] ?? 0)),
-                
+
+                _buildReportRow(
+                  'Active Sales Count',
+                  '${audit.report['activeSalesCount'] ?? 0}',
+                ),
+                _buildReportRow(
+                  'Expected Sales Revenue',
+                  money.format(audit.report['expectedRevenue'] ?? 0),
+                ),
+                _buildReportRow(
+                  'Actual Collected Amount',
+                  money.format(audit.report['collectedAmount'] ?? 0),
+                ),
+                _buildReportRow(
+                  'Uncollected Balance',
+                  money.format(audit.report['remainingRevenue'] ?? 0),
+                ),
+                _buildReportRow(
+                  'Recorded Expenses',
+                  money.format(audit.report['recordedExpenses'] ?? 0),
+                ),
+                _buildReportRow(
+                  'Employee Salary Payments',
+                  money.format(audit.report['recordedSalaries'] ?? 0),
+                ),
+
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
@@ -2406,8 +2576,14 @@ class _AuditScreenState extends State<AuditScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: kMuted, fontWeight: FontWeight.w600)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, color: kText)),
+          Text(
+            label,
+            style: const TextStyle(color: kMuted, fontWeight: FontWeight.w600),
+          ),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.bold, color: kText),
+          ),
         ],
       ),
     );
@@ -2443,7 +2619,7 @@ class _AuditScreenState extends State<AuditScreen> {
           style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
         ),
         const SizedBox(height: 10),
-        
+
         FutureBuilder<DashboardSummary>(
           future: _dashboardFuture,
           builder: (context, snap) {
@@ -2455,7 +2631,11 @@ class _AuditScreenState extends State<AuditScreen> {
                 children: [
                   const Text(
                     'Select Town to Schedule Audit',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: kMuted),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: kMuted,
+                    ),
                   ),
                   const Divider(height: 16),
                   Wrap(
@@ -2465,7 +2645,9 @@ class _AuditScreenState extends State<AuditScreen> {
                       return ActionChip(
                         avatar: const Icon(Icons.add_alarm_rounded, size: 16),
                         label: Text(town.name),
-                        onPressed: _busy ? null : () => _scheduleNewAudit(town.name),
+                        onPressed: _busy
+                            ? null
+                            : () => _scheduleNewAudit(town.name),
                       );
                     }).toList(),
                   ),
@@ -2479,13 +2661,21 @@ class _AuditScreenState extends State<AuditScreen> {
         FutureBuilder<List<AuditSchedule>>(
           future: _schedulesFuture,
           builder: (context, snap) {
-            final list = (snap.data ?? const []).where((s) => s.status == 'pending').toList();
+            final list = (snap.data ?? const [])
+                .where((s) => s.status == 'pending')
+                .toList();
             if (list.isEmpty) return const SizedBox.shrink();
             return AppCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Pending Audit Dates', style: TextStyle(fontWeight: FontWeight.w800, color: kMuted)),
+                  const Text(
+                    'Pending Audit Dates',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: kMuted,
+                    ),
+                  ),
                   const Divider(height: 16),
                   for (final s in list)
                     Padding(
@@ -2495,9 +2685,18 @@ class _AuditScreenState extends State<AuditScreen> {
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.today_rounded, size: 16, color: kAmber),
+                              const Icon(
+                                Icons.today_rounded,
+                                size: 16,
+                                color: kAmber,
+                              ),
                               const SizedBox(width: 8),
-                              Text(s.townName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              Text(
+                                s.townName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ],
                           ),
                           StatusPill(text: s.scheduledDate, color: kAmber),
@@ -2517,7 +2716,7 @@ class _AuditScreenState extends State<AuditScreen> {
           style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
         ),
         const SizedBox(height: 10),
-        
+
         FutureBuilder<List<LockerAudit>>(
           future: _auditsFuture,
           builder: (context, snap) {
@@ -2529,7 +2728,9 @@ class _AuditScreenState extends State<AuditScreen> {
             }
             final list = snap.data ?? const [];
             if (list.isEmpty) {
-              return const EmptyBlock(text: 'No completed locker audits found.');
+              return const EmptyBlock(
+                text: 'No completed locker audits found.',
+              );
             }
             return Column(
               children: list.map((audit) {
@@ -2541,11 +2742,15 @@ class _AuditScreenState extends State<AuditScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: mismatch ? kRed.withValues(alpha: 0.1) : kGreen.withValues(alpha: 0.1),
+                          color: mismatch
+                              ? kRed.withValues(alpha: 0.1)
+                              : kGreen.withValues(alpha: 0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          mismatch ? Icons.warning_rounded : Icons.check_circle_rounded,
+                          mismatch
+                              ? Icons.warning_rounded
+                              : Icons.check_circle_rounded,
                           color: mismatch ? kRed : kGreen,
                         ),
                       ),
@@ -2556,12 +2761,18 @@ class _AuditScreenState extends State<AuditScreen> {
                           children: [
                             Text(
                               audit.townName,
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               'Date: ${audit.auditDate} | By: ${audit.auditedBy}',
-                              style: const TextStyle(color: kMuted, fontSize: 12),
+                              style: const TextStyle(
+                                color: kMuted,
+                                fontSize: 12,
+                              ),
                             ),
                             const SizedBox(height: 4),
                             Text(
