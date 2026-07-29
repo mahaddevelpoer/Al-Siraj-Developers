@@ -4048,8 +4048,9 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         status: 'pending',
       };
 
+      const tableName = 'appeals';
       const { data, error } = await admin
-        .from('appeals')
+        .from(tableName)
         .insert(insertRow)
         .select()
         .single();

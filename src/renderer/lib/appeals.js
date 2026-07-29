@@ -89,27 +89,25 @@ export async function createBusinessAppeal(payload) {
   };
   normalized.town_name = String(normalized.town_name || '').trim();
 
-  const { data, error } = await supabase
-    .from('appeals')
-    .insert({
-      requested_by_user_id: normalized.requested_by_user_id,
-      requested_by_role: normalized.requested_by_role,
-      appeal_type: normalized.appeal_type,
-      entity_type: normalized.entity_type,
-      entity_id: String(normalized.entity_id || ''),
-      town_name: normalized.town_name,
-      original_data: normalized.original_data || null,
-      requested_data: normalized.requested_data || {},
-      reason: normalized.reason || '',
-      otp_code: normalized.otp_code || null,
-      otp_expires_at: normalized.otp_expires_at || null,
-      status: 'pending',
-    })
-    .select()
-    .single();
+  const rpc = await supabase.rpc('create_business_appeal', {
+    p_requested_by_user_id: normalized.requested_by_user_id,
+    p_requested_by_role: normalized.requested_by_role,
+    p_appeal_type: normalized.appeal_type,
+    p_entity_type: normalized.entity_type,
+    p_entity_id: String(normalized.entity_id || ''),
+    p_town_name: normalized.town_name,
+    p_original_data: normalized.original_data || null,
+    p_requested_data: normalized.requested_data || {},
+    p_reason: normalized.reason || '',
+    p_otp_code: normalized.otp_code || null,
+    p_otp_expires_at: normalized.otp_expires_at || null,
+  });
 
-  if (error) return { data: null, error };
-  return { data, error: null };
+  if (rpc.error) {
+    if (isMissingRpc(rpc.error, 'create_business_appeal')) return { data: null, error: repairError(rpc.error) };
+    return { data: null, error: rpc.error };
+  }
+  return { data: rpc.data, error: null };
 }
 
 
