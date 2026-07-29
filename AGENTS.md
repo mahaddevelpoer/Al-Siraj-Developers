@@ -17,9 +17,11 @@ Complete dual-write integration (Excel + Supabase for all writes with user-visib
   - **Commission Tracker:** Sales agents commission tracking; supports partial/installment payouts.
 
 ## Strict Workflow Rules for AI Agent (Antigravity)
-- **DO NOT RUN LOCAL BUILDS:** Never run heavy local build/analyze commands (`flutter build apk`, `flutter analyze`, `npm run build`, `npx vite build`) unless explicitly instructed by user.
+- **FLUTTER BUILDS ON GITHUB ONLY:** Never run heavy Flutter build/analyze commands (`flutter build apk`, `flutter analyze`) on the local machine. All Flutter CEO Mobile App builds MUST trigger via GitHub Actions.
+- **DESKTOP BUILDS ALLOWED LOCALLY:** Web/Electron Desktop App commands (`npm run build`, `npx vite build`) CAN be run locally when verifying desktop app code.
 - **AUTOMATIC COMMIT & PUSH FOR FLUTTER APP:** Whenever changes are made to the CEO Mobile App (`ceo_mobile_app_v2/**`), ALWAYS automatically stage (`git add`), commit with a descriptive message, and push (`git push origin main`) to GitHub so the GitHub Actions workflow (`build-ceo-android-apk-v2.yml`) triggers automatically to build the APK artifact in the cloud.
 - **ALWAYS DISPLAY STEP-BY-STEP PLAN & SUMMARY:** Always state the plan before executing changes and show a clean summary after completion.
+
 
 
 
