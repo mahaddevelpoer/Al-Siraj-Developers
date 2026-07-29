@@ -1008,6 +1008,51 @@ function AppInner() {
     }
 
     if (userRole === 'accountant') {
+      const fetchMissedAppeals = async () => {
+        try {
+          const { data: missed } = await supabase
+            .from('appeals')
+            .select('*')
+            .eq('requested_by_user_id', user.id)
+            .in('status', ['approved', 'rejected'])
+            .gte('updated_at', new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()); // last 3 days
+            
+          if (missed) {
+            for (const a of missed) {
+              const type = a.appeal_type || '';
+              const status = a.status;
+              if (type === 'backdated_daily_entry' || type === 'future_daily_entry') {
+                if (status === 'approved') {
+                  const seenApprovedKey = `daily_entry_approval_notified_${a.id}`;
+                  if (localStorage.getItem(seenApprovedKey)) continue;
+                  localStorage.setItem(seenApprovedKey, '1');
+                  const rd = a.requested_data || {};
+                  
+                  if (rd.date && rd.townName && window.api?.addDailyEntry) {
+                    const appealStableId = 'APP-' + String(a.id || '').replace(/-/g, '');
+                    await window.api.addDailyEntry({
+                      ...rd,
+                      Entry_ID: appealStableId,
+                      entryId: appealStableId,
+                      reviewStatus: 'approved',
+                      date: rd.date,
+                      time: rd.time || '00:00',
+                      type: rd.type || 'Expense',
+                      description: rd.description || '',
+                      amount: parseFloat(rd.amount) || 0,
+                      townName: rd.townName,
+                    }).catch(() => {});
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch missed appeals:', e);
+        }
+      };
+      fetchMissedAppeals();
+
       const ch = supabase
         .channel(`accountant-appeals-${user.id}`)
         .on('postgres_changes',
@@ -1031,6 +1076,24 @@ function AppInner() {
                 const body = `${rd.type || 'Entry'} ${rd.date || ''} approved by CEO`;
                 showToast(body, 'success');
                 window.api?.showNotification?.('Daily Entry Approved', body);
+                // Directly write the approved entry to local Excel + money ledger.
+                // Use the same stable ID the ceo_review_appeal RPC generates so
+                // duplicate detection in addDailyEntry prevents double-writing.
+                if (rd.date && rd.townName && window.api?.addDailyEntry) {
+                  const appealStableId = 'APP-' + String(a.id || '').replace(/-/g, '');
+                  await window.api.addDailyEntry({
+                    ...rd,
+                    Entry_ID: appealStableId,
+                    entryId: appealStableId,
+                    reviewStatus: 'approved',
+                    date: rd.date,
+                    time: rd.time || '00:00',
+                    type: rd.type || 'Expense',
+                    description: rd.description || '',
+                    amount: parseFloat(rd.amount) || 0,
+                    townName: rd.townName,
+                  }).catch(() => {});
+                }
                 window.api?.syncFromCloud?.().then(() => {
                   setDataRefreshKey((k) => k + 1);
                 }).catch(() => {
@@ -1038,6 +1101,7 @@ function AppInner() {
                 });
                 return;
               }
+
 
               if (status === 'rejected') {
                 const seenKey = `daily_entry_rejection_notified_${a.id}`;

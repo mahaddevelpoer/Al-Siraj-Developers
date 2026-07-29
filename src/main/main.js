@@ -692,33 +692,47 @@ app.whenReady().then(async () => {
     const rd = appeal.requested_data || {};
     if (!rd.date || !rd.townName) return;
 
-    const entry = await addDailyEntry({
-      entryId: `APP-${String(appeal.id).replace(/-/g, '')}`,
-      reference: appeal.id,
-      date: rd.date,
-      time: rd.time || '00:00',
-      type: rd.type || 'Expense',
-      description: rd.description || '',
-      amount: parseFloat(rd.amount) || 0,
-      townName: rd.townName,
-      incomeType: rd.incomeType || '',
-      category: rd.category || 'Daily',
-      subcategory: rd.subcategory || '',
-      createdBy: 'CEO Approved Appeal',
-      reviewStatus: 'approved',
-    });
-
-    if (isCurrentCeoContext()) showDesktopNotification({
-      title: entry?.duplicate ? 'Daily Entry Already Saved' : 'Daily Entry Saved',
-      body: `${rd.type || 'Entry'} ${rd.date} has been saved to local accounts.`,
-      silent: true,
-    });
-
     try {
-      if (activeWindow && !activeWindow.isDestroyed() && activeWindow.webContents) {
-        activeWindow.webContents.send('sync-warning', `${rd.type || 'Entry'} ${rd.date} saved after CEO approval`);
+      const { addDailyEntry } = require('./db/dailyEntries');
+      const { updateTownFinancials } = require('./db/towns');
+      
+      const appealStableId = 'APP-' + String(appeal.id || '').replace(/-/g, '');
+      const entry = await addDailyEntry({
+        ...rd,
+        Entry_ID: appealStableId,
+        entryId: appealStableId,
+        reference: appeal.id,
+        date: rd.date,
+        time: rd.time || '00:00',
+        type: rd.type || 'Expense',
+        description: rd.description || '',
+        amount: parseFloat(rd.amount) || 0,
+        townName: rd.townName,
+        incomeType: rd.incomeType || '',
+        category: rd.category || 'Daily',
+        subcategory: rd.subcategory || '',
+        createdBy: 'CEO Approved Appeal',
+        reviewStatus: 'approved',
+      });
+
+      await updateTownFinancials(rd.townName).catch(() => {});
+
+      const win = typeof activeWindow !== 'undefined' ? activeWindow : null;
+      if (win && !win.isDestroyed() && win.webContents) {
+        win.webContents.send('sync-warning', `Daily entry (${rd.type || 'Entry'} ${rd.date}) approved & saved to accounts.`);
+        win.webContents.send('al-siraj-data-changed', { type: 'daily_entry', townName: rd.townName });
       }
-    } catch (_) {}
+
+      if (isCurrentCeoContext() || isCurrentAccountantContext()) {
+        showDesktopNotification({
+          title: entry?.duplicate ? 'Daily Entry Already Saved' : 'Daily Entry Saved',
+          body: `${rd.type || 'Entry'} ${rd.date} (PKR ${rd.amount}) saved to local accounts.`,
+          silent: false,
+        });
+      }
+    } catch (err) {
+      console.error('[appeal-sync] Error applying approved daily entry appeal:', err);
+    }
   };
 
   const applyApprovedSalaryIncreaseAppeal = async (appeal) => {

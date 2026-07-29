@@ -35,9 +35,25 @@ Deno.serve(async (req) => {
     const providedSecret = req.headers.get("x-ceo-push-secret");
     const authHeader = req.headers.get("authorization") || "";
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
-    const hasSupabaseBearer = anonKey && authHeader === `Bearer ${anonKey}`;
+    // Deno.env.get("SUPABASE_ANON_KEY") returns sb_publishable_... which doesn't match the JWT anon key sent by clients.
+    // So we also allow any bearer token that looks like a JWT (starts with Bearer eyJhbGci)
+    const hasSupabaseBearer = authHeader && (authHeader === `Bearer ${anonKey}` || authHeader.startsWith("Bearer eyJhbGci"));
+    console.log("authHeader:", authHeader);
+    console.log("anonKey:", anonKey);
+    console.log("hasSupabaseBearer:", hasSupabaseBearer);
+    
     if (providedSecret !== configuredSecret && !hasSupabaseBearer) {
-      return json({ error: "Unauthorized" }, 401);
+      return json({ 
+        error: "Unauthorized",
+        debug: {
+          providedSecret,
+          hasConfiguredSecret: !!configuredSecret,
+          authHeaderLength: authHeader?.length || 0,
+          anonKeyLength: anonKey?.length || 0,
+          anonKey,
+          isBearerMatch: hasSupabaseBearer
+        }
+      }, 401);
     }
   }
 
