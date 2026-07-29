@@ -31,23 +31,38 @@ function calculateNextRunTime() {
   return next;
 }
 
+function normalizeDate(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    return val.toISOString().split('T')[0];
+  }
+  const s = String(val).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  return s;
+}
+
 function generateTownSummary(towns, sales, expenses, entries, ledger, reportDate) {
   const summaries = [];
-  const todayStr = reportDate || new Date().toISOString().slice(0, 10);
+  const todayStr = normalizeDate(reportDate || new Date());
 
   for (const town of towns) {
     const townName = town.Town_Name;
     const townSalesToday = (sales || []).filter(s => 
-      s.Town_Name === townName && 
-      String(s.Sell_Date || '').slice(0, 10) === todayStr
+      String(s.Town_Name || '').trim().toLowerCase() === String(townName).trim().toLowerCase() && 
+      normalizeDate(s.Sell_Date || s.date || s.Date) === todayStr
     );
     const townEntriesToday = (entries || []).filter(e => 
-      String(e.Town_Name || e.townName) === townName && 
-      String(e.Date || e.date || '').slice(0, 10) === todayStr
+      String(e.Town_Name || e.townName || '').trim().toLowerCase() === String(townName).trim().toLowerCase() && 
+      normalizeDate(e.Date || e.date) === todayStr
     );
     const townLedgerToday = (ledger || []).filter(r => 
-      String(r.Town_Name || r.town_name || '') === townName && 
-      String(r.Date || r.date || '').slice(0, 10) === todayStr &&
+      String(r.Town_Name || r.town_name || '').trim().toLowerCase() === String(townName).trim().toLowerCase() && 
+      normalizeDate(r.Date || r.date) === todayStr &&
       String(r.Status || 'approved').toLowerCase() === 'approved'
     );
 

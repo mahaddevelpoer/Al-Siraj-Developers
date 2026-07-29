@@ -34,20 +34,37 @@ function isPropertySale(row) {
   return Boolean(clean(row.Plot_Shop_Number || row.Property_Number));
 }
 
-function rowDate(row, keys = ['Date', 'date', 'Created_At', 'created_at']) {
+function normalizeDate(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    return val.toISOString().split('T')[0];
+  }
+  const s = String(val).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  return s;
+}
+
+function rowDate(row, keys = ['Date', 'date', 'Created_At', 'created_at', 'Sell_Date', 'Sell_date', 'Date_Added', 'date_added']) {
   for (const key of keys) {
     const value = row[key];
     if (!value) continue;
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    const norm = normalizeDate(value);
+    if (norm) return norm;
   }
   return '';
 }
 
 function inRange(dateValue, fromDate, toDate) {
   if (!dateValue) return false;
-  const d = clean(dateValue).slice(0, 10);
-  return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+  const d = normalizeDate(dateValue);
+  const from = normalizeDate(fromDate);
+  const to = normalizeDate(toDate);
+  return (!from || d >= from) && (!to || d <= to);
 }
 
 function groupBy(rows, keyFn, seedFn, eachFn) {
