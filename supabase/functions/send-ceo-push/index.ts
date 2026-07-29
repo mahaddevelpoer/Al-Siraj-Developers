@@ -3,7 +3,7 @@ const FCM_AUDIENCE = "https://oauth2.googleapis.com/token";
 const CEO_TOPIC = "ceo-alerts";
 // Lock-screen FCM must stay approval-only. Daily ledger and business rows are
 // fetched in-app/realtime, but only fresh appeal rows should wake the CEO phone.
-const PUSHABLE_TABLES = new Set(["appeals"]);
+const PUSHABLE_TABLES = new Set(["appeals", "daily_reports", "notifications", "daily_entries"]);
 const MAX_RECORD_AGE_MS = 5 * 60 * 1000;
 let cachedAccessToken = "";
 let cachedAccessTokenExpiresAt = 0;
@@ -35,12 +35,7 @@ Deno.serve(async (req) => {
     const providedSecret = req.headers.get("x-ceo-push-secret");
     const authHeader = req.headers.get("authorization") || "";
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
-    // Deno.env.get("SUPABASE_ANON_KEY") returns sb_publishable_... which doesn't match the JWT anon key sent by clients.
-    // So we also allow any bearer token that looks like a JWT (starts with Bearer eyJhbGci)
     const hasSupabaseBearer = authHeader && (authHeader === `Bearer ${anonKey}` || authHeader.startsWith("Bearer eyJhbGci"));
-    console.log("authHeader:", authHeader);
-    console.log("anonKey:", anonKey);
-    console.log("hasSupabaseBearer:", hasSupabaseBearer);
     
     if (providedSecret !== configuredSecret && !hasSupabaseBearer) {
       return json({ 
@@ -68,24 +63,17 @@ Deno.serve(async (req) => {
     return json({ ok: true, skipped: true, reason: skipReason });
   }
 
-  const backgroundTask = sendFcmPush(serviceAccountJson, payload);
-  const edgeRuntime = (globalThis as unknown as {
-    EdgeRuntime?: { waitUntil?: (promise: Promise<unknown>) => void };
-  }).EdgeRuntime;
-  if (edgeRuntime?.waitUntil) {
-    edgeRuntime.waitUntil(backgroundTask.catch((error) => {
-      console.error("FCM background send failed", error);
-    }));
-    return json({ ok: true, queued: true });
-  }
-
-  return await backgroundTask;
+  return await sendFcmPush(serviceAccountJson, payload);
 });
 
 async function sendFcmPush(serviceAccountJson: string, payload: PushPayload) {
   const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount;
   const safeMessage = buildSafeMessage(payload);
   const token = await getAccessToken(serviceAccount);
+
+  const route = String(safeMessage.data?.route || "");
+  const isReport = route === "reports" || route === "daily_report" || route === "daily_ledger_receipts";
+  const channelId = isReport ? "ceo_daily_reports" : "ceo_approvals";
 
   const fcmResponse = await fetch(
     `https://fcm.googleapis.com/v1/projects/${serviceAccount.project_id}/messages:send`,
@@ -108,7 +96,7 @@ async function sendFcmPush(serviceAccountJson: string, payload: PushPayload) {
             collapse_key: safeMessage.data.dedupe_key,
             ttl: "30s",
             notification: {
-              channel_id: "ceo_approvals",
+              channel_id: channelId,
               click_action: "FLUTTER_NOTIFICATION_CLICK",
               tag: safeMessage.data.dedupe_key,
             },
