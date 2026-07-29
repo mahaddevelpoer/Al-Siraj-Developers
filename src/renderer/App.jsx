@@ -1062,7 +1062,7 @@ function AppInner() {
             table: 'appeals',
             filter: `requested_by_user_id=eq.${user.id}`,
           },
-          (payload) => {
+          async (payload) => {
             const a = payload.new;
             const type = a.appeal_type || '';
             const status = a.status;
