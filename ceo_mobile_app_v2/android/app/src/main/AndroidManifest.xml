@@ -14,7 +14,7 @@
             android:resource="@color/notification_color" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="ceo_live_alerts" />
+            android:value="ceo_approvals" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
