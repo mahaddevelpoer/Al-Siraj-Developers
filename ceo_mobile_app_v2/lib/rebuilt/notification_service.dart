@@ -15,7 +15,11 @@ final notificationActionStream = StreamController<Map<String, dynamic>>.broadcas
 Future<void> ceoFirebaseBackgroundHandler(RemoteMessage message) async {
   try {
     await Firebase.initializeApp();
-  } catch (_) {}
+    await CeoNotificationService.init();
+    await CeoNotificationService.showRemoteMessage(message);
+  } catch (e) {
+    print('[FCM Background] Error handling background message: $e');
+  }
 }
 
 class CeoNotificationService {
@@ -102,6 +106,13 @@ class CeoNotificationService {
     try {
       FirebaseMessaging.onBackgroundMessage(ceoFirebaseBackgroundHandler);
       final messaging = FirebaseMessaging.instance;
+      
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
       final settings = await messaging.requestPermission(
         alert: true,
         badge: true,

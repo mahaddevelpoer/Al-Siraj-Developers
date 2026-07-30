@@ -93,12 +93,27 @@ async function sendFcmPush(serviceAccountJson: string, payload: PushPayload) {
           data: safeMessage.data,
           android: {
             priority: "HIGH",
-            collapse_key: safeMessage.data.dedupe_key,
-            ttl: "30s",
+            ttl: "86400s",
             notification: {
               channel_id: channelId,
               click_action: "FLUTTER_NOTIFICATION_CLICK",
               tag: safeMessage.data.dedupe_key,
+              notification_priority: "PRIORITY_MAX",
+              visibility: "PUBLIC",
+              default_sound: true,
+              default_vibrate_timings: true,
+            },
+          },
+          apns: {
+            headers: {
+              "apns-priority": "10",
+            },
+            payload: {
+              aps: {
+                sound: "default",
+                badge: 1,
+                "content-available": 1,
+              },
             },
           },
         },
@@ -129,7 +144,7 @@ function buildSafeMessage(payload: PushPayload) {
   }
 
   const table = payload.table || "unknown";
-  const event = payload.event || "change";
+  const event = payload.event || (payload as Record<string, unknown>).type as string || "change";
   const record = payload.record || {};
   const id = String(record.id || record.Entry_ID || record.entry_id || record.Notification_ID || record.notification_id || "");
   const route = payload.data?.route || routeForTable(table);
@@ -229,12 +244,12 @@ function shouldSkipPush(payload: PushPayload) {
   if (payload.title && payload.body && payload.data) return "";
 
   const table = payload.table || "";
-  const event = payload.event || "";
+  const event = payload.event || (payload as Record<string, unknown>).type as string || "";
   const record = payload.record || {};
   const oldRecord = payload.old_record || {};
 
   if (!PUSHABLE_TABLES.has(table)) return `table_not_pushable:${table}`;
-  if (event !== "INSERT") return "updates_are_silent";
+  if (event !== "INSERT" && event !== "INSERTION") return "updates_are_silent";
 
   if (table === "appeals" && String(record.status || "pending").toLowerCase() !== "pending") {
     return "appeal_not_pending";
