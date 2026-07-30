@@ -10,7 +10,7 @@ import { IconCalendar, IconIncome, IconExpenseType, IconNote, IconMoney, IconWar
 const fmtPkr = (val) => `PKR ${(val || 0).toLocaleString()}`;
 
 // modalStep: null | 'choose' | 'otp' | 'dashboard'
-export default function DailyLedger({ townName, showToast, onEntryAdded, refreshKey = 0 }) {
+export default function DailyLedger({ townName, showToast, onEntryAdded, refreshKey = 0, onCustomDateStatusChange }) {
   const { userRole, user } = useAuth();
 
   const [activeTab, setActiveTab] = useState('income');
@@ -30,6 +30,13 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
   const [confirmModal, setConfirmModal] = useState(null);
 
   const todayStr = new Date().toISOString().split('T')[0];
+
+  useEffect(() => {
+    const isCustomActive = selectedDate !== todayStr;
+    if (typeof onCustomDateStatusChange === 'function') {
+      onCustomDateStatusChange({ active: isCustomActive, date: selectedDate });
+    }
+  }, [selectedDate, todayStr]);
   const isNonToday = userRole === 'accountant' && selectedDate !== todayStr;
   const pendingAppealsKey = `al_siraj_pending_appeals_${townName || 'global'}`;
 
@@ -182,7 +189,12 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
       }
       const r = await window.api.addDailyEntry(nextPayload);
       if (r?.error) showToast?.(r.error, 'error');
-      else { showToast?.('Entry saved'); await loadEntries(); onEntryAdded?.(); }
+      else {
+        showToast?.('Entry saved');
+        setSelectedDate(new Date().toISOString().split('T')[0]);
+        await loadEntries();
+        onEntryAdded?.();
+      }
     } catch { showToast?.('Failed to add entry', 'error'); }
   };
 

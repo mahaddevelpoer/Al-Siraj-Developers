@@ -122,18 +122,21 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     }
   }, [form.townName, towns]);
 
-  const approvedDateKey = (type = form.type, number = form.number, town = form.townName) =>
-    `approved_sale_date_${user?.id || 'user'}_${type || ''}_${town || ''}_${number || ''}`;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [hasApprovedCustomDate, setHasApprovedCustomDate] = useState(false);
 
-  const persistApprovedSaleDate = (nextDate, appeal) => {
-    if (!nextDate || !form.number || !form.type) return;
-    try {
-      localStorage.setItem(approvedDateKey(), JSON.stringify({
-        date: nextDate,
-        appealId: appeal?.id || '',
-        savedAt: new Date().toISOString(),
-      }));
-    } catch (_) {}
+  // Notify parent dashboard if custom date is active
+  useEffect(() => {
+    const isCustomActive = hasApprovedCustomDate && form.Sell_Date && form.Sell_Date !== todayStr;
+    if (typeof onCustomDateStatusChange === 'function') {
+      onCustomDateStatusChange({ active: isCustomActive, date: form.Sell_Date });
+    }
+  }, [hasApprovedCustomDate, form.Sell_Date]);
+
+  const resetCustomDateToToday = () => {
+    setForm(f => ({ ...f, Sell_Date: new Date().toISOString().split('T')[0] }));
+    setRequestedDate('');
+    setHasApprovedCustomDate(false);
   };
 
   const applyApprovedAppeal = (appeal) => {
@@ -143,7 +146,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
       if (nextDate) {
         setForm(f => ({ ...f, Sell_Date: nextDate }));
         setRequestedDate(nextDate);
-        persistApprovedSaleDate(nextDate, appeal);
+        setHasApprovedCustomDate(true);
       }
       setShowDateChangeModal(false);
       setDateAppealData(null);
@@ -152,7 +155,7 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
       setDateOtpError('');
       setDateAppealError('');
       setDateAppealLoading(false);
-      showToast('Date change approved and applied.');
+      showToast('Date change approved and applied for this deal.');
       return;
     }
 
@@ -212,49 +215,6 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
 
     return () => { supabase.removeChannel(channel); };
   }, [user?.id, form.type, form.number]);
-
-  useEffect(() => {
-    if (!user?.id || !form.townName) return;
-    let cancelled = false;
-
-    const applyPersisted = () => {
-      try {
-        const raw = localStorage.getItem(approvedDateKey());
-        if (!raw) return;
-        const saved = JSON.parse(raw);
-        if (saved?.date) {
-          setForm(f => ({ ...f, Sell_Date: saved.date }));
-          setRequestedDate(saved.date);
-        }
-      } catch (_) {}
-    };
-
-    const loadApprovedDate = async () => {
-      applyPersisted();
-      const { data, error } = await supabase
-        .from('appeals')
-        .select('id, appeal_type, requested_data, reviewed_at, created_at, status')
-        .eq('requested_by_user_id', user.id)
-        .eq('entity_type', form.type || '')
-        .eq('entity_id', form.number || '')
-        .in('appeal_type', ['date_change', 'date_change_otp'])
-        .eq('status', 'approved')
-        .order('reviewed_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (cancelled || error || !data?.length) return;
-      const appeal = data[0];
-      const rd = appeal.requested_data || {};
-      const approvedDate = rd.newDate || rd.date || rd.Sell_Date;
-      if (!approvedDate) return;
-      setForm(f => ({ ...f, Sell_Date: approvedDate }));
-      setRequestedDate(approvedDate);
-      persistApprovedSaleDate(approvedDate, appeal);
-    };
-
-    loadApprovedDate().catch(() => {});
-    return () => { cancelled = true; };
-  }, [user?.id, form.type, form.number, form.townName]);
 
   useEffect(() => {
     if (!dateOtpId || !user?.id) return;
@@ -870,16 +830,17 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     setTransactionId('');
     setTransferBankName('');
     setTransferImageDataUrl('');
+    setPaymentAccount(null);
     setReceiptMode('auto');
     setAutoReceiptNumber('');
-    setForm({ 
-      Sell_Date: new Date().toISOString().split('T')[0], 
-      townName: lockedTownName || '', type: 'Plot', number: '', Owner_Name: '', 
-      Customer_Name: '', CNIC: '', Receipt_Number: '', Phone_Number: '', 
-    Expected_Amount_PKR: '', Total_Amount_PKR: '', Advance_Amount_PKR: '',
-      Total_Installments: '12', Total_Time_Period: '1', Period_Unit: 'Years', 
-      Agent_Name: '', Commission_Rate: '', Expense_Total: '0' 
-    });
+    resetCustomDateToToday();
+    setForm(f => ({
+      ...f,
+      Sell_Date: new Date().toISOString().split('T')[0],
+      number: '', Owner_Name: '', Customer_Name: '', CNIC: '',
+      Receipt_Number: '', Phone_Number: '', Total_Amount_PKR: '',
+      Advance_Amount_PKR: '', Agent_Name: '', Expense_Total: '0',
+    }));
   };
 
   // â”€â”€â”€ Date Change: Request OTP (Quick Verify) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

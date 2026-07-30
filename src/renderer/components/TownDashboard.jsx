@@ -211,6 +211,39 @@ function RupeeGuardPanel({ report, reportLoading, cashBalance, pendingReceivable
             <small>{item.detail}</small>
           </div>
         ))}
+      {showTabLeaveWarningModal && (
+        <div className="admin-password-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--bg-card, #1e293b)', padding: 24, borderRadius: 12, maxWidth: 460, width: '90%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)', border: '1px solid var(--border-color, #334155)' }}>
+            <h3 style={{ color: '#ef4444', margin: '0 0 12px 0', fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+              ⚠️ Active Custom Date Warning
+            </h3>
+            <p style={{ color: 'var(--text-primary, #f8fafc)', fontSize: 14, lineHeight: 1.5, marginBottom: 16 }}>
+              An approved custom date (<strong>{customDateStatus.date}</strong>) is currently active for your pending deal.
+            </p>
+            <p style={{ color: '#f59e0b', fontSize: 13, background: 'rgba(245, 158, 11, 0.12)', padding: 12, borderRadius: 8, borderLeft: '4px solid #f59e0b', marginBottom: 20, lineHeight: 1.4 }}>
+              If you leave this tab without completing the transaction, the approved date will be cancelled and reset to <strong>Today</strong> ({new Date().toISOString().split('T')[0]}). You will have to request a new date appeal to use a custom date again.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => { setShowTabLeaveWarningModal(false); setPendingTargetTab(null); }}
+                style={{ padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}
+              >
+                Stay on Page
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={confirmTabSwitchAndResetDate}
+                style={{ padding: '8px 16px', borderRadius: 6, background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer' }}
+              >
+                Reset Date & Leave Tab
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
@@ -552,16 +585,6 @@ export default function TownDashboard({
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [isUploadingReport, setIsUploadingReport] = useState(false);
-
-  const handleUpload8pmReport = async () => {
-    setIsUploadingReport(true);
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const res = await window.api.generateDailyTownReceipts(today);
-      if (res && res.error) {
-        showToast?.(`Upload failed: ${res.error}`, 'error');
-      } else {
-        showToast?.('8 PM Report successfully uploaded to cloud.', 'success');
       }
     } catch (error) {
       showToast?.('error', 'Error uploading report.');
@@ -605,10 +628,35 @@ export default function TownDashboard({
     setOverviewRefreshKey(k => k + 1);
   };
 
+  const [customDateStatus, setCustomDateStatus] = useState({ active: false, date: '' });
+  const [pendingTargetTab, setPendingTargetTab] = useState(null);
+  const [showTabLeaveWarningModal, setShowTabLeaveWarningModal] = useState(false);
+
+  const handleTabSwitch = (targetTabKey) => {
+    if (activeTab === targetTabKey) return;
+    if (customDateStatus.active) {
+      setPendingTargetTab(targetTabKey);
+      setShowTabLeaveWarningModal(true);
+      return;
+    }
+    setActiveTab(targetTabKey);
+    setSidebarCollapsed(true);
+  };
+
+  const confirmTabSwitchAndResetDate = () => {
+    setCustomDateStatus({ active: false, date: '' });
+    setShowTabLeaveWarningModal(false);
+    if (pendingTargetTab) {
+      setActiveTab(pendingTargetTab);
+      setPendingTargetTab(null);
+    }
+    setSidebarCollapsed(true);
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'overview': return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={setActiveTab} showToast={showToast} />;
-      case 'townMap': return <TownMap townName={townData.Town_Name} showToast={showToast} readOnly={isAccountant} onNavigate={setActiveTab} />;
+      case 'overview': return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={handleTabSwitch} showToast={showToast} />;
+      case 'townMap': return <TownMap townName={townData.Town_Name} showToast={showToast} readOnly={isAccountant} onNavigate={handleTabSwitch} />;
       case 'accounts': return <AccountsDashboard townName={townData.Town_Name} showToast={showToast} />;
       case 'media': return <MediaDashboard townName={townData.Town_Name} showToast={showToast} />;
       case 'accounting': return <AccountingReports townName={townData.Town_Name} showToast={showToast} />;
@@ -616,18 +664,22 @@ export default function TownDashboard({
       case 'addPlot': return <AddProperty type="Plot" townName={townData.Town_Name} showToast={showToast} />;
       case 'addShop': return <AddProperty type="Shop" townName={townData.Town_Name} showToast={showToast} />;
       case 'cashBanks': return <CashBanksDashboard townName={townData.Town_Name} showToast={showToast} />;
-      case 'sellFlow': return <SellFlow showToast={showToast} lockedTownName={townData.Town_Name} panel={isAccountant ? 'employee' : 'ceo'} refreshKey={overviewRefreshKey} />;
+      case 'sellFlow': return <SellFlow showToast={showToast} lockedTownName={townData.Town_Name} panel={isAccountant ? 'employee' : 'ceo'} refreshKey={overviewRefreshKey} onCustomDateStatusChange={setCustomDateStatus} />;
       case 'sold': return <SoldProperties townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'resell': return <ResellProperty townName={townData.Town_Name} showToast={showToast} />;
       case 'resellHistory': return <ResellHistory townName={townData.Town_Name} refreshKey={overviewRefreshKey} />;
       case 'installments': return <InstallmentTracker townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
-      case 'remainings': return <PendingCollections townName={townData.Town_Name} onChanged={refreshTownData} onNavigate={setActiveTab} />;
+      case 'remainings': return <PendingCollections townName={townData.Town_Name} onChanged={refreshTownData} onNavigate={handleTabSwitch} />;
       case 'commission': return <CommissionTracker townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'expenses': return <EmployeeSalary townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'townAgents': return <TownAgents townName={townData.Town_Name} showToast={showToast} />;
       case 'investors': return <InvestorDashboard townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
       case 'construction': return <ConstructionDashboard townName={townData.Town_Name} showToast={showToast} refreshKey={overviewRefreshKey} />;
-      case 'dailyEntries': return <DailyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} refreshKey={overviewRefreshKey} />;
+      case 'dailyEntries': return <DailyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} refreshKey={overviewRefreshKey} onCustomDateStatusChange={setCustomDateStatus} />;
+      case 'pendingAppeals': return <PendingAppeals townName={townData.Town_Name} showToast={showToast} />;
+      default: return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={handleTabSwitch} />;
+    }
+  };ilyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} refreshKey={overviewRefreshKey} />;
       case 'pendingAppeals': return <PendingAppeals townName={townData.Town_Name} showToast={showToast} />;
       default: return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={setActiveTab} />;
     }
