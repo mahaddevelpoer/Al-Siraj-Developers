@@ -4067,7 +4067,7 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
         const { data: { session } } = await anon.auth.getSession().catch(() => ({ data: {} }));
         const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkaXNsYmRmdG53bWFleHF0Zm1uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODY0MzksImV4cCI6MjA4NTE2MjQzOX0.hSUYRs4scWmUNZGK0slHeX9t--Of5CZclAhoCRbcXmc';
         const authToken = session?.access_token || anonKey;
-        fetch(`${SUPABASE_URL}/functions/v1/send-ceo-push`, {
+        const fcmRes = await fetch(`${SUPABASE_URL}/functions/v1/send-ceo-push`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -4087,9 +4087,16 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
               event_time: new Date().toISOString(),
             },
           }),
-        }).catch((e) => console.warn('[create-appeal IPC] FCM direct push failed (non-fatal):', e.message));
+        }).catch((e) => {
+          console.warn('[create-appeal IPC] FCM direct push network error:', e.message);
+          return null;
+        });
+        if (fcmRes) {
+          const resBody = await fcmRes.text();
+          console.log(`[create-appeal IPC] FCM Edge Function response [${fcmRes.status}]:`, resBody);
+        }
       } catch (fcmErr) {
-        console.warn('[create-appeal IPC] FCM trigger skipped:', fcmErr.message);
+        console.warn('[create-appeal IPC] FCM trigger exception:', fcmErr.message);
       }
 
       return { data, error: null };
