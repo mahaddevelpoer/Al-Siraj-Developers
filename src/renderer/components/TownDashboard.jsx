@@ -585,6 +585,16 @@ export default function TownDashboard({
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [isUploadingReport, setIsUploadingReport] = useState(false);
+
+  const handleUpload8pmReport = async () => {
+    setIsUploadingReport(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await window.api.generateDailyTownReceipts(today);
+      if (res && res.error) {
+        showToast?.(`Upload failed: ${res.error}`, 'error');
+      } else {
+        showToast?.('8 PM Report successfully uploaded to cloud.', 'success');
       }
     } catch (error) {
       showToast?.('error', 'Error uploading report.');
@@ -678,10 +688,6 @@ export default function TownDashboard({
       case 'dailyEntries': return <DailyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} refreshKey={overviewRefreshKey} onCustomDateStatusChange={setCustomDateStatus} />;
       case 'pendingAppeals': return <PendingAppeals townName={townData.Town_Name} showToast={showToast} />;
       default: return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={handleTabSwitch} />;
-    }
-  };ilyLedger townName={townData.Town_Name} showToast={showToast} onEntryAdded={refreshTownData} refreshKey={overviewRefreshKey} />;
-      case 'pendingAppeals': return <PendingAppeals townName={townData.Town_Name} showToast={showToast} />;
-      default: return <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={setActiveTab} />;
     }
   };
 
