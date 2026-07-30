@@ -4021,85 +4021,17 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
   // APPEALS ROUTE — reliable IPC bridge for CEO appeal viewing
   // ═══════════════════════════════════════════════════════════════
 
-  // ─── CREATE APPEAL (Main Process — bypasses RLS, works with any login method) ──
+  // ─── CREATE APPEAL (Main Process — Multi-Channel Reliability Engine) ──
   ipcMain.handle('create-appeal', async (_, payload) => {
     try {
-      const { getAdminClient } = require('./db/syncHelpers');
-      let admin;
-      try {
-        admin = getAdminClient();
-      } catch (_) {
-        // Fallback: use anon client if no service key (dev/test mode)
-        admin = require('./db/supabase');
-      }
-
-      const insertRow = {
-        requested_by_user_id: payload.requested_by_user_id || null,
-        requested_by_role: payload.requested_by_role || 'accountant',
-        appeal_type: payload.appeal_type || 'general',
-        entity_type: payload.entity_type || '',
-        entity_id: String(payload.entity_id || ''),
-        town_name: String(payload.town_name || payload.townName || '').trim(),
-        original_data: payload.original_data || null,
-        requested_data: payload.requested_data || {},
-        reason: payload.reason || '',
-        otp_code: payload.otp_code || null,
-        otp_expires_at: payload.otp_expires_at || null,
-        status: 'pending',
-      };
-
-      const tableName = 'appeals';
-      const { data, error } = await admin
-        .from(tableName)
-        .insert(insertRow)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('[create-appeal IPC] Supabase insert error:', error.message);
-        return { data: null, error: { message: error.message } };
-      }
-
-      // ─── Direct FCM push (don't rely solely on DB trigger) ────────────────
-      try {
-        const { SUPABASE_URL } = { SUPABASE_URL: 'https://wdislbdftnwmaexqtfmn.supabase.co' };
-        const anon = require('./db/supabase');
-        const { data: { session } } = await anon.auth.getSession().catch(() => ({ data: {} }));
-        const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkaXNsYmRmdG53bWFleHF0Zm1uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODY0MzksImV4cCI6MjA4NTE2MjQzOX0.hSUYRs4scWmUNZGK0slHeX9t--Of5CZclAhoCRbcXmc';
-        const authToken = session?.access_token || anonKey;
-        const fcmRes = await fetch(`${SUPABASE_URL}/functions/v1/send-ceo-push`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({
-            title: '🔔 New CEO Approval Required',
-            body: `${String(insertRow.appeal_type || '').replace(/_/g, ' ')} — ${insertRow.town_name || 'Town'} by ${insertRow.requested_by_role || 'Accountant'}`,
-            data: {
-              table: 'appeals',
-              event: 'INSERT',
-              id: data?.id || '',
-              route: 'approvals',
-              appeal_type: insertRow.appeal_type,
-              town_name: insertRow.town_name,
-              dedupe_key: `appeal:INSERT:${data?.id || Date.now()}`,
-              event_time: new Date().toISOString(),
-            },
-          }),
-        }).catch((e) => {
-          console.warn('[create-appeal IPC] FCM direct push network error:', e.message);
-          return null;
-        });
-        if (fcmRes) {
-          const resBody = await fcmRes.text();
-          console.log(`[create-appeal IPC] FCM Edge Function response [${fcmRes.status}]:`, resBody);
-        }
-      } catch (fcmErr) {
-        console.warn('[create-appeal IPC] FCM trigger exception:', fcmErr.message);
-      }
-
-      return { data, error: null };
+      const { dispatchAppeal } = require('./db/appealReliabilityEngine');
+      const result = await dispatchAppeal(payload);
+      return result;
+    } catch (err) {
+      console.error('[create-appeal IPC] Exception in dispatchAppeal:', err.message);
+      return { data: null, error: { message: err.message } };
+    }
+  });
     } catch (e) {
       console.error('[create-appeal IPC] Unhandled error:', e);
       return { data: null, error: { message: e.message || String(e) } };

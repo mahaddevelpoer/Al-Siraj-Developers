@@ -13,6 +13,7 @@ import '../services/appeals_service.dart';
 import 'constants.dart';
 import 'models.dart';
 import 'notification_service.dart';
+import 'fcm_health_service.dart';
 import 'repository.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -207,6 +208,7 @@ class _CeoShellState extends State<CeoShell> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(CeoNotificationService.startFcm());
+      unawaited(FcmHealthService.ensureHealthy());
     });
     _tapSub = notificationTapStream.stream.listen((data) {
       final route = '${data['route'] ?? ''}';
