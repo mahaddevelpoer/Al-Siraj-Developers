@@ -4032,11 +4032,6 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
       return { data: null, error: { message: err.message } };
     }
   });
-    } catch (e) {
-      console.error('[create-appeal IPC] Unhandled error:', e);
-      return { data: null, error: { message: e.message || String(e) } };
-    }
-  });
 
 
   ipcMain.handle('get-appeals', async (_, filter = {}) => {
