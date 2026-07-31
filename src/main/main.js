@@ -697,21 +697,26 @@ app.whenReady().then(async () => {
       const { updateTownFinancials } = require('./db/towns');
       
       const appealStableId = 'APP-' + String(appeal.id || '').replace(/-/g, '');
+      const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
+      const entryTime = (rd.time && rd.time !== '00:00' && rd.time !== '00:00:00') ? rd.time : currentTime;
+
       const entry = await addDailyEntry({
         ...rd,
         Entry_ID: appealStableId,
         entryId: appealStableId,
         reference: appeal.id,
         date: rd.date,
-        time: rd.time || '00:00',
+        time: entryTime,
         type: rd.type || 'Expense',
         description: rd.description || '',
         amount: parseFloat(rd.amount) || 0,
         townName: rd.townName,
-        incomeType: rd.incomeType || '',
+        accountName: rd.accountName || rd.Account_Name || 'Cash in Hand',
+        accountType: rd.accountType || rd.Account_Type || 'cash',
+        incomeType: rd.incomeType || rd.Category || '',
         category: rd.category || 'Daily',
         subcategory: rd.subcategory || '',
-        createdBy: 'CEO Approved Appeal',
+        createdBy: rd.createdBy || 'CEO Approved Appeal',
         reviewStatus: 'approved',
       });
 

@@ -139,8 +139,6 @@ const TABLE_KEY_MAP = {
 
 const TABLE_SKIP_KEYS = {
   commissions: new Set(['agent_email']),
-  installments: new Set(['receipt_number', 'paid_by', 'payee_name']),
-  daily_entries: new Set(['account_name', 'account_type']),
 };
 
 const PROPERTY_TYPES = new Set(['Plot', 'Shop']);
@@ -637,50 +635,52 @@ function mapSalaryRecordFromCloud(sp) {
 
 function mapDailyEntryToCloud(row) {
   const r = stripInternal(row);
+  const now = new Date();
+  const currentTime = now.toTimeString().split(' ')[0].substring(0, 5);
   return {
-    Entry_ID: String(r.Entry_ID || r.entryId || ''),
-    Town_Name: String(r.Town_Name || r.townName || ''),
-    Date: String(r.Date || r.date || ''),
-    Time: String(r.Time || r.time || new Date().toTimeString().split(' ')[0].substring(0, 5)),
+    Entry_ID: String(r.Entry_ID || r.entryId || r.entry_id || ''),
+    Town_Name: String(r.Town_Name || r.townName || r.town_name || ''),
+    Date: String(r.Date || r.date || now.toISOString().split('T')[0]),
+    Time: String(r.Time || r.time || currentTime),
     Type: String(r.Type || r.type || 'Income'),
     Category: String(r.Category || r.category || r.Income_Type || r.incomeType || ''),
     Amount: parseFloat(r.Amount ?? r.amount) || 0,
     Description: String(r.Description || r.description || ''),
-    Account_Name: String(r.Account_Name || r.accountName || ''),
-    Account_Type: String(r.Account_Type || r.accountType || ''),
+    Account_Name: String(r.Account_Name || r.accountName || r.account_name || ''),
+    Account_Type: String(r.Account_Type || r.accountType || r.account_type || ''),
     Reference: String(r.Property_ID || r.propertyId || r.Installment_ID || r.installmentId || r.Reference || r.reference || ''),
-    Created_By: String(r.Created_By || r.createdBy || ''),
-    Review_Status: String(r.Review_Status || r.reviewStatus || ''),
-    Payment_Account_ID: String(r.Payment_Account_ID || r.paymentAccountId || 'cash-in-hand'),
-    Payment_Account_Name: String(r.Payment_Account_Name || r.paymentAccountName || 'Cash in Hand'),
-    Payment_Account_Type: String(r.Payment_Account_Type || r.paymentAccountType || 'cash'),
+    Created_By: String(r.Created_By || r.createdBy || r.created_by || ''),
+    Review_Status: String(r.Review_Status || r.reviewStatus || r.review_status || ''),
+    Payment_Account_ID: String(r.Payment_Account_ID || r.paymentAccountId || r.payment_account_id || 'cash-in-hand'),
+    Payment_Account_Name: String(r.Payment_Account_Name || r.paymentAccountName || r.payment_account_name || 'Cash in Hand'),
+    Payment_Account_Type: String(r.Payment_Account_Type || r.paymentAccountType || r.payment_account_type || 'cash'),
   };
 }
 
 function mapDailyEntryFromCloud(row) {
   return {
-    Entry_ID: getRowVal(row, 'Entry_ID') || '',
-    Date: getRowVal(row, 'Date') || '',
-    Time: getRowVal(row, 'Time') || '',
-    Type: getRowVal(row, 'Type') || 'Income',
-    Description: getRowVal(row, 'Description') || '',
-    Amount: parseFloat(getRowVal(row, 'Amount')) || 0,
-    Town_Name: getRowVal(row, 'Town_Name') || '',
-    Account_Name: getRowVal(row, 'Account_Name') || '',
-    Account_Type: getRowVal(row, 'Account_Type') || '',
-    Income_Type: getRowVal(row, 'Category') || '',
-    Category: getRowVal(row, 'Category') || '',
+    Entry_ID: getRowVal(row, 'Entry_ID') || getRowVal(row, 'entry_id') || '',
+    Date: getRowVal(row, 'Date') || getRowVal(row, 'date') || '',
+    Time: getRowVal(row, 'Time') || getRowVal(row, 'time') || '',
+    Type: getRowVal(row, 'Type') || getRowVal(row, 'type') || 'Income',
+    Description: getRowVal(row, 'Description') || getRowVal(row, 'description') || '',
+    Amount: parseFloat(getRowVal(row, 'Amount') ?? getRowVal(row, 'amount')) || 0,
+    Town_Name: getRowVal(row, 'Town_Name') || getRowVal(row, 'town_name') || '',
+    Account_Name: getRowVal(row, 'Account_Name') || getRowVal(row, 'account_name') || '',
+    Account_Type: getRowVal(row, 'Account_Type') || getRowVal(row, 'account_type') || '',
+    Income_Type: getRowVal(row, 'Category') || getRowVal(row, 'category') || '',
+    Category: getRowVal(row, 'Category') || getRowVal(row, 'category') || '',
     Subcategory: '',
-    Property_ID: getRowVal(row, 'Reference') || '',
+    Property_ID: getRowVal(row, 'Reference') || getRowVal(row, 'reference') || '',
     Installment_ID: '',
     Property_Details: '',
     Installment_Details: '',
-    Reference: getRowVal(row, 'Reference') || '',
-    Created_By: getRowVal(row, 'Created_By') || '',
-    Review_Status: getRowVal(row, 'Review_Status') || '',
-    Payment_Account_ID: getRowVal(row, 'Payment_Account_ID') || 'cash-in-hand',
-    Payment_Account_Name: getRowVal(row, 'Payment_Account_Name') || 'Cash in Hand',
-    Payment_Account_Type: getRowVal(row, 'Payment_Account_Type') || 'cash',
+    Reference: getRowVal(row, 'Reference') || getRowVal(row, 'reference') || '',
+    Created_By: getRowVal(row, 'Created_By') || getRowVal(row, 'created_by') || '',
+    Review_Status: getRowVal(row, 'Review_Status') || getRowVal(row, 'review_status') || '',
+    Payment_Account_ID: getRowVal(row, 'Payment_Account_ID') || getRowVal(row, 'payment_account_id') || 'cash-in-hand',
+    Payment_Account_Name: getRowVal(row, 'Payment_Account_Name') || getRowVal(row, 'payment_account_name') || 'Cash in Hand',
+    Payment_Account_Type: getRowVal(row, 'Payment_Account_Type') || getRowVal(row, 'payment_account_type') || 'cash',
   };
 }
 
