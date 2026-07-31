@@ -1536,10 +1536,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   ) async {
     final pdf = pw.Document();
 
-    // Custom font styling
+    // Use built-in offline fonts (zero network dependency)
     final theme = pw.ThemeData.withFont(
-      base: await PdfGoogleFonts.interRegular(),
-      bold: await PdfGoogleFonts.interBold(),
+      base: pw.Font.helvetica(),
+      bold: pw.Font.helveticaBold(),
     );
 
     pdf.addPage(
@@ -1669,6 +1669,43 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return pdf.save();
   }
 
+  Future<Uint8List> _convertTextToPdfBytes(String title, String content) async {
+    final pdf = pw.Document();
+    final theme = pw.ThemeData.withFont(
+      base: pw.Font.helvetica(),
+      bold: pw.Font.helveticaBold(),
+    );
+    final cleanContent = content.replaceAll(RegExp(r'<[^>]*>'), '\n').trim();
+
+    pdf.addPage(
+      pw.MultiPage(
+        theme: theme,
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) {
+          return [
+            pw.Text(
+              'AL SIRAJ DEVELOPERS',
+              style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900),
+            ),
+            pw.SizedBox(height: 4),
+            pw.Text(
+              title,
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700),
+            ),
+            pw.Divider(thickness: 1.5, color: PdfColors.grey300),
+            pw.SizedBox(height: 12),
+            pw.Text(
+              cleanContent.isEmpty ? 'Summary report attached.' : cleanContent,
+              style: const pw.TextStyle(fontSize: 11, lineSpacing: 4),
+            ),
+          ];
+        },
+      ),
+    );
+    return pdf.save();
+  }
+
   pw.Widget _buildPdfSummaryCard(String title, String val, PdfColor col) {
     return pw.Container(
       padding: const pw.EdgeInsets.all(10),
@@ -1702,7 +1739,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void _handlePdfTap(BuildContext context, Map<String, dynamic> media) async {
     final title = (rowValue(media, 'Title') ?? media['title'] ?? 'PDF Report')
         .toString();
-    final base64Str =
+    final rawContent =
         (rowValue(media, 'Pdf_Base64') ??
                 media['pdf_base64'] ??
                 rowValue(media, 'Html_Content') ??
@@ -1710,7 +1747,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 '')
             .toString();
 
-    if (base64Str.isEmpty) {
+    if (rawContent.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No PDF content attached to this report.'),
@@ -1720,7 +1757,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
 
     try {
-      final bytes = base64Decode(base64Str);
+      Uint8List bytes;
+      if (rawContent.trim().startsWith('%PDF')) {
+        bytes = Uint8List.fromList(utf8.encode(rawContent));
+      } else {
+        try {
+          bytes = base64Decode(rawContent.replaceAll(RegExp(r'\s+'), ''));
+        } catch (_) {
+          bytes = await _convertTextToPdfBytes(title, rawContent);
+        }
+      }
       showModalBottomSheet<void>(
         context: context,
         backgroundColor: kSurface,
