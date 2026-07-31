@@ -689,8 +689,21 @@ app.whenReady().then(async () => {
   const applyApprovedDailyEntryAppeal = async (appeal) => {
     if (!appeal || appeal.status !== 'approved') return;
     if (!['backdated_daily_entry', 'future_daily_entry'].includes(appeal.appeal_type)) return;
-    const rd = appeal.requested_data || {};
-    if (!rd.date || !rd.townName) return;
+    
+    let rd = appeal.requested_data || {};
+    if (typeof rd === 'string') {
+      try { rd = JSON.parse(rd); } catch (_) { rd = {}; }
+    }
+    
+    const entryDate = String(rd.date || rd.Date || appeal.date || '').trim();
+    const townName = String(rd.townName || rd.Town_Name || rd.town_name || rd.town || appeal.town_name || '').trim();
+    const amount = parseFloat(rd.amount ?? rd.Amount ?? appeal.amount) || 0;
+    const entryType = String(rd.type || rd.Type || 'Income').trim();
+
+    if (!entryDate || !townName) {
+      console.warn('[appeal-sync] Cannot apply approved daily entry: missing date or townName in appeal:', appeal);
+      return;
+    }
 
     try {
       const { addDailyEntry } = require('./db/dailyEntries');
@@ -705,33 +718,33 @@ app.whenReady().then(async () => {
         Entry_ID: appealStableId,
         entryId: appealStableId,
         reference: appeal.id,
-        date: rd.date,
+        date: entryDate,
         time: entryTime,
-        type: rd.type || 'Expense',
-        description: rd.description || '',
-        amount: parseFloat(rd.amount) || 0,
-        townName: rd.townName,
+        type: entryType,
+        description: rd.description || rd.Description || appeal.reason || '',
+        amount: amount,
+        townName: townName,
         accountName: rd.accountName || rd.Account_Name || 'Cash in Hand',
         accountType: rd.accountType || rd.Account_Type || 'cash',
-        incomeType: rd.incomeType || rd.Category || '',
-        category: rd.category || 'Daily',
-        subcategory: rd.subcategory || '',
-        createdBy: rd.createdBy || 'CEO Approved Appeal',
+        incomeType: rd.incomeType || rd.Income_Type || rd.category || rd.Category || '',
+        category: rd.category || rd.Category || 'Daily',
+        subcategory: rd.subcategory || rd.Subcategory || '',
+        createdBy: rd.createdBy || rd.Created_By || 'CEO Approved Appeal',
         reviewStatus: 'approved',
       });
 
-      await updateTownFinancials(rd.townName).catch(() => {});
+      await updateTownFinancials(townName).catch(() => {});
 
       const win = typeof activeWindow !== 'undefined' ? activeWindow : null;
       if (win && !win.isDestroyed() && win.webContents) {
-        win.webContents.send('sync-warning', `Daily entry (${rd.type || 'Entry'} ${rd.date}) approved & saved to accounts.`);
-        win.webContents.send('al-siraj-data-changed', { type: 'daily_entry', townName: rd.townName });
+        win.webContents.send('sync-warning', `Daily entry (${entryType} ${entryDate}) approved & saved to accounts.`);
+        win.webContents.send('al-siraj-data-changed', { type: 'daily_entry', townName: townName });
       }
 
       if (isCurrentCeoContext() || isCurrentAccountantContext()) {
         showDesktopNotification({
           title: entry?.duplicate ? 'Daily Entry Already Saved' : 'Daily Entry Saved',
-          body: `${rd.type || 'Entry'} ${rd.date} (PKR ${rd.amount}) saved to local accounts.`,
+          body: `${entryType} ${entryDate} (PKR ${amount}) saved to local accounts.`,
           silent: false,
         });
       }

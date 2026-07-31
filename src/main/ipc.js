@@ -336,8 +336,27 @@ function scheduleQueuedCloudSync(delayMs = 1500) {
             }
           }
         }
+      // Process offline queued appeals (dispatches to Supabase + triggers high priority FCM push)
+      try {
+        const rows = await pendingSync.getPendingSyncRows();
+        const pendingAppeals = rows.filter(r => String(r.Table_Name || '').toLowerCase() === 'appeals');
+        if (pendingAppeals.length > 0) {
+          sendCloudUploadProgress(4, `Syncing ${pendingAppeals.length} offline appeals & sending CEO push notifications...`);
+          const { dispatchAppeal } = require('./db/appealReliabilityEngine');
+          for (const row of pendingAppeals) {
+            try {
+              const payload = JSON.parse(row.Payload_JSON || '{}');
+              const res = await dispatchAppeal(payload);
+              if (res && res.success) {
+                await pendingSync.markPendingSynced(row.Client_Write_ID);
+              }
+            } catch (appErr) {
+              console.error(`Failed to process offline appeal for ${row.Client_Write_ID}:`, appErr);
+            }
+          }
+        }
       } catch (e) {
-        console.error('Error processing offline deletes before syncUp:', e);
+        console.error('Error processing offline queued appeals before syncUp:', e);
       }
 
       await performFullSyncUp((percent, msg) => sendCloudUploadProgress(percent, msg));
