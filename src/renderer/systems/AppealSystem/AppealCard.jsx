@@ -129,7 +129,7 @@ export default function AppealCard({ appeal, onReview, reviewing, onRequestOtp }
         </div>
       </div>
 
-      {appeal.status === 'pending' && (
+      {String(appeal.status || 'pending').toLowerCase() === 'pending' && (
         <div className="appeal-action-grid">
           <button
             onClick={() => onReview(appeal.id, 'approved')}

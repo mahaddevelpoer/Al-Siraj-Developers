@@ -1052,7 +1052,7 @@ class _ApprovalCard extends StatelessWidget {
           ],
           const SizedBox(height: 8),
           Text(item.summary, style: const TextStyle(color: kMuted)),
-          if (status == 'pending') ...[
+          if (item.status.toLowerCase() == 'pending' || status.toLowerCase() == 'pending') ...[
             const SizedBox(height: 12),
             Row(
               children: [

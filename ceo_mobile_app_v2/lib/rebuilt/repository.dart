@@ -201,7 +201,7 @@ class CeoRepository {
           .select(
             'id,appeal_type,status,created_at,town_name,requested_data,requested_by_user_id(full_name,email,town_name)',
           )
-          .eq('status', queryStatus)
+          .ilike('status', '$queryStatus%')
           .order('created_at', ascending: false)
           .limit(reviewLimit)
           .timeout(const Duration(seconds: 10));
