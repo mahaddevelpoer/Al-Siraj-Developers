@@ -465,55 +465,123 @@ class CeoRepository {
   Future<List<LedgerReceiptSummary>> _loadDailyReceipts(DateTime date, {String? townName}) async {
     final day = shortDate.format(date);
     
-    // Fetch EOD daily reports uploaded at 8 PM by desktop app
+    // 1. Daily Reports EOD snapshots uploaded at 8 PM by desktop app
     var reportQuery = supabase.from('daily_reports').select('*').eq('date', day);
-    if (townName != null) {
-      reportQuery = reportQuery.eq('town_name', townName);
-    }
+    if (townName != null) reportQuery = reportQuery.eq('town_name', townName);
     final dailyReportsFuture = _safeRows(() => reportQuery, timeout: const Duration(seconds: 8));
 
-    // Fetch media library rows for this specific date and town (100% reliable)
+    // 2. Media Library attachments
     var mediaQuery = supabase.from('media_library').select('*').eq('report_date', day);
-    if (townName != null) {
-      mediaQuery = mediaQuery.eq('town_name', townName);
-    }
+    if (townName != null) mediaQuery = mediaQuery.eq('town_name', townName);
     final mediaFuture = _safeRows(() => mediaQuery, timeout: const Duration(seconds: 8));
 
-    // Fetch daily entries for this specific date and town (100% reliable)
-    final rpcRows = await _safeRows(
-      () => supabase.rpc(
-        'ceo_mobile_daily_receipt_rows',
-        params: {'p_report_date': day},
-      ),
-      timeout: const Duration(seconds: 6),
+    // 3. Daily Entries (Income & Expense)
+    var entryQuery = supabase.from('daily_entries').select('*').eq('date', day);
+    if (townName != null) entryQuery = entryQuery.eq('town_name', townName);
+    final entriesFuture = _safeRows(() => entryQuery, timeout: const Duration(seconds: 8));
+
+    // 4. All Sales (Property Sales & Advance Payments)
+    final salesFuture = _safeRows(
+      () => supabase.from('all_sales').select('*').limit(200),
+      timeout: const Duration(seconds: 8),
     );
 
-    List<Map<String, dynamic>> rows = rpcRows;
-    
-    // If RPC failed or returned nothing, fallback to direct query by Date
-    if (rows.isEmpty) {
-      var entryQuery = supabase.from('daily_entries').select('*').eq('date', day);
-      if (townName != null) {
-        entryQuery = entryQuery.eq('town_name', townName);
-      }
-      rows = await _safeRows(() => entryQuery, timeout: const Duration(seconds: 8));
+    // 5. Installments (Installment payments)
+    final installmentsFuture = _safeRows(
+      () => supabase.from('installments').select('*').limit(200),
+      timeout: const Duration(seconds: 8),
+    );
+
+    // 6. Expenses table
+    var expenseQuery = supabase.from('expenses').select('*').eq('date', day);
+    if (townName != null) expenseQuery = expenseQuery.eq('town_name', townName);
+    final expensesFuture = _safeRows(() => expenseQuery, timeout: const Duration(seconds: 8));
+
+    final rawEntries = await entriesFuture;
+    final rawSales = await salesFuture;
+    final rawInstallments = await installmentsFuture;
+    final rawExpenses = await expensesFuture;
+    final dailyReportRows = await dailyReportsFuture;
+    final rawMediaRows = await mediaFuture;
+
+    List<Map<String, dynamic>> combinedRows = [];
+
+    // Add Daily Entries
+    for (final r in rawEntries) {
+      final status = normalizeStatus(r['review_status'] ?? r['Review_Status'] ?? 'approved');
+      if (status == 'pending' || status == 'rejected') continue;
+      combinedRows.add({
+        'town_name': textOf(r['town_name'] ?? r['Town_Name'], 'No town'),
+        'type': textOf(r['type'] ?? r['Type'], 'Income'),
+        'category': textOf(r['category'] ?? r['Category'] ?? r['income_type'] ?? 'Daily Entry'),
+        'description': textOf(r['description'] ?? r['Description'], 'Daily transaction'),
+        'amount': asNum(r['amount'] ?? r['Amount']),
+        'date': day,
+      });
     }
 
-    final dailyReportRows = await dailyReportsFuture;
-    final mediaRows = (await mediaFuture).where((row) {
+    // Add Property Sales (Incomes)
+    for (final s in rawSales) {
+      final saleDate = formatAnyDate(textOf(s['created_at'] ?? s['created_date'] ?? s['date']));
+      if (saleDate != day && textOf(s['date']) != day) continue;
+      final town = textOf(s['town_name'] ?? s['Town_Name'], 'No town');
+      if (townName != null && town != townName) continue;
+      final prop = textOf(s['property_number'] ?? s['Property_Number'] ?? s['property_id'], 'Property');
+      final buyer = textOf(s['buyer_name'] ?? s['Buyer_Name'] ?? s['customer_name'], 'Customer');
+      final advance = asNum(s['advance_amount'] ?? s['Advance_Amount'] ?? s['total_price'] ?? s['Total_Price']);
+      if (advance > 0) {
+        combinedRows.add({
+          'town_name': town,
+          'type': 'Income',
+          'category': 'Property Sale',
+          'description': 'Sale $prop - $buyer',
+          'amount': advance,
+          'date': day,
+        });
+      }
+    }
+
+    // Add Installment Payments (Incomes)
+    for (final inst in rawInstallments) {
+      final instDate = formatAnyDate(textOf(inst['paid_date'] ?? inst['created_at'] ?? inst['date']));
+      if (instDate != day && textOf(inst['date']) != day) continue;
+      final town = textOf(inst['town_name'] ?? inst['Town_Name'], 'No town');
+      if (townName != null && town != townName) continue;
+      final prop = textOf(inst['property_number'] ?? inst['Property_Number'] ?? inst['property_id'], 'Property');
+      final paid = asNum(inst['amount_paid'] ?? inst['Amount_Paid'] ?? inst['amount'] ?? inst['Amount']);
+      if (paid > 0) {
+        combinedRows.add({
+          'town_name': town,
+          'type': 'Income',
+          'category': 'Installment Payment',
+          'description': 'Installment $prop',
+          'amount': paid,
+          'date': day,
+        });
+      }
+    }
+
+    // Add Expenses
+    for (final exp in rawExpenses) {
+      final town = textOf(exp['town_name'] ?? exp['Town_Name'], 'No town');
+      if (townName != null && town != townName) continue;
+      combinedRows.add({
+        'town_name': town,
+        'type': 'Expense',
+        'category': textOf(exp['category'] ?? exp['Category'], 'Expense'),
+        'description': textOf(exp['description'] ?? exp['Description'], 'Expense transaction'),
+        'amount': asNum(exp['amount'] ?? exp['Amount']),
+        'date': day,
+      });
+    }
+
+    final mediaRows = rawMediaRows.where((row) {
       final type = textOf(rowValue(row, 'Type') ?? row['type']).toLowerCase();
       return type == 'daily_ledger_receipt';
     }).toList();
 
-    final cleanRows = rows.where((row) {
-      final rowTown = textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town');
-      if (townName != null && rowTown != townName) return false;
-      final status = normalizeStatus(row['review_status'] ?? rowValue(row, 'Review_Status') ?? 'approved');
-      return status != 'pending' && status != 'rejected';
-    }).toList();
-
-    final towns = cleanRows
-        .map((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town'))
+    final towns = combinedRows
+        .map((row) => textOf(row['town_name'], 'No town'))
         .followedBy(mediaRows.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'], 'No town')))
         .followedBy(dailyReportRows.map((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town')))
         .toSet()
@@ -521,8 +589,8 @@ class CeoRepository {
       ..sort();
 
     return towns.map((town) {
-      final townRows = cleanRows
-          .where((row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town') == town)
+      final townRows = combinedRows
+          .where((row) => textOf(row['town_name']) == town)
           .toList();
       final townEodReport = dailyReportRows.firstWhere(
         (row) => textOf(row['town_name'] ?? rowValue(row, 'Town_Name'), 'No town') == town,
@@ -530,11 +598,11 @@ class CeoRepository {
       );
 
       num income = townRows
-          .where((row) => textOf(row['type'] ?? rowValue(row, 'Type')).toLowerCase() == 'income')
-          .fold<num>(0, (sum, row) => sum + asNum(row['amount'] ?? rowValue(row, 'Amount')));
+          .where((row) => textOf(row['type']).toLowerCase() == 'income')
+          .fold<num>(0, (sum, row) => sum + asNum(row['amount']));
       num expense = townRows
-          .where((row) => textOf(row['type'] ?? rowValue(row, 'Type')).toLowerCase() == 'expense')
-          .fold<num>(0, (sum, row) => sum + asNum(row['amount'] ?? rowValue(row, 'Amount')));
+          .where((row) => textOf(row['type']).toLowerCase() == 'expense')
+          .fold<num>(0, (sum, row) => sum + asNum(row['amount']));
 
       // Fallback to EOD report snapshot totals if raw entry rows were empty
       if (income == 0 && expense == 0 && townEodReport.isNotEmpty) {
