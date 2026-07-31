@@ -40,25 +40,6 @@ async function ensureDailyEntriesFile() {
   }
 }
 
-// Normalize any date value (Date object, ISO string, or YYYY-MM-DD) to 'YYYY-MM-DD'
-function normalizeDate(val) {
-  if (!val) return '';
-  if (val instanceof Date) {
-    if (isNaN(val.getTime())) return '';
-    return val.toISOString().split('T')[0];
-  }
-  const s = String(val).trim();
-  if (!s) return '';
-  // Already YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  // ISO string with time
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
-  // Try parsing anything else
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-  return s;
-}
-
 async function getDailyEntries({ date, townName }) {
   await ensureDailyEntriesFile();
   const filePath = getDailyEntriesPath();
