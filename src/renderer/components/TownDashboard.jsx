@@ -211,39 +211,6 @@ function RupeeGuardPanel({ report, reportLoading, cashBalance, pendingReceivable
             <small>{item.detail}</small>
           </div>
         ))}
-      {showTabLeaveWarningModal && (
-        <div className="admin-password-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg-card, #1e293b)', padding: 24, borderRadius: 12, maxWidth: 460, width: '90%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)', border: '1px solid var(--border-color, #334155)' }}>
-            <h3 style={{ color: '#ef4444', margin: '0 0 12px 0', fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
-              ⚠️ Active Custom Date Warning
-            </h3>
-            <p style={{ color: 'var(--text-primary, #f8fafc)', fontSize: 14, lineHeight: 1.5, marginBottom: 16 }}>
-              An approved custom date (<strong>{customDateStatus.date}</strong>) is currently active for your pending deal.
-            </p>
-            <p style={{ color: '#f59e0b', fontSize: 13, background: 'rgba(245, 158, 11, 0.12)', padding: 12, borderRadius: 8, borderLeft: '4px solid #f59e0b', marginBottom: 20, lineHeight: 1.4 }}>
-              If you leave this tab without completing the transaction, the approved date will be cancelled and reset to <strong>Today</strong> ({new Date().toISOString().split('T')[0]}). You will have to request a new date appeal to use a custom date again.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => { setShowTabLeaveWarningModal(false); setPendingTargetTab(null); }}
-                style={{ padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}
-              >
-                Stay on Page
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                onClick={confirmTabSwitchAndResetDate}
-                style={{ padding: '8px 16px', borderRadius: 6, background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer' }}
-              >
-                Reset Date & Leave Tab
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </div>
   );
@@ -917,7 +884,7 @@ export default function TownDashboard({
 
           {/* Component container */}
           {activeTab === 'overview' ? (
-            <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={setActiveTab} />
+            <TownOverview town={townData} refreshKey={overviewRefreshKey} onNavigate={handleTabSwitch} />
           ) : (
             <div className="ui-town-tab-wrapper">
               {renderTabContent()}
@@ -926,6 +893,40 @@ export default function TownDashboard({
         </div>
 
       </div>
+
+      {showTabLeaveWarningModal && (
+        <div className="admin-password-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--bg-card, #1e293b)', padding: 24, borderRadius: 12, maxWidth: 460, width: '90%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)', border: '1px solid var(--border-color, #334155)' }}>
+            <h3 style={{ color: '#ef4444', margin: '0 0 12px 0', fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+              ⚠️ Active Custom Date Warning
+            </h3>
+            <p style={{ color: 'var(--text-primary, #f8fafc)', fontSize: 14, lineHeight: 1.5, marginBottom: 16 }}>
+              An approved custom date (<strong>{customDateStatus.date}</strong>) is currently active for your pending deal.
+            </p>
+            <p style={{ color: '#f59e0b', fontSize: 13, background: 'rgba(245, 158, 11, 0.12)', padding: 12, borderRadius: 8, borderLeft: '4px solid #f59e0b', marginBottom: 20, lineHeight: 1.4 }}>
+              If you leave this tab without completing the transaction, the approved date will be cancelled and reset to <strong>Today</strong> ({new Date().toISOString().split('T')[0]}). You will have to request a new date appeal to use a custom date again.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => { setShowTabLeaveWarningModal(false); setPendingTargetTab(null); }}
+                style={{ padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}
+              >
+                Stay on Page
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={confirmTabSwitchAndResetDate}
+                style={{ padding: '8px 16px', borderRadius: 6, background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer' }}
+              >
+                Reset Date & Leave Tab
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
