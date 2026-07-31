@@ -1842,7 +1842,34 @@ class _MoreScreenState extends State<MoreScreen> {
             leading: const Icon(Icons.verified_user_rounded, color: kBlue),
             title: const Text('Push notifications'),
             subtitle: const Text('FCM topic: ceo-alerts'),
-            trailing: const StatusPill(text: 'active', color: kGreen),
+            trailing: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kBlue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              ),
+              icon: const Icon(Icons.notifications_active, size: 16),
+              label: const Text('Test Push', style: TextStyle(fontSize: 12)),
+              onPressed: () async {
+                try {
+                  final fcm = FirebaseMessaging.instance;
+                  final token = await fcm.getToken();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('FCM Token: ${token != null ? "Active" : "Missing"}')),
+                  );
+                  await CeoNotificationService.showLocal(
+                    title: '🔔 Diagnostic Test',
+                    body: 'Notification system is 100% active on this device!',
+                    routeData: {'route': 'home'},
+                    channelId: 'ceo_approvals',
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('FCM Error: $e')),
+                  );
+                }
+              },
+            ),
             contentPadding: EdgeInsets.zero,
           ),
         ),
