@@ -396,8 +396,19 @@ class _OverviewScreenState extends State<OverviewScreen> {
           event: PostgresChangeEvent.insert,
           schema: 'public',
           table: 'appeals',
-          callback: (_) {
-            if (mounted) unawaited(_refresh());
+          callback: (payload) {
+            if (mounted) {
+              unawaited(_refresh());
+              final record = payload.newRecord;
+              final town = record['town_name'] ?? 'Town';
+              final type = (record['appeal_type'] ?? 'Approval').toString().replaceAll('_', ' ');
+              CeoNotificationService.showLocal(
+                title: '🔔 New CEO Approval Required',
+                body: '$type - $town',
+                routeData: {'route': 'approvals', 'table': 'appeals', 'id': record['id'] ?? ''},
+                channelId: 'ceo_approvals',
+              );
+            }
           },
         )
         .onPostgresChanges(
@@ -818,8 +829,19 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
           event: PostgresChangeEvent.insert,
           schema: 'public',
           table: 'appeals',
-          callback: (_) {
-            if (mounted) unawaited(_load(force: true));
+          callback: (payload) {
+            if (mounted) {
+              unawaited(_load(force: true));
+              final record = payload.newRecord;
+              final town = record['town_name'] ?? 'Town';
+              final type = (record['appeal_type'] ?? 'Approval').toString().replaceAll('_', ' ');
+              CeoNotificationService.showLocal(
+                title: '🔔 New CEO Approval Required',
+                body: '$type - $town',
+                routeData: {'route': 'approvals', 'table': 'appeals', 'id': record['id'] ?? ''},
+                channelId: 'ceo_approvals',
+              );
+            }
           },
         )
         .onPostgresChanges(
