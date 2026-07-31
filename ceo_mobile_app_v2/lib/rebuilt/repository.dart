@@ -590,9 +590,7 @@ class CeoRepository {
       () => supabase
           .from('users')
           .select('*')
-          .inFilter('role', ['accountant', 'agent'])
-          .order('last_seen_at', ascending: false)
-          .limit(80),
+          .limit(100),
       timeout: const Duration(seconds: 5),
     );
     return rows.map((row) {
@@ -604,12 +602,10 @@ class CeoRepository {
       final online = (onlineStatus == 'online' || onlineStatus == 'active') && isSeenRecently;
       
       String status = 'offline';
-      if (isSeenRecently) {
-        if (onlineStatus == 'online' || onlineStatus == 'active') {
-          status = 'online';
-        } else if (onlineStatus == 'away') {
-          status = 'away';
-        }
+      if (online) {
+        status = 'online';
+      } else if (onlineStatus == 'away' && isSeenRecently) {
+        status = 'away';
       }
 
       return OperatorPresence(
@@ -618,9 +614,9 @@ class CeoRepository {
           'Unknown operator',
         ),
         role: pretty(row['role'] ?? 'operator'),
-        townName: textOf(row['town_name'] ?? row['Town_Name'] ?? row['town'], 'No town'),
+        townName: textOf(row['town_name'] ?? row['Town_Name'] ?? row['town'], 'All towns'),
         online: online,
-        lastSeenText: lastSeen.isEmpty ? 'No activity time' : formatAnyDate(lastSeen),
+        lastSeenText: lastSeen.isEmpty ? 'No activity record' : formatAnyDate(lastSeen),
         status: status,
       );
     }).toList();
@@ -629,7 +625,7 @@ class CeoRepository {
   bool _seenRecently(String value) {
     final parsed = DateTime.tryParse(value);
     if (parsed == null) return false;
-    return DateTime.now().difference(parsed.toLocal()).inMinutes <= 3;
+    return DateTime.now().difference(parsed.toLocal()).inMinutes <= 10;
   }
 
   Future<Map<String, bool>> loadSystemSettings() async {

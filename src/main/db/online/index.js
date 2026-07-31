@@ -477,8 +477,11 @@ async function addDailyEntry(data) {
   // treated as 'approved', otherwise the ceo_mobile_daily_receipt_rows RPC
   // (and the 8PM PDF) will silently exclude them.
   const resolvedReview = String(data.Review_Status || data.reviewStatus || data.status || 'approved').toLowerCase();
+  const normalizedDate = require('../core').normalizeDate(data.Date || data.date || new Date());
   const dataWithStatus = {
     ...data,
+    Date: normalizedDate,
+    date: normalizedDate,
     Review_Status: resolvedReview === 'pending' || resolvedReview === 'rejected' ? resolvedReview : 'approved',
   };
   const row = await insert('daily_entries', dataWithStatus);

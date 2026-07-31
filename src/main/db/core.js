@@ -513,6 +513,39 @@ async function writeExcelRow(filePath, sheetName, rowData, keyColumn, targetRowN
   }
 }
 
+// Normalize any date value (Date object, ISO string, D/M/YYYY, or YYYY-MM-DD) to 'YYYY-MM-DD'
+function normalizeDate(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(val).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+
+  const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmyMatch) {
+    const day = String(dmyMatch[1]).padStart(2, '0');
+    const month = String(dmyMatch[2]).padStart(2, '0');
+    const year = dmyMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  return s;
+}
+
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
 }
@@ -538,6 +571,7 @@ module.exports = {
   updateExcelRow,
   deleteExcelRow,
   generateId,
+  normalizeDate,
   ensureSheetColumns,
   getWorkbook,
   queueFlush,

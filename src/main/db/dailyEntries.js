@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
-const { getGlobalsPath, readExcelFile, appendToExcel, deleteExcelRow, generateId, withFileWriteLock, writeWorkbookAtomic, getHeaderKeys, ensureSheetColumns } = require('./core');
+const { getGlobalsPath, readExcelFile, appendToExcel, deleteExcelRow, generateId, withFileWriteLock, writeWorkbookAtomic, getHeaderKeys, ensureSheetColumns, normalizeDate } = require('./core');
 const { updateTownFinancials } = require('./properties');
 const { recordMoneyEvent } = require('./moneyLedger');
 
@@ -91,7 +91,7 @@ async function addDailyEntry(data) {
   
   const newEntry = {
     Entry_ID: stableEntryId,
-    Date: date || new Date().toISOString().split('T')[0],
+    Date: normalizeDate(date || new Date()),
     Time: time || new Date().toTimeString().split(' ')[0].substring(0, 5),
     Type: type || 'Income',
     Description: description || '',
