@@ -53,6 +53,18 @@ async function triggerEdgeFunctionPush(appealRow) {
     const pushBody = {
       title,
       body,
+      notification: {
+        title,
+        body,
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          channel_id: 'ceo_approvals',
+          sound: 'default',
+          priority: 'high',
+        },
+      },
       data: {
         table: 'appeals',
         event: 'INSERT',

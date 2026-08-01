@@ -669,29 +669,61 @@ class CeoRepository {
     DateTime? reportDate,
     bool force = false,
   }) async {
-    final dashboard = await loadDashboard(force: force);
-    final summary = dashboard.towns.firstWhere(
-      (town) => town.name == townName,
-      orElse: () => TownSummary(
-        name: townName,
-        received: 0,
-        expenses: 0,
-        pendingCollection: 0,
-        pendingApprovals: 0,
-        salesCount: 0,
-      ),
-    );
-    final pending = await loadReviews('pending', force: true);
-    final receipts = await loadDailyReceipts(
-      date: reportDate ?? DateTime.now(),
-      townName: townName,
-      force: true,
-    );
-    return TownDashboardDetail(
-      summary: summary,
-      recentApprovals: pending.where((item) => item.townName == townName).take(10).toList(),
-      receipt: receipts.isEmpty ? null : receipts.first,
-    );
+    try {
+      final results = await Future.wait([
+        loadDashboard(force: force).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => _lastKnownSummary ?? DashboardSummary(towns: [], pendingApprovals: 0, received: 0, expenses: 0, pendingCollection: 0, salesCount: 0),
+        ),
+        loadReviews('pending', force: force).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => <ReviewItem>[],
+        ),
+        loadDailyReceipts(
+          date: reportDate ?? DateTime.now(),
+          townName: townName,
+          force: force,
+        ).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => <LedgerReceiptSummary>[],
+        ),
+      ]);
+
+      final dashboard = results[0] as DashboardSummary;
+      final pending = results[1] as List<ReviewItem>;
+      final receipts = results[2] as List<LedgerReceiptSummary>;
+
+      final summary = dashboard.towns.firstWhere(
+        (town) => town.name == townName,
+        orElse: () => TownSummary(
+          name: townName,
+          received: 0,
+          expenses: 0,
+          pendingCollection: 0,
+          pendingApprovals: 0,
+          salesCount: 0,
+        ),
+      );
+
+      return TownDashboardDetail(
+        summary: summary,
+        recentApprovals: pending.where((item) => item.townName == townName).take(10).toList(),
+        receipt: receipts.isEmpty ? null : receipts.first,
+      );
+    } catch (_) {
+      return TownDashboardDetail(
+        summary: TownSummary(
+          name: townName,
+          received: 0,
+          expenses: 0,
+          pendingCollection: 0,
+          pendingApprovals: 0,
+          salesCount: 0,
+        ),
+        recentApprovals: const [],
+        receipt: null,
+      );
+    }
   }
 
   Future<List<OperatorPresence>> loadOperatorPresence() async {

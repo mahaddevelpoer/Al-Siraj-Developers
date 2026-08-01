@@ -676,35 +676,36 @@ class _TownDashboardScreenState extends State<TownDashboardScreen> {
                     ],
                   ),
                 ),
-                if (snap.connectionState == ConnectionState.waiting &&
-                    detail == null)
-                  const LoadingBlock(text: 'Loading town dashboard...'),
-                if (snap.hasError && detail == null)
-                  ErrorBlock(error: snap.error!, onRetry: _refresh),
-                MetricCard(
-                  label: 'Cash balance',
-                  value: money.format(summary.cash),
-                  icon: Icons.account_balance_wallet_rounded,
-                  color: kBlue,
-                ),
-                MetricCard(
-                  label: 'Total received',
-                  value: money.format(summary.received),
-                  icon: Icons.south_west_rounded,
-                  color: kGreen,
-                ),
-                MetricCard(
-                  label: 'Total expenses',
-                  value: money.format(summary.expenses),
-                  icon: Icons.north_east_rounded,
-                  color: kRed,
-                ),
-                MetricCard(
-                  label: 'Pending collection',
-                  value: money.format(summary.pendingCollection),
-                  icon: Icons.pending_actions_rounded,
-                  color: kAmber,
-                ),
+                if (snap.connectionState == ConnectionState.waiting && detail == null)
+                  const LoadingBlock(text: 'Loading town dashboard...')
+                else if (snap.hasError && detail == null)
+                  ErrorBlock(error: snap.error!, onRetry: _refresh)
+                else ...[
+                  MetricCard(
+                    label: 'Cash balance',
+                    value: money.format(summary.cash),
+                    icon: Icons.account_balance_wallet_rounded,
+                    color: kBlue,
+                  ),
+                  MetricCard(
+                    label: 'Total received',
+                    value: money.format(summary.received),
+                    icon: Icons.south_west_rounded,
+                    color: kGreen,
+                  ),
+                  MetricCard(
+                    label: 'Total expenses',
+                    value: money.format(summary.expenses),
+                    icon: Icons.north_east_rounded,
+                    color: kRed,
+                  ),
+                  MetricCard(
+                    label: 'Pending collection',
+                    value: money.format(summary.pendingCollection),
+                    icon: Icons.pending_actions_rounded,
+                    color: kAmber,
+                  ),
+                ],
                 AppCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
