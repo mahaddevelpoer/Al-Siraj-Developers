@@ -32,21 +32,42 @@ class DataLayer {
   }
 
   async read(localFn, supabaseFn) {
-    if (!this._preferDbReads) {
-      return await localFn();
+    let localData = null;
+    try {
+      if (typeof localFn === 'function') {
+        localData = await localFn();
+      }
+    } catch (_) {}
+
+    const isArray = Array.isArray(localData);
+    const hasLocalRows = isArray ? localData.length > 0 : (localData !== null && localData !== undefined && Object.keys(localData || {}).length > 0);
+
+    // If local Excel has data and we don't prefer DB reads, use local data immediately
+    if (hasLocalRows && !this._preferDbReads) {
+      return localData;
     }
-    if (this._preferDbReads && typeof supabaseFn === 'function') {
+
+    // If local data is empty/missing (e.g. 2nd PC login) OR _preferDbReads is set, attempt cloud read from Supabase
+    if (typeof supabaseFn === 'function') {
       try {
-        const cloud = await Promise.race([
+        const cloudData = await Promise.race([
           supabaseFn(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud read timeout; using local cache')), this._cloudReadTimeoutMs)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud read timeout')), this._cloudReadTimeoutMs)),
         ]);
-        if (cloud !== undefined && cloud !== null) return cloud;
+
+        if (cloudData !== undefined && cloudData !== null) {
+          const cloudIsArray = Array.isArray(cloudData);
+          const hasCloudRows = cloudIsArray ? cloudData.length > 0 : Object.keys(cloudData || {}).length > 0;
+          if (hasCloudRows) {
+            return cloudData;
+          }
+        }
       } catch (err) {
         if (!String(err?.message || '').includes('timeout')) this._sendSyncWarning(err);
       }
     }
-    return await localFn();
+
+    return localData || (isArray ? [] : null);
   }
 
   async write(supabaseFn, localFn) {

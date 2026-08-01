@@ -945,8 +945,55 @@ app.whenReady().then(async () => {
     .subscribe();
   realtimeChannels.push(businessNotificationsChannel);
 
+  // ── Desktop Presence Heartbeat (Who is Online feature) ───────────────────
+  let presenceTimer = null;
+  const sendDesktopPresenceHeartbeat = async () => {
+    try {
+      const ctx = storageSync.getSyncContext() || {};
+      const email = String(ctx.email || '').trim().toLowerCase();
+      const role = String(ctx.role || '').trim().toLowerCase();
+
+      const nowIso = new Date().toISOString();
+      const updateData = {
+        last_seen_at: nowIso,
+        online_status: 'online',
+        is_active: true,
+        updated_at: nowIso,
+      };
+
+      if (email) {
+        await supabase
+          .from('users')
+          .update(updateData)
+          .eq('email', email)
+          .catch(() => {});
+      } else if (role) {
+        await supabase
+          .from('users')
+          .update(updateData)
+          .eq('role', role)
+          .catch(() => {});
+      }
+    } catch (_) {}
+  };
+
+  sendDesktopPresenceHeartbeat();
+  presenceTimer = setInterval(sendDesktopPresenceHeartbeat, 35000);
+
   // Cleanup on quit
-  app.on('before-quit', () => {
+  app.on('before-quit', async () => {
+    if (presenceTimer) clearInterval(presenceTimer);
+    try {
+      const ctx = storageSync.getSyncContext() || {};
+      const email = String(ctx.email || '').trim().toLowerCase();
+      if (email) {
+        await supabase
+          .from('users')
+          .update({ online_status: 'offline', last_seen_at: new Date().toISOString() })
+          .eq('email', email)
+          .catch(() => {});
+      }
+    } catch (_) {}
     realtimeChannels.forEach(ch => {
       try { supabase.removeChannel(ch); } catch (_) {}
     });
