@@ -1276,7 +1276,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   const SizedBox(height: 12),
                   // Days Range Chips
                   Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
                         'Date History:',
