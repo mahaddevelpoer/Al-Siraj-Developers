@@ -1119,29 +1119,102 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  DateTime _date = DateTime.now();
+  String _selectedTown = 'All Towns';
+  int _daysCount = 14;
   late Future<List<LedgerReceiptSummary>> _future = widget.repo
-      .loadDailyReceipts(date: _date);
+      .loadDailyReceiptsHistory(townName: _selectedTown, days: _daysCount);
 
   Future<void> _refresh() async {
-    setState(
-      () => _future = widget.repo.loadDailyReceipts(date: _date, force: true),
-    );
+    setState(() {
+      _future = widget.repo.loadDailyReceiptsHistory(
+        townName: _selectedTown,
+        days: _daysCount,
+        force: true,
+      );
+    });
     await _future;
   }
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
-      initialDate: _date,
-    );
-    if (picked == null) return;
+  void _onTownChanged(String town) {
     setState(() {
-      _date = picked;
-      _future = widget.repo.loadDailyReceipts(date: _date, force: true);
+      _selectedTown = town;
+      _future = widget.repo.loadDailyReceiptsHistory(
+        townName: _selectedTown,
+        days: _daysCount,
+        force: true,
+      );
     });
+  }
+
+  void _onDaysChanged(int days) {
+    setState(() {
+      _daysCount = days;
+      _future = widget.repo.loadDailyReceiptsHistory(
+        townName: _selectedTown,
+        days: _daysCount,
+        force: true,
+      );
+    });
+  }
+
+  void _showPdfViewerModal(
+    BuildContext context,
+    String title,
+    Future<Uint8List> Function() buildPdf,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: kSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.90,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 28),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: PdfPreview(
+                    build: (_) => buildPdf(),
+                    canChangePageFormat: false,
+                    canChangeOrientation: false,
+                    canDebug: false,
+                    maxPageWidth: 700,
+                    pdfFileName: '${title.replaceAll(RegExp(r"[^a-zA-Z0-9_-]"), "_")}.pdf',
+                    loadingWidget: const LoadingBlock(text: 'Generating PDF Report...'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -1151,46 +1224,80 @@ class _ReportsScreenState extends State<ReportsScreen> {
       builder: (context, snap) {
         final rows = snap.data ?? const <LedgerReceiptSummary>[];
         return ScreenScaffold(
-          title: 'Reports',
+          title: 'Reports & PDFs',
           onRefresh: _refresh,
-          actions: [
-            IconButton(
-              onPressed: _pickDate,
-              icon: const Icon(Icons.calendar_month_rounded),
-            ),
-          ],
           children: [
             AppCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    '8PM daily report bundle',
+                    'Daily Ledger Reports & PDFs',
                     style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22),
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    'CEO receives one grouped notification when town receipts are ready.',
-                    style: const TextStyle(
-                      color: kMuted,
-                      fontWeight: FontWeight.w700,
+                  const Text(
+                    'Select town and date history to generate instant printable PDF reports.',
+                    style: TextStyle(color: kMuted, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 14),
+                  // Town selector dropdown / chips
+                  const Text(
+                    'Select Town:',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                  ),
+                  const SizedBox(height: 6),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        'All Towns',
+                        'Ajwa City',
+                        'Al-Haram City',
+                        'Royal Orchard',
+                      ].map((town) {
+                        final selected = _selectedTown == town;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(town),
+                            selected: selected,
+                            onSelected: (_) => _onTownChanged(town),
+                            selectedColor: kBlue,
+                            labelStyle: TextStyle(
+                              color: selected ? Colors.white : kText,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ),
                   const SizedBox(height: 12),
+                  // Days Range Chips
                   Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
-                      Expanded(
-                        child: StatusPill(
-                          text: '${rows.length} town receipts',
-                          color: rows.isEmpty ? kAmber : kGreen,
-                        ),
+                      const Text(
+                        'Date History:',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                       ),
-                      Text(
-                        shortDate.format(_date),
-                        style: const TextStyle(
-                          color: kText,
-                          fontWeight: FontWeight.w900,
-                        ),
+                      Wrap(
+                        spacing: 6,
+                        children: [7, 14, 30].map((d) {
+                          final sel = _daysCount == d;
+                          return ChoiceChip(
+                            label: Text('$d Days'),
+                            selected: sel,
+                            onSelected: (_) => _onDaysChanged(d),
+                            selectedColor: kBlue,
+                            labelStyle: TextStyle(
+                              color: sel ? Colors.white : kText,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          );
+                        }).toList(),
                       ),
                     ],
                   ),
@@ -1198,48 +1305,128 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ),
             ),
             if (snap.connectionState == ConnectionState.waiting && rows.isEmpty)
-              const LoadingBlock(text: 'Loading daily receipts...'),
+              const LoadingBlock(text: 'Loading date-wise reports...'),
             if (snap.hasError && rows.isEmpty)
               ErrorBlock(error: snap.error!, onRetry: _refresh),
             if (rows.isEmpty &&
                 !snap.hasError &&
                 snap.connectionState != ConnectionState.waiting)
-              const EmptyBlock(
-                text:
-                    'No 8PM receipt rows for this date yet. If a town was offline, it will appear after sync.',
+              EmptyBlock(
+                text: 'No reports found for $_selectedTown in the last $_daysCount days.',
               ),
             for (final row in rows)
               AppCard(
-                onTap: () => _showReceipt(context, row),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      row.townName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 17,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            row.townName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                        StatusPill(
+                          text: row.reportDate == shortDate.format(DateTime.now())
+                              ? 'Today'
+                              : row.reportDate == shortDate.format(DateTime.now().subtract(const Duration(days: 1)))
+                                  ? 'Yesterday'
+                                  : row.reportDate,
+                          color: row.reportDate == shortDate.format(DateTime.now()) ? kGreen : kBlue,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    Text('Income: ${money.format(row.income)}'),
-                    Text('Expense: ${money.format(row.expense)}'),
-                    Text(
-                      'Cash: ${money.format(row.cash)}',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Income', style: TextStyle(fontSize: 10, color: kMuted)),
+                                Text(money.format(row.income), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.green, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Expense', style: TextStyle(fontSize: 10, color: kMuted)),
+                                Text(money.format(row.expense), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.red, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Net Cash', style: TextStyle(fontSize: 10, color: kMuted)),
+                                Text(money.format(row.cash), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.blue, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     Text(
-                      '${row.rows.length} ledger rows | ${row.mediaRows.length} receipt files',
-                      style: const TextStyle(color: kMuted),
+                      '${row.rows.length} transactions | ${row.mediaRows.length} receipt files attached',
+                      style: const TextStyle(color: kMuted, fontSize: 12),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Tap to preview receipt rows',
-                      style: TextStyle(
-                        color: kBlue,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _showReceipt(context, row),
+                            icon: const Icon(Icons.list_alt_rounded),
+                            label: const Text('View Details'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              _showPdfViewerModal(
+                                context,
+                                'PDF Report - ${row.townName} (${row.reportDate})',
+                                () => _generateReportPdfBytes(row),
+                              );
+                            },
+                            icon: const Icon(Icons.picture_as_pdf_rounded),
+                            label: const Text('Generate PDF'),
+                            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade800),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -1284,88 +1471,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ),
                   const SizedBox(height: 12),
                   ElevatedButton.icon(
-                    onPressed: () async {
-                      try {
-                        final bytes = await _generateReportPdfBytes(receipt);
-                        if (!context.mounted) return;
-                        showModalBottomSheet<void>(
-                          context: context,
-                          backgroundColor: kSurface,
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.vertical(
-                              top: Radius.circular(20),
-                            ),
-                          ),
-                          builder: (context) {
-                            return SafeArea(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'PDF Report - ${receipt.townName}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  ListTile(
-                                    leading: const Icon(
-                                      Icons.picture_as_pdf,
-                                      color: Colors.green,
-                                    ),
-                                    title: const Text(
-                                      'View / Print PDF',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    onTap: () async {
-                                      Navigator.pop(context);
-                                      await Printing.layoutPdf(
-                                        onLayout: (_) async => bytes,
-                                        name: 'Report_${receipt.townName}',
-                                      );
-                                    },
-                                  ),
-                                  ListTile(
-                                    leading: const Icon(
-                                      Icons.share,
-                                      color: Colors.blue,
-                                    ),
-                                    title: const Text(
-                                      'Share PDF',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    onTap: () async {
-                                      Navigator.pop(context);
-                                      await Printing.sharePdf(
-                                        bytes: bytes,
-                                        filename:
-                                            'Report_${receipt.townName}_${receipt.reportDate}.pdf',
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(height: 12),
-                                ],
-                              ),
-                            );
-                          },
-                        );
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to generate PDF: $e')),
-                        );
-                      }
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _showPdfViewerModal(
+                        context,
+                        'PDF Report - ${receipt.townName} (${receipt.reportDate})',
+                        () => _generateReportPdfBytes(receipt),
+                      );
                     },
                     icon: const Icon(Icons.picture_as_pdf_rounded),
-                    label: const Text('Generate & Share PDF Report'),
+                    label: const Text('Generate & View PDF Report'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: kBlue,
+                      backgroundColor: Colors.red.shade800,
                       foregroundColor: kSurface,
                       minimumSize: const Size.fromHeight(48),
                       shape: RoundedRectangleBorder(
@@ -1767,76 +1884,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
           bytes = await _convertTextToPdfBytes(title, rawContent);
         }
       }
-      showModalBottomSheet<void>(
-        context: context,
-        backgroundColor: kSurface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (context) {
-          return SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 12),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  leading: const Icon(
-                    Icons.picture_as_pdf,
-                    color: Colors.green,
-                  ),
-                  title: const Text(
-                    'View / Print PDF',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    try {
-                      await Printing.layoutPdf(
-                        onLayout: (_) async => bytes,
-                        name: title,
-                      );
-                    } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Failed to preview PDF: $e')),
-                      );
-                    }
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.share, color: Colors.blue),
-                  title: const Text(
-                    'Share PDF',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    try {
-                      await Printing.sharePdf(
-                        bytes: bytes,
-                        filename:
-                            '${title.replaceAll(RegExp(r"[^\w\s\-]"), "_")}.pdf',
-                      );
-                    } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Failed to share PDF: $e')),
-                      );
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-              ],
-            ),
-          );
-        },
+      _showPdfViewerModal(
+        context,
+        title,
+        () async => bytes,
       );
     } catch (err) {
       ScaffoldMessenger.of(

@@ -462,6 +462,36 @@ class CeoRepository {
     return future;
   }
 
+  Future<List<LedgerReceiptSummary>> loadDailyReceiptsHistory({
+    String? townName,
+    int days = 14,
+    bool force = false,
+  }) async {
+    final now = DateTime.now();
+    final dates = List.generate(days, (i) => now.subtract(Duration(days: i)));
+
+    final results = await Future.wait(
+      dates.map(
+        (d) => loadDailyReceipts(
+          date: d,
+          townName: (townName != null && townName.isNotEmpty && townName != 'All Towns') ? townName : null,
+          force: force,
+        ),
+      ),
+    );
+
+    final List<LedgerReceiptSummary> allSummaries = [];
+    for (final list in results) {
+      allSummaries.addAll(list);
+    }
+
+    if (townName != null && townName.isNotEmpty && townName != 'All Towns') {
+      return allSummaries.where((s) => s.townName == townName).toList();
+    }
+
+    return allSummaries;
+  }
+
   Future<List<LedgerReceiptSummary>> _loadDailyReceipts(DateTime date, {String? townName}) async {
     final day = shortDate.format(date);
     
