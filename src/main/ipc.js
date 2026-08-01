@@ -661,6 +661,7 @@ async function generateDailyTownReceiptBundle(date = new Date().toISOString().sl
     if (supabaseClient) {
       await supabaseClient.functions.invoke('send-ceo-push', {
         body: {
+          topic: 'ceo-alerts',
           title: failed.length ? '⚠️ Daily Reports Need Attention (8 PM)' : '📊 Daily Ledger Reports Ready (8 PM)',
           body: message,
           data: {

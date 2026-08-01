@@ -164,6 +164,7 @@ async function runDailyReport(dbPath, mainWindow) {
       if (ceoUser) {
         await supabase.functions.invoke('send-ceo-push', {
           body: {
+            topic: 'ceo-alerts',
             title: '📊 Daily Town Report',
             body: summaries.map(s => `${s.townName}: PKR ${s.net.toLocaleString()} net`).join('\n'),
             data: {

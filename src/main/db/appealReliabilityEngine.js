@@ -51,6 +51,7 @@ async function triggerEdgeFunctionPush(appealRow) {
 
     const dedupeKey = `appeal:INSERT:${appealRow.id || Date.now()}`;
     const pushBody = {
+      topic: 'ceo-alerts',
       title,
       body,
       notification: {
