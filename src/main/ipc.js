@@ -2251,7 +2251,28 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
     try {
       assertObjectPayload(params, 'getDailyEntries payload');
       const t = scopedTown(params.townName, isAccountantScoped());
-      return await dataLayer.read(() => getDailyEntries({ ...params, townName: t }), async () => { const all = await onlineDb.getAll('daily_entries'); return t ? (all || []).filter(e => e.Town_Name === t) : (all || []); });
+      return await dataLayer.read(
+        () => getDailyEntries({ ...params, townName: t }),
+        async () => {
+          const all = await onlineDb.getAll('daily_entries');
+          const targetDate = String(params.date || params.Date || '').slice(0, 10);
+          const startDate = String(params.startDate || '').slice(0, 10);
+          const endDate = String(params.endDate || '').slice(0, 10);
+
+          return (all || []).filter(e => {
+            const rowTown = String(e.Town_Name || e.town_name || '');
+            if (t && rowTown !== t) return false;
+            let rowDate = String(e.Date || e.date || e.created_at || '');
+            if (rowDate.includes('T')) rowDate = rowDate.split('T')[0];
+            rowDate = rowDate.slice(0, 10);
+
+            if (targetDate && rowDate !== targetDate) return false;
+            if (startDate && rowDate < startDate) return false;
+            if (endDate && rowDate > endDate) return false;
+            return true;
+          });
+        }
+      );
     } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
   ipcMain.handle('getTownBalanceOnDate', async (_, params) => {

@@ -255,7 +255,15 @@ async function performFullSync(reportProgress = () => {}) {
     await overwriteExcelFile(path.join(globalsPath, 'Salary_Records.xlsx'), 'Data', SALREC_COLS, mappedSalaryRecords);
 
     const mappedDailyEntries = scoped(dailyEntries).map(mapDailyEntryFromCloud);
-    await overwriteExcelFile(path.join(globalsPath, 'Daily_Entries.xlsx'), 'Data', DAILY_ENTRIES_COLUMNS, mappedDailyEntries);
+    const uniqueEntriesMap = new Map();
+    for (const entry of mappedDailyEntries) {
+      const key = entry.Entry_ID || `${entry.Town_Name}-${entry.Date}-${entry.Amount}-${entry.Description}`;
+      if (!uniqueEntriesMap.has(key)) {
+        uniqueEntriesMap.set(key, entry);
+      }
+    }
+    const deduplicatedEntries = Array.from(uniqueEntriesMap.values());
+    await overwriteExcelFile(path.join(globalsPath, 'Daily_Entries.xlsx'), 'Data', DAILY_ENTRIES_COLUMNS, deduplicatedEntries);
 
     const TOWN_AGENT_COLS = ['Agent_ID','Town_Name','Agent_Name','Phone_Number','CNIC','Address','Notes','Status','Created_At'];
     await overwriteExcelFile(path.join(globalsPath, 'Town_Agents.xlsx'), 'Data', TOWN_AGENT_COLS, scoped(townAgents).map((r) => mapGenericFromCloud(TOWN_AGENT_COLS, r)));
