@@ -685,9 +685,18 @@ app.whenReady().then(async () => {
     .subscribe();
   realtimeChannels.push(appealsChannel);
 
+  // Helper: Get Pakistan Standard Time (PKT, UTC+5) date and time
+  const getPktNow = () => {
+    const now = new Date();
+    const pkt = new Date(now.getTime() + (5 * 60 + now.getTimezoneOffset()) * 60000);
+    const dateStr = pkt.toISOString().split('T')[0];
+    const timeStr = pkt.toTimeString().split(' ')[0].substring(0, 8); // HH:mm:ss
+    return { dateStr, timeStr };
+  };
+
   // Commission created → notify CEO
   const applyApprovedDailyEntryAppeal = async (appeal) => {
-    if (!appeal || appeal.status !== 'approved') return;
+    if (!appeal || String(appeal.status || '').toLowerCase() !== 'approved') return;
     if (!['backdated_daily_entry', 'future_daily_entry'].includes(appeal.appeal_type)) return;
     
     let rd = appeal.requested_data || {};
@@ -695,7 +704,8 @@ app.whenReady().then(async () => {
       try { rd = JSON.parse(rd); } catch (_) { rd = {}; }
     }
     
-    const entryDate = String(rd.date || rd.Date || appeal.date || '').trim();
+    const { dateStr: pktToday, timeStr: pktCurrentTime } = getPktNow();
+    const entryDate = String(rd.date || rd.Date || appeal.date || pktToday).trim();
     const townName = String(rd.townName || rd.Town_Name || rd.town_name || rd.town || appeal.town_name || '').trim();
     const amount = parseFloat(rd.amount ?? rd.Amount ?? appeal.amount) || 0;
     const entryType = String(rd.type || rd.Type || 'Income').trim();
@@ -706,12 +716,22 @@ app.whenReady().then(async () => {
     }
 
     try {
-      const { addDailyEntry } = require('./db/dailyEntries');
+      const { addDailyEntry, getDailyEntries } = require('./db/dailyEntries');
       const { updateTownFinancials } = require('./db/towns');
       
       const appealStableId = 'APP-' + String(appeal.id || '').replace(/-/g, '');
-      const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
-      const entryTime = (rd.time && rd.time !== '00:00' && rd.time !== '00:00:00') ? rd.time : currentTime;
+      const rawTime = String(rd.time || rd.Time || '').trim();
+      const entryTime = (rawTime && rawTime !== '00:00' && rawTime !== '00:00:00') ? rawTime : pktCurrentTime;
+
+      // Deduplication check: prevent adding twice
+      const existingEntries = await getDailyEntries({ townName }).catch(() => []);
+      const alreadyExists = existingEntries.some(
+        e => String(e.Entry_ID || e.entryId) === appealStableId || String(e.Reference || e.reference) === String(appeal.id)
+      );
+      if (alreadyExists) {
+        console.log(`[appeal-sync] Approved daily entry ${appealStableId} already exists locally. Skipping duplicate addition.`);
+        return;
+      }
 
       const entry = await addDailyEntry({
         ...rd,
@@ -737,19 +757,73 @@ app.whenReady().then(async () => {
 
       const win = typeof activeWindow !== 'undefined' ? activeWindow : null;
       if (win && !win.isDestroyed() && win.webContents) {
-        win.webContents.send('sync-warning', `Daily entry (${entryType} ${entryDate}) approved & saved to accounts.`);
+        win.webContents.send('sync-warning', `Daily entry (${entryType} ${entryDate} ${entryTime}) approved & saved to accounts.`);
         win.webContents.send('al-siraj-data-changed', { type: 'daily_entry', townName: townName });
       }
 
       if (isCurrentCeoContext() || isCurrentAccountantContext()) {
         showDesktopNotification({
           title: entry?.duplicate ? 'Daily Entry Already Saved' : 'Daily Entry Saved',
-          body: `${entryType} ${entryDate} (PKR ${amount}) saved to local accounts.`,
+          body: `${entryType} ${entryDate} ${entryTime} (PKR ${amount}) saved to local accounts.`,
           silent: false,
         });
       }
     } catch (err) {
       console.error('[appeal-sync] Error applying approved daily entry appeal:', err);
+    }
+  };
+
+  const applyApprovedDeleteDailyEntryAppeal = async (appeal) => {
+    if (!appeal || String(appeal.status || '').toLowerCase() !== 'approved') return;
+    if (appeal.appeal_type !== 'delete_daily_entry') return;
+    
+    let rd = appeal.requested_data || {};
+    if (typeof rd === 'string') {
+      try { rd = JSON.parse(rd); } catch (_) { rd = {}; }
+    }
+    
+    const entryId = String(rd.entryId || rd.entry_id || rd.Entry_ID || appeal.entity_id || '').trim();
+    const townName = String(rd.townName || rd.Town_Name || rd.town_name || rd.town || appeal.town_name || '').trim();
+
+    if (!entryId) {
+      console.warn('[appeal-sync] Cannot apply approved delete daily entry: missing entryId in appeal:', appeal);
+      return;
+    }
+
+    try {
+      const { deleteDailyEntry } = require('./db/dailyEntries');
+      const { updateTownFinancials } = require('./db/towns');
+      
+      // 1. Delete locally
+      await deleteDailyEntry({ entryId });
+
+      // 2. Delete online in Supabase daily_entries
+      try {
+        const onlineDb = require('./db/online');
+        await onlineDb.deleteWhere('daily_entries', { Entry_ID: entryId });
+      } catch (e) {
+        console.warn('[appeal-sync] Could not delete cloud daily entry:', e.message);
+      }
+
+      if (townName) {
+        await updateTownFinancials(townName).catch(() => {});
+      }
+
+      const win = typeof activeWindow !== 'undefined' ? activeWindow : null;
+      if (win && !win.isDestroyed() && win.webContents) {
+        win.webContents.send('sync-warning', `Approved daily entry deletion (${entryId}) applied successfully.`);
+        win.webContents.send('al-siraj-data-changed', { type: 'daily_entry', townName: townName });
+      }
+
+      if (isCurrentCeoContext() || isCurrentAccountantContext()) {
+        showDesktopNotification({
+          title: 'Daily Entry Deleted',
+          body: `Entry ${entryId}${townName ? ` (${townName})` : ''} deleted following CEO approval.`,
+          silent: false,
+        });
+      }
+    } catch (err) {
+      console.error('[appeal-sync] Error applying approved delete daily entry appeal:', err);
     }
   };
 
@@ -821,6 +895,10 @@ app.whenReady().then(async () => {
         } else if (payload.new && payload.new.appeal_type === 'delete_employee') {
           applyApprovedDeleteEmployeeAppeal(payload.new).catch((e) => {
             console.error('[appeal-sync] Failed to apply approved delete employee appeal:', e);
+          });
+        } else if (payload.new && payload.new.appeal_type === 'delete_daily_entry') {
+          applyApprovedDeleteDailyEntryAppeal(payload.new).catch((e) => {
+            console.error('[appeal-sync] Failed to apply approved delete daily entry appeal:', e);
           });
         } else {
           applyApprovedDailyEntryAppeal(payload.new).catch((e) => {

@@ -58,13 +58,31 @@ async function triggerEdgeFunctionPush(appealRow) {
         event: 'INSERT',
         id: String(appealRow.id || ''),
         route: 'approvals',
-        appeal_type: appealRow.appeal_type,
-        town_name: appealRow.town_name,
+        appeal_type: String(appealRow.appeal_type || ''),
+        town_name: String(appealRow.town_name || ''),
         dedupe_key: dedupeKey,
         event_time: new Date().toISOString(),
       },
     };
 
+    // Primary: Native Supabase client Edge Function Invocation
+    try {
+      const supabase = require('./supabase');
+      if (supabase && supabase.functions) {
+        const { data: edgeData, error: edgeErr } = await supabase.functions.invoke('send-ceo-push', {
+          body: pushBody,
+        });
+        if (!edgeErr) {
+          console.log('[AppealReliabilityEngine] Supabase Edge Push SUCCESS:', edgeData);
+          return { success: true, response: edgeData };
+        }
+        console.warn('[AppealReliabilityEngine] Supabase Edge Push error, trying fallback:', edgeErr?.message);
+      }
+    } catch (invErr) {
+      console.warn('[AppealReliabilityEngine] Supabase.functions.invoke exception, trying fallback:', invErr.message);
+    }
+
+    // Fallback: Direct HTTP POST to Edge Function endpoint
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
@@ -80,7 +98,7 @@ async function triggerEdgeFunctionPush(appealRow) {
     clearTimeout(timeoutId);
 
     const resText = await res.text();
-    console.log(`[AppealReliabilityEngine] Edge Push HTTP [${res.status}]:`, resText);
+    console.log(`[AppealReliabilityEngine] Direct Edge Push HTTP [${res.status}]:`, resText);
 
     if (res.ok) {
       try {
