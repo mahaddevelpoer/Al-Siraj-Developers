@@ -336,6 +336,9 @@ function scheduleQueuedCloudSync(delayMs = 1500) {
             }
           }
         }
+      } catch (delErr) {
+        console.error('Error processing offline deletes:', delErr);
+      }
       // Process offline queued appeals (dispatches to Supabase + triggers high priority FCM push)
       try {
         const rows = await pendingSync.getPendingSyncRows();
