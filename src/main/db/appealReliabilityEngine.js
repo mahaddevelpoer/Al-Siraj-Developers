@@ -49,9 +49,24 @@ async function triggerEdgeFunctionPush(appealRow) {
     const roleFormatted = appealRow.requested_by_role || 'Accountant';
     const body = `${appealTypeFormatted} — ${townFormatted} by ${roleFormatted}`;
 
+    // Fetch CEO's direct device token for dual push delivery (Topic + Direct Token)
+    let ceoDeviceToken = '';
+    try {
+      const supabase = require('./supabase');
+      if (supabase) {
+        const { data: tokenRow } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'ceo_fcm_token')
+          .maybeSingle();
+        if (tokenRow?.value) ceoDeviceToken = String(tokenRow.value).trim();
+      }
+    } catch (_) {}
+
     const dedupeKey = `appeal:INSERT:${appealRow.id || Date.now()}`;
     const pushBody = {
       topic: 'ceo-alerts',
+      ...(ceoDeviceToken ? { token: ceoDeviceToken } : {}),
       title,
       body,
       notification: {

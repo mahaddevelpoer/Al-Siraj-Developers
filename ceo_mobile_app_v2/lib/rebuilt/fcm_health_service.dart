@@ -47,6 +47,24 @@ class FcmHealthService {
         );
         await messaging.subscribeToTopic(ceoPushTopic);
         debugPrint('[FcmHealthService] Subscribed to topic $ceoPushTopic successfully');
+
+        // 4. Register Direct Device FCM Token to Supabase for dual push delivery
+        final token = await messaging.getToken();
+        if (token != null && token.isNotEmpty) {
+          final user = Supabase.instance.client.auth.currentUser;
+          if (user != null) {
+            await Supabase.instance.client
+                .from('users')
+                .update({'fcm_token': token, 'updated_at': DateTime.now().toIso8601String()})
+                .eq('id', user.id)
+                .catchError((_) => null);
+          }
+          await Supabase.instance.client
+              .from('system_settings')
+              .upsert({'key': 'ceo_fcm_token', 'value': token, 'updated_at': DateTime.now().toIso8601String()})
+              .catchError((_) => null);
+          debugPrint('[FcmHealthService] Device FCM Token synced to cloud successfully');
+        }
       } catch (e) {
         debugPrint('[FcmHealthService] Topic subscription check error: $e');
       }
