@@ -69,6 +69,17 @@ class CeoRepository {
     }).toList();
   }
 
+  Future<List<String>> loadTownNames() async {
+    final rows = await _activeTowns();
+    final names = rows
+        .map((r) => textOf(rowValue(r, 'Town_Name') ?? r['town_name'] ?? r['name']))
+        .where((n) => n.isNotEmpty && n.toLowerCase() != 'null')
+        .toSet()
+        .toList()
+      ..sort();
+    return names;
+  }
+
   DashboardSummary? _lastKnownSummary;
 
   Future<DashboardSummary> loadDashboard({bool force = false}) {

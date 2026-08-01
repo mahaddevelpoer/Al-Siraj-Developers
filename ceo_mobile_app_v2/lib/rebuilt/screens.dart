@@ -1121,16 +1121,29 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> {
   String _selectedTown = 'All Towns';
   int _daysCount = 14;
-  late Future<List<LedgerReceiptSummary>> _future = widget.repo
-      .loadDailyReceiptsHistory(townName: _selectedTown, days: _daysCount);
+  DateTime? _selectedSingleDate;
+  late Future<List<String>> _townNamesFuture = widget.repo.loadTownNames();
+  late Future<List<LedgerReceiptSummary>> _future = _loadData();
+
+  Future<List<LedgerReceiptSummary>> _loadData({bool force = false}) {
+    if (_selectedSingleDate != null) {
+      return widget.repo.loadDailyReceipts(
+        date: _selectedSingleDate,
+        townName: (_selectedTown != 'All Towns') ? _selectedTown : null,
+        force: force,
+      );
+    }
+    return widget.repo.loadDailyReceiptsHistory(
+      townName: _selectedTown,
+      days: _daysCount,
+      force: force,
+    );
+  }
 
   Future<void> _refresh() async {
     setState(() {
-      _future = widget.repo.loadDailyReceiptsHistory(
-        townName: _selectedTown,
-        days: _daysCount,
-        force: true,
-      );
+      _townNamesFuture = widget.repo.loadTownNames();
+      _future = _loadData(force: true);
     });
     await _future;
   }
@@ -1138,22 +1151,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void _onTownChanged(String town) {
     setState(() {
       _selectedTown = town;
-      _future = widget.repo.loadDailyReceiptsHistory(
-        townName: _selectedTown,
-        days: _daysCount,
-        force: true,
-      );
+      _future = _loadData(force: true);
     });
   }
 
   void _onDaysChanged(int days) {
     setState(() {
+      _selectedDays(days);
+    });
+  }
+
+  void _selectedDays(int days) {
+    setState(() {
       _daysCount = days;
-      _future = widget.repo.loadDailyReceiptsHistory(
-        townName: _selectedTown,
-        days: _daysCount,
-        force: true,
-      );
+      _selectedSingleDate = null;
+      _future = _loadData(force: true);
+    });
+  }
+
+  Future<void> _pickSingleDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDate: _selectedSingleDate ?? DateTime.now(),
+    );
+    if (picked == null) return;
+    setState(() {
+      _selectedSingleDate = picked;
+      _future = _loadData(force: true);
+    });
+  }
+
+  void _clearSingleDate() {
+    setState(() {
+      _selectedSingleDate = null;
+      _future = _loadData(force: true);
     });
   }
 
@@ -1226,6 +1259,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
         return ScreenScaffold(
           title: 'Reports & PDFs',
           onRefresh: _refresh,
+          actions: [
+            IconButton(
+              onPressed: _pickSingleDate,
+              icon: Icon(
+                Icons.calendar_month_rounded,
+                color: _selectedSingleDate != null ? Colors.amber : null,
+              ),
+              tooltip: 'Select Single Date',
+            ),
+          ],
           children: [
             AppCard(
               child: Column(
@@ -1241,66 +1284,110 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     style: TextStyle(color: kMuted, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 14),
-                  // Town selector dropdown / chips
+                  // Dynamic Town Selector
                   const Text(
                     'Select Town:',
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                   ),
                   const SizedBox(height: 6),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
+                  FutureBuilder<List<String>>(
+                    future: _townNamesFuture,
+                    builder: (context, townSnap) {
+                      final dbTowns = townSnap.data ?? const <String>[];
+                      final reportTowns = rows.map((r) => r.townName).toSet().toList();
+                      final allTownList = <String>[
                         'All Towns',
-                        'Ajwa City',
-                        'Al-Haram City',
-                        'Royal Orchard',
-                      ].map((town) {
-                        final selected = _selectedTown == town;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(town),
-                            selected: selected,
-                            onSelected: (_) => _onTownChanged(town),
-                            selectedColor: kBlue,
-                            labelStyle: TextStyle(
-                              color: selected ? Colors.white : kText,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
+                        ...{...dbTowns, ...reportTowns}.where((t) => t.isNotEmpty && t != 'All Towns'),
+                      ];
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: allTownList.map((town) {
+                            final selected = _selectedTown == town;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(town),
+                                selected: selected,
+                                onSelected: (_) => _onTownChanged(town),
+                                selectedColor: kBlue,
+                                labelStyle: TextStyle(
+                                  color: selected ? Colors.white : kText,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 12),
-                  // Days Range Chips
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Date History:',
-                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                  // Days / Single Date Filter Controls
+                  if (_selectedSingleDate != null) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber.shade700),
                       ),
-                      Wrap(
-                        spacing: 6,
-                        children: [7, 14, 30].map((d) {
-                          final sel = _daysCount == d;
-                          return ChoiceChip(
-                            label: Text('$d Days'),
-                            selected: sel,
-                            onSelected: (_) => _onDaysChanged(d),
-                            selectedColor: kBlue,
-                            labelStyle: TextStyle(
-                              color: sel ? Colors.white : kText,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Single Date Filter: ${shortDate.format(_selectedSingleDate!)}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amber.shade900,
+                              fontSize: 13,
                             ),
-                          );
-                        }).toList(),
+                          ),
+                          InkWell(
+                            onTap: _clearSingleDate,
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.close_rounded, size: 16, color: Colors.red),
+                                  SizedBox(width: 4),
+                                  Text('Clear', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ] else ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Date History:',
+                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                        ),
+                        Wrap(
+                          spacing: 6,
+                          children: [1, 7, 14, 30].map((d) {
+                            final sel = _daysCount == d && _selectedSingleDate == null;
+                            final label = d == 1 ? 'Today' : '$d Days';
+                            return ChoiceChip(
+                              label: Text(label),
+                              selected: sel,
+                              onSelected: (_) => _onDaysChanged(d),
+                              selectedColor: kBlue,
+                              labelStyle: TextStyle(
+                                color: sel ? Colors.white : kText,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1312,7 +1399,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 !snap.hasError &&
                 snap.connectionState != ConnectionState.waiting)
               EmptyBlock(
-                text: 'No reports found for $_selectedTown in the last $_daysCount days.',
+                text: _selectedSingleDate != null
+                    ? 'No reports found for $_selectedTown on ${shortDate.format(_selectedSingleDate!)}.'
+                    : 'No reports found for $_selectedTown in the last $_daysCount days.',
               ),
             for (final row in rows)
               AppCard(
