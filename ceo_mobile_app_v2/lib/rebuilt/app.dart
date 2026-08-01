@@ -93,25 +93,16 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // ── Lifecycle: only re-lock after genuine background time ──
+  // ── Lifecycle: Instant Auto-Lock on background or app switch ──
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
-      _pausedAt ??= DateTime.now();
-    }
-
-    if (state == AppLifecycleState.resumed) {
-      final pausedAt = _pausedAt;
-      _pausedAt = null; // reset
-
-      // Only re-lock if the app was genuinely backgrounded for _lockAfter
-      if (_unlockedThisSession &&
-          _biometricEnabled &&
-          pausedAt != null &&
-          DateTime.now().difference(pausedAt) >= _lockAfter) {
+      if (_unlockedThisSession) {
         _unlockedThisSession = false;
-        setState(() => _screen = _AppScreen.unlock);
+        if (mounted) {
+          setState(() => _screen = _AppScreen.unlock);
+        }
       }
     }
   }
