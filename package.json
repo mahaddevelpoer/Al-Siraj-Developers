@@ -87,7 +87,7 @@
       }
     ],
     "win": {
-      "publisherName": "MAHAD DEVELOPER",
+      "publisherName": "AL SIRAJ DEVELOPERS",
       "target": [
         {
           "target": "nsis",
@@ -114,7 +114,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "AL SIRAJ DEVELOPERS",
       "installerSidebar": null,
-      "license": null
+      "license": "build/LICENSE.txt"
     },
     "electronDownload": {
       "cache": "C:\\Users\\HP\\AppData\\Local\\electron\\Cache"
