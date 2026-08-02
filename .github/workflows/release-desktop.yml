@@ -1,0 +1,48 @@
+name: Publish Desktop Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish-release:
+    name: Build & Upload Windows Desktop Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Electron Windows Installer
+        run: npm run build
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist_electron/AL-SIRAJ-DEVELOPERS-Setup-1.0.3.exe
+          name: AL SIRAJ DEVELOPERS Desktop v1.0.3
+          body: |
+            ## 🏢 AL SIRAJ DEVELOPERS Desktop ERP v1.0.3
+            
+            ### Features & Enhancements
+            - **Dual-Write Engine:** Real-time sync between local Excel files and Supabase PostgreSQL.
+            - **Anti-Fraud Security:** Mandatory CEO approval & OTP verification for backdated daily entries.
+            - **Smart Cloud Sync:** Automatic fallback and synchronization for 2nd PC installations.
+            - **Operator Presence Heartbeat:** Real-time presence reporting for CEO Mobile App.
+            - **Installments & Ledgers:** Full property deal tracking, agent commissions, investor funding, and contractor payouts.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
