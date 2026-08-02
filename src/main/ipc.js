@@ -962,14 +962,10 @@ function buildConstructionPaymentReceiptPayload(payment) {
       remainingAmount: payment.Remaining_After,
       note: payment.Notes,
     },
-  });
-}
-
-async function purgeLocalTownBusinessData(townName) {
+  async function purgeLocalTownBusinessData(townName) {
   const town = String(townName || '').trim();
   if (!town) return;
-  const { getGlobalsPath, getTownsPath, withFileWriteLock, writeWorkbookAtomic } = require('./db/core');
-  const ExcelJS = require('exceljs');
+  const { getGlobalsPath, getTownsPath, readExcelFile, withFileWriteLock, getWorkbook, writeWorkbookAtomic } = require('./db/core');
   const targetTownLower = town.toLowerCase();
 
   const files = [
@@ -980,7 +976,9 @@ async function purgeLocalTownBusinessData(townName) {
     'Town_Agents.xlsx', 'Investors.xlsx', 'Investor_Transactions.xlsx',
     'Construction_Projects.xlsx', 'Construction_Payments.xlsx',
     'Receipt_Archive.xlsx', 'Money_Ledger.xlsx', 'Town_Financial_Summary.xlsx',
-    'Town_Map_Shapes.xlsx', 'Employees_V2.xlsx', 'Advance_Salaries.xlsx', 'Salary_Payments.xlsx', 'Pending_Sync.xlsx'
+    'Town_Map_Shapes.xlsx', 'Employees_V2.xlsx', 'Employees.xlsx',
+    'Advance_Salaries.xlsx', 'Salary_Payments.xlsx', 'Cash_Bank_Accounts.xlsx',
+    'Town_Prices.xlsx', 'Pending_Sync.xlsx', 'Pending_Appeals.xlsx'
   ];
 
   for (const file of files) {
@@ -988,38 +986,26 @@ async function purgeLocalTownBusinessData(townName) {
     if (!fs.existsSync(fp)) continue;
     try {
       await withFileWriteLock(fp, async () => {
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.readFile(fp);
-        const sheet = workbook.getWorksheet('Data') || workbook.worksheets[0];
-        if (!sheet) return;
-        
-        let townColIdx = -1;
-        const headerRow = sheet.getRow(1);
-        headerRow.eachCell((cell, colNumber) => {
-          const v = String(cell.value || '').trim().toLowerCase().replace(/_/g, ' ');
-          if (v === 'town name') townColIdx = colNumber;
-        });
-        
-        if (townColIdx === -1) return;
-        
-        let rowsToDelete = [];
-        sheet.eachRow((row, rowNumber) => {
-          if (rowNumber <= 1) return;
-          const cellValue = String(row.getCell(townColIdx).value || '').trim();
-          if (cellValue.toLowerCase() === targetTownLower) {
-            rowsToDelete.push(rowNumber);
+        const rows = await readExcelFile(fp, 'Data').catch(() => []);
+        const toDelete = rows.filter((r) => {
+          const val = String(r.Town_Name || r.town_name || r.Town || r.townName || '').trim().toLowerCase();
+          return val === targetTownLower;
+        }).map((r) => r._rowNumber).filter(Boolean).sort((a, b) => b - a);
+
+        if (toDelete.length > 0) {
+          const workbook = await getWorkbook(fp);
+          const sheet = workbook.getWorksheet('Data') || workbook.worksheets[0];
+          if (sheet) {
+            for (const rNum of toDelete) {
+              sheet.spliceRows(rNum, 1);
+            }
+            await writeWorkbookAtomic(fp, workbook);
           }
-        });
-        
-        if (rowsToDelete.length > 0) {
-          rowsToDelete.sort((a, b) => b - a);
-          for (const r of rowsToDelete) {
-            sheet.spliceRows(r, 1);
-          }
-          await writeWorkbookAtomic(fp, workbook);
         }
       });
-    } catch (_) {}
+    } catch (err) {
+      console.error(`Error purging local file ${file} for town ${town}:`, err);
+    }
   }
   
   // Wipe town directory and properties files
@@ -1033,14 +1019,14 @@ async function purgeLocalTownBusinessData(townName) {
 
     if (fs.existsSync(townsDir)) {
       for (const d of fs.readdirSync(townsDir)) {
-        if (String(d).trim().toLowerCase() === targetLower) {
+        if (String(d).trim().toLowerCase() === targetLower || String(d).trim().toLowerCase() === targetTownLower) {
           try { fs.rmSync(path.join(townsDir, d), { recursive: true, force: true }); } catch (_) {}
         }
       }
     }
     if (fs.existsSync(propsBase)) {
       for (const d of fs.readdirSync(propsBase)) {
-        if (String(d).trim().toLowerCase() === targetLower) {
+        if (String(d).trim().toLowerCase() === targetLower || String(d).trim().toLowerCase() === targetTownLower) {
           try { fs.rmSync(path.join(propsBase, d), { recursive: true, force: true }); } catch (_) {}
         }
       }
@@ -1081,14 +1067,21 @@ async function purgeCloudTownBusinessData(townName) {
     'properties',
     'appeals',
     'audit_schedules',
-    'locker_audits'
+    'locker_audits',
+    'cash_bank_accounts',
+    'town_prices',
+    'towns'
   ];
   for (const table of tables) {
     try { await onlineDb.deleteWhereCaseInsensitive(table, { Town_Name: town }); } catch (_) {}
   }
   // Deactivate all accountants assigned to this town
   try { await onlineDb.updateWhere('users', { role: 'accountant', town_name: town }, { is_active: false }); } catch (_) {}
-  try { await onlineDb.updateWhere('users', { role: 'accountant', town_id: town }, { is_active: false }); } catch (_) {}
+  try {
+    const supabase = require('./db/supabase');
+    await supabase.from('users').update({ is_active: false }).ilike('town_id', town).eq('role', 'accountant');
+    await supabase.from('users').update({ is_active: false }).ilike('town_name', town).eq('role', 'accountant');
+  } catch (_) {}
 }
 
 async function handleFactoryReset(dbPath) {
