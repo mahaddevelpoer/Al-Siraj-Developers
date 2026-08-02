@@ -97,17 +97,19 @@ async function saveReceiptArchive(data) {
   return row;
 }
 
+const matchesTown = (val, target) => !target || String(val || '').trim().toLowerCase() === String(target || '').trim().toLowerCase();
+
 async function getReceiptArchive(townName, receiptType) {
   const all = await rows('receiptArchive');
   return all.filter(r =>
-    (!townName || String(r.Town_Name) === String(townName)) &&
+    matchesTown(r.Town_Name, townName) &&
     (!receiptType || String(r.Receipt_Type) === String(receiptType))
   );
 }
 
 async function getTownAgents(townName) {
   const all = await rows('agents');
-  return all.filter(a => (!townName || String(a.Town_Name) === String(townName)) && String(a.Status || 'Active') !== 'Deleted');
+  return all.filter(a => matchesTown(a.Town_Name, townName) && String(a.Status || 'Active') !== 'Deleted');
 }
 
 async function addTownAgent(data) {
@@ -131,7 +133,7 @@ async function addTownAgent(data) {
 
 async function getInvestors(townName) {
   const all = await rows('investors');
-  return all.filter(i => (!townName || String(i.Town_Name) === String(townName)) && String(i.Status || 'Active') !== 'Deleted');
+  return all.filter(i => matchesTown(i.Town_Name, townName) && String(i.Status || 'Active') !== 'Deleted');
 }
 
 async function addInvestor(data) {
@@ -225,12 +227,12 @@ async function investorTransaction(data) {
 
 async function getInvestorTransactions(townName, investorId) {
   const all = await rows('investorTx');
-  return all.filter(t => (!townName || String(t.Town_Name) === String(townName)) && (!investorId || String(t.Investor_ID) === String(investorId)));
+  return all.filter(t => matchesTown(t.Town_Name, townName) && (!investorId || String(t.Investor_ID) === String(investorId)));
 }
 
 async function getConstructionProjects(townName) {
   const all = await rows('construction');
-  return all.filter(p => (!townName || String(p.Town_Name) === String(townName)) && String(p.Status || 'Active') !== 'Deleted');
+  return all.filter(p => matchesTown(p.Town_Name, townName) && String(p.Status || 'Active') !== 'Deleted');
 }
 
 async function addConstructionProject(data) {
@@ -370,7 +372,7 @@ async function recordConstructionPayment(data) {
 
 async function getConstructionPayments(townName) {
   const all = await rows('constructionPayments');
-  return all.filter(p => !townName || String(p.Town_Name) === String(townName));
+  return all.filter(p => matchesTown(p.Town_Name, townName));
 }
 
 async function recordCommissionReceipt(data) {

@@ -692,11 +692,12 @@ async function getInstallmentProperties(townName) {
     getAllSales(),
     getAllInstallments(),
   ]);
+  const targetTownLower = String(townName || '').trim().toLowerCase();
   const townSales = (sales || []).filter((sale) => {
-    if (String(sale.Town_Name || '') !== String(townName || '')) return false;
+    if (String(sale.Town_Name || '').trim().toLowerCase() !== targetTownLower) return false;
     const total = parseInt(sale.Total_Installments || sale.Total_Months, 10) || 0;
     const hasRows = (installments || []).some((inst) =>
-      String(inst.Town_Name || '') === String(townName || '') &&
+      String(inst.Town_Name || '').trim().toLowerCase() === targetTownLower &&
       String(inst.Type || '') === String(sale.Type || '') &&
       String(inst.Plot_Shop_Number || '') === String(sale.Plot_Shop_Number || '')
     );
@@ -705,7 +706,7 @@ async function getInstallmentProperties(townName) {
 
   return townSales.map((sale) => {
     const rows = (installments || []).filter((inst) =>
-      String(inst.Town_Name || '') === String(townName || '') &&
+      String(inst.Town_Name || '').trim().toLowerCase() === targetTownLower &&
       String(inst.Type || '') === String(sale.Type || '') &&
       String(inst.Plot_Shop_Number || '') === String(sale.Plot_Shop_Number || '')
     );
@@ -1061,7 +1062,8 @@ async function getDashboardStats() {
   const soldShops = allSales.filter(s => s.Type === 'Shop').length;
 
   const townPerformance = allTowns.map(town => {
-    const summary = summaries.find((s) => String(s.Town_Name || s.town_name || '') === String(town.Town_Name));
+    const targetTownLower = String(town.Town_Name || '').trim().toLowerCase();
+    const summary = summaries.find((s) => String(s.Town_Name || s.town_name || '').trim().toLowerCase() === targetTownLower);
     return {
       name: town.Town_Name,
       income: parseFloat(summary?.Total_Received || summary?.total_received) || 0,

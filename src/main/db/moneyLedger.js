@@ -362,10 +362,11 @@ async function computePendingCollection(townName) {
     }
     return String(sale.Type || '') === String(installment.Type || '') &&
       String(sale.Plot_Shop_Number || '') === String(installment.Plot_Shop_Number || '') &&
-      String(sale.Town_Name || '') === String(installment.Town_Name || '');
+      String(sale.Town_Name || '').trim().toLowerCase() === String(installment.Town_Name || '').trim().toLowerCase();
   };
+  const targetLower = String(townName || '').trim().toLowerCase();
   return sales
-    .filter((s) => !townName || String(s.Town_Name || '') === String(townName))
+    .filter((s) => !townName || String(s.Town_Name || '').trim().toLowerCase() === targetLower)
     .filter((s) => !['cancelled', 'resold'].includes(String(s.Status || '').trim().toLowerCase()))
     .reduce((sum, s) => {
       const total = toMoney(s.Total_Amount_PKR);
@@ -384,8 +385,9 @@ async function computeInvestorBalance(townName) {
   const globals = getGlobalsPath();
   try {
     const investors = await readExcelFile(path.join(globals, 'Investors.xlsx'), 'Data');
+    const targetLower = String(townName || '').trim().toLowerCase();
     return investors
-      .filter((i) => !townName || String(i.Town_Name || '') === String(townName))
+      .filter((i) => !townName || String(i.Town_Name || '').trim().toLowerCase() === targetLower)
       .reduce((sum, i) => sum + toMoney(i.Balance), 0);
   } catch (_) {
     return 0;
@@ -408,7 +410,8 @@ async function refreshTownFinancialSummary(townName) {
     Investor_Balance: await computeInvestorBalance(town),
     Updated_At: new Date().toISOString(),
   };
-  const existing = rows.find((r) => String(r.Town_Name || '') === town);
+  const targetLower = town.toLowerCase();
+  const existing = rows.find((r) => String(r.Town_Name || '').trim().toLowerCase() === targetLower);
   if (existing?._rowNumber) {
     const { updateExcelRow } = require('./core');
     await updateExcelRow(fp, 'Data', existing._rowNumber, row);
@@ -451,7 +454,8 @@ async function getTownFinancialSummary(townName) {
   if (!town) return null;
   const fp = await ensureSummaryFile();
   const rows = await readExcelFile(fp, 'Data');
-  const row = rows.find((r) => String(r.Town_Name || '') === town);
+  const targetLower = town.toLowerCase();
+  const row = rows.find((r) => String(r.Town_Name || '').trim().toLowerCase() === targetLower);
   if (!row) return null;
   return {
     totalReceived: toMoney(row.Total_Received),
