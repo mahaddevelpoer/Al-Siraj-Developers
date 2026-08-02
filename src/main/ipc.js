@@ -962,7 +962,10 @@ function buildConstructionPaymentReceiptPayload(payment) {
       remainingAmount: payment.Remaining_After,
       note: payment.Notes,
     },
-  async function purgeLocalTownBusinessData(townName) {
+  });
+}
+
+async function purgeLocalTownBusinessData(townName) {
   const town = String(townName || '').trim();
   if (!town) return;
   const { getGlobalsPath, getTownsPath, readExcelFile, withFileWriteLock, getWorkbook, writeWorkbookAtomic } = require('./db/core');
