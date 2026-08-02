@@ -94,8 +94,9 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
       const shops = Array.isArray(all?.shops) ? all.shops : [];
       entries = townList.map((town) => {
         const townName = town.Town_Name || town.town_name || '';
-        const soldPlots = plots.filter((p) => String(p.Town_Name || p.town_name || '') === townName && String(p.Status || p.status || '').toLowerCase() === 'sold').length;
-        const soldShops = shops.filter((s) => String(s.Town_Name || s.town_name || '') === townName && String(s.Status || s.status || '').toLowerCase() === 'sold').length;
+        const targetTownLower = String(townName).trim().toLowerCase();
+        const soldPlots = plots.filter((p) => String(p.Town_Name || p.town_name || '').trim().toLowerCase() === targetTownLower && String(p.Status || p.status || '').toLowerCase() === 'sold').length;
+        const soldShops = shops.filter((s) => String(s.Town_Name || s.town_name || '').trim().toLowerCase() === targetTownLower && String(s.Status || s.status || '').toLowerCase() === 'sold').length;
         return { name: townName, soldPlots, soldShops };
       });
     } catch {

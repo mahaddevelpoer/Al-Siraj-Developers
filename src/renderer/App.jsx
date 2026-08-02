@@ -686,7 +686,7 @@ function AppInner() {
     if (!loggedIn) return;
     if (userRole !== 'accountant') return;
     if (!assignedAccountantTown) return;
-    if (selectedTown?.Town_Name !== assignedAccountantTown) {
+    if (String(selectedTown?.Town_Name || '').trim().toLowerCase() !== String(assignedAccountantTown || '').trim().toLowerCase()) {
       setSelectedTown({ Town_Name: assignedAccountantTown });
     }
     if (panel !== 'ceo') setPanel('ceo');
