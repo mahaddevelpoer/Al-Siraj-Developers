@@ -70,7 +70,8 @@ function cashAccount(townName = '') {
 async function getRawAccounts(townName = '') {
   const fp = await ensureCashBankFile();
   const rows = await readExcelFile(fp, 'Data').catch(() => []);
-  return rows.filter((row) => !townName || String(row.Town_Name || '') === String(townName));
+  const targetTownLower = String(townName || '').trim().toLowerCase();
+  return rows.filter((row) => !townName || String(row.Town_Name || '').trim().toLowerCase() === targetTownLower);
 }
 
 async function getPaymentAccounts(townName = '') {
@@ -112,7 +113,7 @@ async function addBankAccount(data = {}) {
   const fp = await ensureCashBankFile();
   const rows = await readExcelFile(fp, 'Data').catch(() => []);
   const exists = rows.find((row) =>
-    String(row.Town_Name || '') === townName &&
+    String(row.Town_Name || '').trim().toLowerCase() === townName.toLowerCase() &&
     String(row.Account_Name || '').trim().toLowerCase() === accountName.toLowerCase() &&
     String(row.Status || 'active').toLowerCase() !== 'archived'
   );
