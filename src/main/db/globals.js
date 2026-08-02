@@ -617,12 +617,14 @@ async function getDashboardStats() {
   const sales = await readExcelFile(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data');
   const { getTowns } = require('./towns');
   const towns = await getTowns();
+  const activeTownNames = new Set((towns || []).map((t) => String(t.Town_Name || '').trim().toLowerCase()));
   for (const town of towns) {
     if (town?.Town_Name) {
       await refreshTownFinancialSummary(town.Town_Name).catch(() => {});
     }
   }
-  const summaries = await getAllTownFinancialSummaries();
+  const allSummaries = await getAllTownFinancialSummaries();
+  const summaries = (allSummaries || []).filter((s) => activeTownNames.has(String(s.Town_Name || '').trim().toLowerCase()));
   const money = summaries.length
     ? {
       totalReceived: summaries.reduce((s, r) => s + (parseFloat(r.Total_Received) || 0), 0),

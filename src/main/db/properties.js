@@ -286,8 +286,17 @@ async function getAllProperties() {
 async function sellProperty(data) {
   const { type, number, townName } = data;
 
-  const current = await getPropertyFile(type, number, townName);
-  if (!current) throw new Error('Property not found');
+  let current = await getPropertyFile(type, number, townName);
+  if (!current) {
+    const total = parseFloat(data.Deal_Amount_PKR ?? data.Total_Amount_PKR) || 0;
+    if (type === 'Plot') {
+      await addPlot({ Plot_Number: number, Town_Name: townName, Total_Price: total, Status: 'Available' });
+    } else {
+      await addShop({ Shop_Number: number, Town_Name: townName, Total_Price: total, Status: 'Available' });
+    }
+    current = await getPropertyFile(type, number, townName);
+  }
+  if (!current) throw new Error('Property not found and could not be created');
   const st = String(current.Status || '').toLowerCase();
   if (st === 'sold' || st === 'resold') {
     throw new Error(`${type} ${number} is already ${current.Status}. Use CEO Resell / Deal Cancel.`);

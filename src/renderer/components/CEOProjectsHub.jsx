@@ -120,6 +120,7 @@ export default function CEOProjectsHub({ activePage, refreshKey = 0, onTownSelec
           } else {
             localStorage.removeItem(`al_siraj_pending_appeals_${town.Town_Name}`);
             showToast(`${town.Town_Name} deleted!`);
+            setTowns((prev) => prev.filter((t) => String(t.Town_Name || '').trim().toLowerCase() !== String(town.Town_Name || '').trim().toLowerCase()));
             loadTowns();
           }
         } catch (e) {

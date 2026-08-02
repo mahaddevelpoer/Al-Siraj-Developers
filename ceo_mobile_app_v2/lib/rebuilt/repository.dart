@@ -109,14 +109,12 @@ class CeoRepository {
     final entries = results[2];
     final sales = results[3];
     final summaryRows = results[4];
-    final townNames = <String>{
-      ...towns.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'])),
-      ...summaryRows.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'])),
-      ...entries.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'])),
-      ...sales.map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name'])),
-      ...appeals.map((row) => textOf(_townOfAppeal(row))),
-    }.where((name) => name.isNotEmpty && name.toLowerCase() != 'null').toList()
-      ..sort();
+    final activeTownSet = towns
+        .map((row) => textOf(rowValue(row, 'Town_Name') ?? row['town_name']))
+        .where((name) => name.isNotEmpty && name.toLowerCase() != 'null')
+        .toSet();
+
+    final townNames = activeTownSet.toList()..sort();
 
     final summaries = townNames.map((town) {
       final summary = summaryRows.firstWhere(

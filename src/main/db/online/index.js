@@ -767,8 +767,19 @@ async function createNotification(notif) {
 async function sellProperty(data) {
   const { type, number, townName } = data;
 
-  const property = await getProperty(type, number, townName);
-  if (!property) throw new Error('Property not found');
+  let property = await getProperty(type, number, townName);
+  if (!property) {
+    const total = parseFloat(data.Deal_Amount_PKR ?? data.Total_Amount_PKR) || 0;
+    await insert('properties', {
+      Property_Type: type,
+      Property_Number: String(number),
+      Town_Name: townName,
+      Total_Price: total,
+      Status: 'Available',
+    }).catch(() => {});
+    property = await getProperty(type, number, townName);
+  }
+  if (!property) throw new Error('Property not found in cloud');
   const st = String(property.Status || '').toLowerCase();
   if (st === 'sold' || st === 'resold') {
     throw new Error(`${type} ${number} is already ${property.Status}. Use CEO Resell / Deal Cancel.`);
@@ -1053,13 +1064,17 @@ async function getDashboardStats() {
     getAllSales().catch(() => []),
   ]);
 
-  const totalReceived = summaries.reduce((s, r) => s + (parseFloat(r.Total_Received || r.total_received) || 0), 0);
-  const totalExpenses = summaries.reduce((s, r) => s + (parseFloat(r.Total_Expenses || r.total_expenses) || 0), 0);
-  const cashBalance = summaries.reduce((s, r) => s + (parseFloat(r.Cash_Balance || r.cash_balance) || 0), 0);
-  const totalPending = allSales.reduce((s, r) => s + (parseFloat(r.Remaining_Amount) || 0), 0);
+  const activeTownNames = new Set((allTowns || []).map((t) => String(t.Town_Name || t.town_name || '').trim().toLowerCase()));
+  const activeSummaries = (summaries || []).filter((s) => activeTownNames.has(String(s.Town_Name || s.town_name || '').trim().toLowerCase()));
+  const activeSales = (allSales || []).filter((s) => activeTownNames.has(String(s.Town_Name || s.town_name || '').trim().toLowerCase()));
+
+  const totalReceived = activeSummaries.reduce((s, r) => s + (parseFloat(r.Total_Received || r.total_received) || 0), 0);
+  const totalExpenses = activeSummaries.reduce((s, r) => s + (parseFloat(r.Total_Expenses || r.total_expenses) || 0), 0);
+  const cashBalance = activeSummaries.reduce((s, r) => s + (parseFloat(r.Cash_Balance || r.cash_balance) || 0), 0);
+  const totalPending = activeSales.reduce((s, r) => s + (parseFloat(r.Remaining_Amount) || 0), 0);
   const totalCommission = 0;
-  const soldPlots = allSales.filter(s => s.Type === 'Plot').length;
-  const soldShops = allSales.filter(s => s.Type === 'Shop').length;
+  const soldPlots = activeSales.filter(s => s.Type === 'Plot').length;
+  const soldShops = activeSales.filter(s => s.Type === 'Shop').length;
 
   const townPerformance = allTowns.map(town => {
     const targetTownLower = String(town.Town_Name || '').trim().toLowerCase();
