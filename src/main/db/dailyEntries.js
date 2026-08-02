@@ -214,7 +214,7 @@ async function deleteDailyEntry({ entryId }) {
       await deleteMatchingMirrorRows(path.join(globalsPath, 'All_Expenses.xlsx'), (e) => {
         const linked = String(e.Daily_Entry_ID || e.Expense_ID || '') === String(entryId);
         const legacyMatch =
-          String(e.Town_Name || '') === town &&
+          String(e.Town_Name || '').trim().toLowerCase() === town.trim().toLowerCase() &&
           String(e.Date || '') === date &&
           (parseFloat(e.Amount_PKR) || 0) === amount &&
           String(e.Category || '').toLowerCase() === String(match.Category || 'Daily').toLowerCase() &&
@@ -226,7 +226,7 @@ async function deleteDailyEntry({ entryId }) {
         const linked = String(s.Daily_Entry_ID || s.Sale_ID || '') === String(entryId);
         const legacyMatch =
           String(s.Type || '').toLowerCase() === 'daily income' &&
-          String(s.Town_Name || '') === town &&
+          String(s.Town_Name || '').trim().toLowerCase() === town.trim().toLowerCase() &&
           String(s.Sell_Date || '') === date &&
           (parseFloat(s.Total_Amount_PKR) || 0) === amount &&
           (!description || String(s.Customer_Name || '') === description || String(s.Customer_Name || '') === 'Daily Income');

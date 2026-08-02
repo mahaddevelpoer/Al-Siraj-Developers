@@ -543,7 +543,7 @@ async function updateFileStatus(params) {
   const match = allSales.find(s => 
     String(s.Type) === String(type) &&
     String(s.Plot_Shop_Number) === String(number) &&
-    String(s.Town_Name) === String(townName) &&
+    String(s.Town_Name || '').trim().toLowerCase() === String(townName || '').trim().toLowerCase() &&
     String(s.Status).toLowerCase() === 'sold'
   );
   if (match) {
@@ -599,11 +599,12 @@ async function cancelDeal(data) {
 
   // Remove sale row (match by town/type/number/receipt, prefer latest)
   const allSales = await readExcelFile(salesPath, 'Data');
+  const targetTownLower = String(townName || '').trim().toLowerCase();
   const matches = allSales
     .filter(s =>
       String(s.Type || '') === String(type) &&
       String(s.Plot_Shop_Number || '') === String(number) &&
-      String(s.Town_Name || '') === String(townName) &&
+      String(s.Town_Name || '').trim().toLowerCase() === targetTownLower &&
       String(s.Receipt_Number || '').trim() === String(Receipt_Number).trim() &&
       String(s.Status || '').toLowerCase() === 'sold'
     )
@@ -614,7 +615,7 @@ async function cancelDeal(data) {
   // Remove all installments rows for this property (if any)
   const allInst = await readExcelFile(instPath, 'Data');
   const instRows = allInst
-    .filter(i => String(i.Type || '') === String(type) && String(i.Plot_Shop_Number || '') === String(number) && String(i.Town_Name || '') === String(townName))
+    .filter(i => String(i.Type || '') === String(type) && String(i.Plot_Shop_Number || '') === String(number) && String(i.Town_Name || '').trim().toLowerCase() === targetTownLower)
     .map(i => i._rowNumber)
     .filter(Boolean)
     .sort((a, b) => b - a); // delete bottom-up
@@ -625,7 +626,7 @@ async function cancelDeal(data) {
   // Remove sale expense rows for this property (best-effort)
   const allExp = await readExcelFile(expPath, 'Data');
   const expRows = allExp
-    .filter(e => String(e.Town_Name || '') === String(townName) && String(e.Expense_Name || '').includes(`Sale Expense - ${type} ${number}`))
+    .filter(e => String(e.Town_Name || '').trim().toLowerCase() === targetTownLower && String(e.Expense_Name || '').includes(`Sale Expense - ${type} ${number}`))
     .map(e => e._rowNumber)
     .filter(Boolean)
     .sort((a, b) => b - a);
@@ -640,7 +641,7 @@ async function cancelDeal(data) {
     if (
       String(row.Type || '') === String(type) && 
       String(row.Plot_Shop_Number || '') === String(number) && 
-      String(row.Town_Name || '') === String(townName) && 
+      String(row.Town_Name || '').trim().toLowerCase() === targetTownLower && 
       String(row.Status || '').toLowerCase() === 'paid'
     ) {
       totalPaidInstallments += parseFloat(row.Received_Amount) || parseFloat(row.Monthly_Amount) || 0;
@@ -708,7 +709,8 @@ async function updateTownFinancials(townName) {
   const money = await getMoneySummary(townName);
   // Get all sales for this town
   const sales = await readExcelFile(path.join(getGlobalsPath(), 'All_Sales.xlsx'), 'Data');
-  const townSales = sales.filter(s => s.Town_Name === townName);
+  const targetTownLower = String(townName || '').trim().toLowerCase();
+  const townSales = sales.filter(s => String(s.Town_Name || '').trim().toLowerCase() === targetTownLower);
   const totalIncome = money.totalReceived;
   const totalExpenses = money.totalExpenses;
   const profitLoss = money.cashBalance;
