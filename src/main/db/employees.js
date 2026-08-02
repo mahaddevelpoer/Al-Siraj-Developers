@@ -212,7 +212,7 @@ class EmployeeDB {
       if (rowNumber === 1) return;
       const id = row.getCell(1).value;
       if (!id && id !== 0) return;
-      if (townName    && row.getCell(2).value !== townName)    return;
+      if (townName && String(row.getCell(2).value || '').trim().toLowerCase() !== String(townName).trim().toLowerCase()) return;
       if (employeeName && row.getCell(3).value !== employeeName) return;
       if (row.getCell(10).value !== 'Active') return;
 
