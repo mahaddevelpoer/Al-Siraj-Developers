@@ -57,6 +57,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
     setSelectedInvestorId(result.Investor_ID || '');
     setTx(f => ({ ...f, Investor_ID: result.Investor_ID || f.Investor_ID }));
     setShowAddInvestor(false);
+    window.dispatchEvent(new CustomEvent('al-siraj-business-data-changed', { detail: { events: ['investor:changed'], townName } }));
     load();
   };
 
@@ -82,6 +83,7 @@ export default function InvestorDashboard({ townName, showToast, refreshKey = 0 
       note: result.Notes || tx.Notes,
     });
     setTx({ Investor_ID: '', Type: 'Credit', Amount: '', Date: new Date().toISOString().split('T')[0], Notes: '' });
+    window.dispatchEvent(new CustomEvent('al-siraj-business-data-changed', { detail: { events: ['investor:changed'], townName } }));
     load();
   };
 

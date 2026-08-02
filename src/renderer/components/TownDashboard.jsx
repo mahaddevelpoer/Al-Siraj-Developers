@@ -229,7 +229,7 @@ function TownOverview({ town, refreshKey = 0, onNavigate, showToast }) {
   const [exporting, setExporting] = useState(false);
   const [viewerModal, setViewerModal] = useState(null);
 
-  useEffect(() => { loadStats(); }, []);
+  useEffect(() => { loadStats(); }, [town?.Town_Name]);
 
   useEffect(() => {
     if (refreshKey > 0) loadStats();
@@ -239,24 +239,34 @@ function TownOverview({ town, refreshKey = 0, onNavigate, showToast }) {
     loadReport();
   }, [town?.Town_Name, reportFrom, reportTo, refreshKey]);
 
+  useEffect(() => {
+    const onDataChanged = () => { loadStats(); loadReport(); };
+    window.addEventListener('al-siraj-business-data-changed', onDataChanged);
+    window.addEventListener('al-siraj-data-refreshed', onDataChanged);
+    return () => {
+      window.removeEventListener('al-siraj-business-data-changed', onDataChanged);
+      window.removeEventListener('al-siraj-data-refreshed', onDataChanged);
+    };
+  }, [town?.Town_Name]);
+
   const loadStats = async () => {
     if (!window.api || !town?.Town_Name) { setLoading(false); return; }
     try {
       const [plots, shops] = await Promise.all([
-        window.api.getAllPlots(town.Town_Name),
-        window.api.getAllShops(town.Town_Name),
+        window.api.getAllPlots(town.Town_Name).catch(() => []),
+        window.api.getAllShops(town.Town_Name).catch(() => []),
       ]);
       const [investors, construction, performance] = await Promise.all([
         window.api.getInvestors?.(town.Town_Name).catch(() => []),
         window.api.getConstructionProjects?.(town.Town_Name).catch(() => []),
         window.api.getTownPerformance?.(town.Town_Name).catch(() => null),
       ]);
-      const soldPlots = Array.isArray(plots) ? plots.filter(p => p.Status === 'Sold').length : 0;
-      const soldShops = Array.isArray(shops) ? shops.filter(s => s.Status === 'Sold').length : 0;
+      const soldPlots = Array.isArray(plots) ? plots.filter(p => String(p.Status || p.status || '').toLowerCase() === 'sold').length : 0;
+      const soldShops = Array.isArray(shops) ? shops.filter(s => String(s.Status || s.status || '').toLowerCase() === 'sold').length : 0;
       const totalPlots = Array.isArray(plots) ? plots.length : 0;
       const totalShops = Array.isArray(shops) ? shops.length : 0;
-      const investorBalance = Array.isArray(investors) ? investors.reduce((sum, i) => sum + (parseFloat(i.Balance) || 0), 0) : 0;
-      const constructionPaid = Array.isArray(construction) ? construction.reduce((sum, p) => sum + (parseFloat(p.Paid_Amount) || 0), 0) : 0;
+      const investorBalance = Array.isArray(investors) ? investors.reduce((sum, i) => sum + (parseFloat(i.Balance ?? i.balance) || 0), 0) : 0;
+      const constructionPaid = Array.isArray(construction) ? construction.reduce((sum, p) => sum + (parseFloat(p.Paid_Amount ?? p.paid_amount) || 0), 0) : 0;
       setStats({ soldPlots, soldShops, totalPlots, totalShops, investorBalance, constructionPaid, performance });
     } catch { /* silent */ }
     setLoading(false);

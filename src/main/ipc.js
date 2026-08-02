@@ -1273,7 +1273,19 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertTownAccess(data.Town_Name);
       return await syncOnline(
         () => addPlot(data),
-        () => onlineDb.insert('properties', { Property_Type: 'Plot', Property_Number: data.Plot_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }),
+        () => onlineDb.insert('properties', {
+          Property_Type: 'Plot',
+          Property_Number: String(data.Plot_Number),
+          Town_Name: data.Town_Name,
+          Status: 'Available',
+          Total_Price: parseFloat(data.Total_Price) || parseFloat(data.Price) || 0,
+          Per_Marla_Price: parseFloat(data.Per_Marla_Price) || 0,
+          Plot_Size: data.Plot_Size || '',
+          Plot_Marla: parseFloat(data.Plot_Marla) || 0,
+          Owner_Name: data.Owner_Name || '',
+          Property_Category: data.Property_Category || 'Residential',
+          Road_Type: data.Road_Type || '',
+        }),
         { tableName: 'properties', operation: 'insert', payload: { ...data, Property_Type: 'Plot', Property_Number: data.Plot_Number }, clientWriteId: `property-plot-${data.Town_Name}-${data.Plot_Number}` }
       );
     } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
@@ -1286,7 +1298,19 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
       assertTownAccess(data.Town_Name);
       return await syncOnline(
         () => addShop(data),
-        () => onlineDb.insert('properties', { Property_Type: 'Shop', Property_Number: data.Shop_Number, Town_Name: data.Town_Name, Status: 'Available', Price: parseFloat(data.Price) || 0 }),
+        () => onlineDb.insert('properties', {
+          Property_Type: 'Shop',
+          Property_Number: String(data.Shop_Number),
+          Town_Name: data.Town_Name,
+          Status: 'Available',
+          Total_Price: parseFloat(data.Total_Price) || parseFloat(data.Price) || 0,
+          Per_Marla_Price: parseFloat(data.Per_Marla_Price) || 0,
+          Shop_Size: data.Shop_Size || '',
+          Shop_Marla: parseFloat(data.Shop_Marla) || 0,
+          Owner_Name: data.Owner_Name || '',
+          Property_Category: data.Property_Category || 'Residential',
+          Road_Type: data.Road_Type || '',
+        }),
         { tableName: 'properties', operation: 'insert', payload: { ...data, Property_Type: 'Shop', Property_Number: data.Shop_Number }, clientWriteId: `property-shop-${data.Town_Name}-${data.Shop_Number}` }
       );
     } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }

@@ -193,10 +193,43 @@ async function getPropertyFile(type, number, townName) {
   const filePathNew = getPropertyPath(type, number, townName);
   const filePathLegacy = getLegacyPropertyPath(type, number, townName);
 
-  const filePath = fs.existsSync(filePathNew) ? filePathNew : (fs.existsSync(filePathLegacy) ? filePathLegacy : null);
+  let filePath = fs.existsSync(filePathNew) ? filePathNew : (fs.existsSync(filePathLegacy) ? filePathLegacy : null);
+
+  if (!filePath) {
+    const propPath = getPropertiesPath();
+    const targetTownLower = String(townName || '').trim().toLowerCase();
+    const targetNumberLower = String(number || '').trim().toLowerCase();
+    const targetNumberClean = targetNumberLower.replace(/[^a-z0-9]/gi, '');
+    const prefixLower = prefix.toLowerCase();
+
+    let townDir = path.join(propPath, safeFolderName(townName));
+    if (!fs.existsSync(townDir)) {
+      const subDirs = fs.readdirSync(propPath, { withFileTypes: true }).filter(d => d.isDirectory());
+      const match = subDirs.find(d => String(d.name).trim().toLowerCase() === targetTownLower);
+      if (match) townDir = path.join(propPath, match.name);
+    }
+
+    if (fs.existsSync(townDir)) {
+      const files = fs.readdirSync(townDir).catch(() => []);
+      for (const f of files) {
+        const fLower = String(f).toLowerCase();
+        if (!fLower.startsWith(`${prefixLower}_`) || !fLower.endsWith('.xlsx')) continue;
+        const parts = f.split('_');
+        if (parts.length >= 3) {
+          const fileNum = parts[1].trim().toLowerCase();
+          const fileNumClean = fileNum.replace(/[^a-z0-9]/gi, '');
+          if (fileNum === targetNumberLower || (targetNumberClean && fileNumClean === targetNumberClean)) {
+            filePath = path.join(townDir, f);
+            break;
+          }
+        }
+      }
+    }
+  }
+
   if (!filePath) return null;
 
-  const rows = await readExcelFile(filePath, `${prefix}_Details`);
+  const rows = await readExcelFile(filePath, `${prefix}_Details`).catch(() => []);
   return rows.length > 0 ? rows[0] : null;
 }
 
@@ -243,32 +276,46 @@ async function getAllPropertiesByTown(townName, type) {
   if (!fs.existsSync(propPath)) return [];
 
   const prefix = type === 'Plot' ? 'Plot' : 'Shop';
+  const prefixLower = prefix.toLowerCase();
   const collectFiles = (dir) => {
     if (!fs.existsSync(dir)) return [];
     return fs.readdirSync(dir)
-      .filter(f => f.startsWith(`${prefix}_`) && f.endsWith('.xlsx'))
+      .filter(f => String(f).toLowerCase().startsWith(`${prefixLower}_`) && String(f).toLowerCase().endsWith('.xlsx'))
       .map(f => ({ fileName: f, filePath: path.join(dir, f) }));
   };
 
   let fileEntries = [];
   if (townName) {
-    // New layout: only inside town folder, plus legacy root fallback
-    const townDir = path.join(propPath, safeFolderName(townName));
-    fileEntries = collectFiles(townDir)
-      .filter(e => e.fileName.endsWith(`_${townName}.xlsx`))
-      .concat(collectFiles(propPath).filter(e => e.fileName.endsWith(`_${townName}.xlsx`)));
+    const targetTownLower = String(townName || '').trim().toLowerCase();
+    let townDir = path.join(propPath, safeFolderName(townName));
+    if (!fs.existsSync(townDir)) {
+      const subDirs = fs.readdirSync(propPath, { withFileTypes: true }).filter(d => d.isDirectory());
+      const match = subDirs.find(d => String(d.name).trim().toLowerCase() === targetTownLower);
+      if (match) townDir = path.join(propPath, match.name);
+    }
+    
+    // In townDir, ALL files of this type belong to this town
+    const townDirFiles = collectFiles(townDir);
+    const rootFiles = collectFiles(propPath).filter(e => {
+      const parts = e.fileName.split('_');
+      const fileTown = parts.slice(2).join('_').replace(/\.xlsx$/i, '').trim().toLowerCase();
+      return fileTown === targetTownLower;
+    });
+    fileEntries = [...townDirFiles, ...rootFiles];
   } else {
-    // All towns: scan subfolders + legacy root
     const subDirs = fs.readdirSync(propPath, { withFileTypes: true })
       .filter(d => d.isDirectory())
       .map(d => path.join(propPath, d.name));
     for (const d of subDirs) fileEntries.push(...collectFiles(d));
-    fileEntries.push(...collectFiles(propPath)); // legacy root
+    fileEntries.push(...collectFiles(propPath));
   }
 
   const results = [];
+  const seenPaths = new Set();
   for (const entry of fileEntries) {
-    const rows = await readExcelFile(entry.filePath, `${prefix}_Details`);
+    if (seenPaths.has(entry.filePath)) continue;
+    seenPaths.add(entry.filePath);
+    const rows = await readExcelFile(entry.filePath, `${prefix}_Details`).catch(() => []);
     if (rows.length > 0) {
       rows[0]._fileName = entry.fileName;
       results.push(rows[0]);
