@@ -203,6 +203,20 @@ async function deleteWhere(table, match) {
   return { success: true };
 }
 
+async function deleteWhereCaseInsensitive(table, match) {
+  let query = supabase.from(table).delete();
+  for (const [key, val] of Object.entries(toCloudMatch(table, match))) {
+    if (typeof val === 'string' && val.length > 0) {
+      query = query.ilike(key, val.trim());
+    } else {
+      query = query.eq(key, val);
+    }
+  }
+  const { error } = await query;
+  if (error) throw error;
+  return { success: true };
+}
+
 async function findOne(table, match) {
   let query = supabase.from(table).select('*');
   const accountantTown = getAccountantTownFilter();
@@ -1382,7 +1396,7 @@ async function markCommissionPaid(commissionId) {
 
 module.exports = {
   nukeCloudData,
-  getAll, insert, updateWhere, deleteWhere, findOne, findMany, generateId,
+  getAll, insert, updateWhere, deleteWhere, deleteWhereCaseInsensitive, findOne, findMany, generateId,
   addDailyEntry, recordMoneyEvent,
   // Properties
   getProperty, getAllProperties, getSoldProperties, getPropertiesByTown, updateProperty,

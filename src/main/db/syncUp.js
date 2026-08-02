@@ -34,7 +34,11 @@ function getScopedTown() {
 
 function scopedRows(rows, townName) {
   if (!townName) return rows || [];
-  return (rows || []).filter((row) => String(row?.Town_Name || row?.town_name || row?.townName || '') === townName);
+  const target = String(townName).trim().toLowerCase();
+  return (rows || []).filter((row) => {
+    const val = String(row?.Town_Name || row?.town_name || row?.townName || '').trim().toLowerCase();
+    return val === target;
+  });
 }
 
 async function performFullSyncUp(reportProgress, options = {}) {

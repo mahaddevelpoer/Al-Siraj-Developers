@@ -125,7 +125,11 @@ function mapGenericFromCloud(columns, row) {
 
 function scopedRows(rows, townName) {
   if (!townName) return rows || [];
-  return (rows || []).filter((row) => String(getRowVal(row, 'Town_Name') || row?.townName || '') === townName);
+  const target = String(townName).trim().toLowerCase();
+  return (rows || []).filter((row) => {
+    const val = String(getRowVal(row, 'Town_Name') || row?.townName || row?.Town_Name || row?.town_name || '').trim().toLowerCase();
+    return val === target;
+  });
 }
 
 async function performFullSync(reportProgress = () => {}) {

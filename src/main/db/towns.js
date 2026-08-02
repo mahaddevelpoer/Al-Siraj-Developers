@@ -126,7 +126,8 @@ async function getTownPrices(townName) {
   const filePath = path.join(getGlobalsPath(), 'Town_Prices.xlsx');
   if (!fs.existsSync(filePath)) return null;
   const rows = await readExcelFile(filePath, 'Data');
-  const townRow = rows.find(r => r.Town_Name === townName);
+  const targetLower = String(townName || '').trim().toLowerCase();
+  const townRow = rows.find(r => String(r.Town_Name || '').trim().toLowerCase() === targetLower);
   if (!townRow) return null;
   return {
     ...townRow,
@@ -170,7 +171,8 @@ async function setTownPrices(townName, prices) {
   }
 
   const rows = await readExcelFile(filePath, 'Data');
-  const existingIndex = rows.findIndex(r => r.Town_Name === townName);
+  const targetLower = String(townName || '').trim().toLowerCase();
+  const existingIndex = rows.findIndex(r => String(r.Town_Name || '').trim().toLowerCase() === targetLower);
   
   const updatedData = {
     Town_Name: townName,
@@ -341,10 +343,25 @@ async function updateTown(townName, data) {
 }
 
 async function deleteTown(townName) {
-  const filePath = path.join(getTownsPath(), `${townName}.xlsx`);
-  if (!fs.existsSync(filePath)) throw new Error(`Town "${townName}" not found`);
-  fs.unlinkSync(filePath);
-  syncMirrorsForFile(filePath);
+  const townsPath = getTownsPath();
+  if (fs.existsSync(townsPath)) {
+    const targetLower = String(townName || '').trim().toLowerCase();
+    const files = fs.readdirSync(townsPath);
+    for (const file of files) {
+      const fullPath = path.join(townsPath, file);
+      const nameNoExt = path.basename(file, path.extname(file)).trim().toLowerCase();
+      if (nameNoExt === targetLower) {
+        try {
+          if (fs.statSync(fullPath).isDirectory()) {
+            fs.rmSync(fullPath, { recursive: true, force: true });
+          } else {
+            fs.unlinkSync(fullPath);
+          }
+          syncMirrorsForFile(fullPath);
+        } catch (_) {}
+      }
+    }
+  }
   return { success: true };
 }
 

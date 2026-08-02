@@ -833,7 +833,7 @@ function scopedTown(requestedTown, required = false) {
     return requestedTown;
   }
   const assignedTown = requireAccountantTown();
-  if (isNonEmpty(requestedTown) && String(requestedTown) !== assignedTown) {
+  if (isNonEmpty(requestedTown) && String(requestedTown).trim().toLowerCase() !== String(assignedTown).trim().toLowerCase()) {
     throw new Error(`Access denied. This accountant is assigned only to "${assignedTown}".`);
   }
   return assignedTown;
@@ -970,6 +970,8 @@ async function purgeLocalTownBusinessData(townName) {
   if (!town) return;
   const { getGlobalsPath, getTownsPath, withFileWriteLock, writeWorkbookAtomic } = require('./db/core');
   const ExcelJS = require('exceljs');
+  const targetTownLower = town.toLowerCase();
+
   const files = [
     'All_Sales.xlsx', 'All_Expenses.xlsx', 'Installments_Tracker.xlsx',
     'Collection_Payments.xlsx', 'Resell_History.xlsx', 'CEO_Expenses.xlsx',
@@ -978,8 +980,9 @@ async function purgeLocalTownBusinessData(townName) {
     'Town_Agents.xlsx', 'Investors.xlsx', 'Investor_Transactions.xlsx',
     'Construction_Projects.xlsx', 'Construction_Payments.xlsx',
     'Receipt_Archive.xlsx', 'Money_Ledger.xlsx', 'Town_Financial_Summary.xlsx',
-    'Town_Map_Shapes.xlsx', 'Employees_V2.xlsx', 'Advance_Salaries.xlsx', 'Salary_Payments.xlsx'
+    'Town_Map_Shapes.xlsx', 'Employees_V2.xlsx', 'Advance_Salaries.xlsx', 'Salary_Payments.xlsx', 'Pending_Sync.xlsx'
   ];
+
   for (const file of files) {
     const fp = path.join(getGlobalsPath(), file);
     if (!fs.existsSync(fp)) continue;
@@ -987,7 +990,7 @@ async function purgeLocalTownBusinessData(townName) {
       await withFileWriteLock(fp, async () => {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(fp);
-        const sheet = workbook.getWorksheet('Data');
+        const sheet = workbook.getWorksheet('Data') || workbook.worksheets[0];
         if (!sheet) return;
         
         let townColIdx = -1;
@@ -1003,7 +1006,7 @@ async function purgeLocalTownBusinessData(townName) {
         sheet.eachRow((row, rowNumber) => {
           if (rowNumber <= 1) return;
           const cellValue = String(row.getCell(townColIdx).value || '').trim();
-          if (cellValue.toLowerCase() === town.toLowerCase()) {
+          if (cellValue.toLowerCase() === targetTownLower) {
             rowsToDelete.push(rowNumber);
           }
         });
@@ -1019,11 +1022,28 @@ async function purgeLocalTownBusinessData(townName) {
     } catch (_) {}
   }
   
-  // Delete the town's properties file entirely
+  // Wipe town directory and properties files
   try {
-    const propsFile = path.join(getTownsPath(), `${town}_Properties.xlsx`);
-    if (fs.existsSync(propsFile)) {
-      fs.rmSync(propsFile, { force: true });
+    const { getPropertiesPath, getTownsPath } = require('./db/core');
+    const townsDir = getTownsPath();
+    const propsBase = getPropertiesPath();
+
+    const safeTown = String(town).replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/\s+/g, ' ').trim();
+    const targetLower = safeTown.toLowerCase();
+
+    if (fs.existsSync(townsDir)) {
+      for (const d of fs.readdirSync(townsDir)) {
+        if (String(d).trim().toLowerCase() === targetLower) {
+          try { fs.rmSync(path.join(townsDir, d), { recursive: true, force: true }); } catch (_) {}
+        }
+      }
+    }
+    if (fs.existsSync(propsBase)) {
+      for (const d of fs.readdirSync(propsBase)) {
+        if (String(d).trim().toLowerCase() === targetLower) {
+          try { fs.rmSync(path.join(propsBase, d), { recursive: true, force: true }); } catch (_) {}
+        }
+      }
     }
   } catch (_) {}
 }
@@ -1059,9 +1079,12 @@ async function purgeCloudTownBusinessData(townName) {
     'town_financial_summary',
     'town_map_shapes',
     'properties',
+    'appeals',
+    'audit_schedules',
+    'locker_audits'
   ];
   for (const table of tables) {
-    try { await onlineDb.deleteWhere(table, { Town_Name: town }); } catch (_) {}
+    try { await onlineDb.deleteWhereCaseInsensitive(table, { Town_Name: town }); } catch (_) {}
   }
   // Deactivate all accountants assigned to this town
   try { await onlineDb.updateWhere('users', { role: 'accountant', town_name: town }, { is_active: false }); } catch (_) {}
@@ -1196,7 +1219,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
             const supabase = require('./db/supabase');
             await supabase.from('users').update({ is_active: false }).eq('town_id', townName).eq('role', 'accountant');
           } catch(e) {}
-          return await onlineDb.deleteWhere('towns', { Town_Name: townName });
+          return await onlineDb.deleteWhereCaseInsensitive('towns', { Town_Name: townName });
         },
         { tableName: 'towns', operation: 'delete', payload: { Town_Name: townName }, clientWriteId: `town-delete-${String(townName).trim().toLowerCase()}` }
       );
