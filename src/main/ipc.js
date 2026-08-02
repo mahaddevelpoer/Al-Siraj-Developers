@@ -4113,13 +4113,16 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
   ipcMain.handle('get-appeals', async (_, filter = {}) => {
     try {
       const supabase = require('./db/supabase');
-      const queryFilter = filter.status ? { status: filter.status } : {};
       let query = supabase
         .from('appeals')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(filter.limit || 100);
       if (filter.status) query = query.eq('status', filter.status);
+      const targetTown = isAccountantScoped() ? requireAccountantTown() : filter.townName;
+      if (targetTown) {
+        query = query.ilike('town_name', String(targetTown).trim());
+      }
       const { data, error } = await query;
       if (error) throw error;
       const appealsList = Array.isArray(data) ? data : [];
@@ -4160,13 +4163,18 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
     }
   });
 
-  ipcMain.handle('get-pending-appeals-count', async () => {
+  ipcMain.handle('get-pending-appeals-count', async (_, townName) => {
     try {
       const supabase = require('./db/supabase');
-      const { count, error } = await supabase
+      let query = supabase
         .from('appeals')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'pending');
+      const targetTown = isAccountantScoped() ? requireAccountantTown() : townName;
+      if (targetTown) {
+        query = query.ilike('town_name', String(targetTown).trim());
+      }
+      const { count, error } = await query;
       if (error) throw error;
       return { success: true, count: count || 0 };
     } catch (e) {
