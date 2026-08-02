@@ -3732,7 +3732,16 @@ body{font-family:Arial,sans-serif;color:#111827;margin:28px;background:#f8fafc}h
           agent_email: c.Agent_Email || c.agent_email || '',
           status: String(c.Status || c.status || 'pending').toLowerCase(),
         }))
-        .filter((c) => !isAccountantScoped() || String(c.Town_Name || c.town_name || '') === requireAccountantTown())
+        .filter((c) => {
+          const cTown = String(c.Town_Name || c.town_name || '').trim().toLowerCase();
+          if (isAccountantScoped()) {
+            return cTown === requireAccountantTown().trim().toLowerCase();
+          }
+          if (filter?.townName) {
+            return cTown === String(filter.townName).trim().toLowerCase();
+          }
+          return true;
+        })
         .filter((c) => {
           if (!filter?.status) return true;
           const wanted = String(filter.status).toLowerCase();
