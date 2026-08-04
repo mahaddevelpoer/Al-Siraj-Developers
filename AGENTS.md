@@ -17,11 +17,13 @@ Complete dual-write integration (Excel + Supabase for all writes with user-visib
   - **Commission Tracker:** Sales agents commission tracking; supports partial/installment payouts.
 
 ## Strict Workflow Rules for AI Agent (Antigravity)
-- **ZERO SUGARCOATING & ABSOLUTE TRUTHFULNESS:** Never use marketing language, buttering, or false declarations of success. Report raw realities, log output, concrete failures, and negative angles. Never declare a feature "100% working" without verifiable empirical log evidence from end-to-end testing.
-- **NEGATIVE ANGLE FAILURE AUDITING:** Always analyze technical problems from all possible negative angles (auth tokens, network failures, silent catches, OS permissions, payload format mismatches).
-- **FLUTTER BUILDS ON GITHUB ONLY:** Never run heavy Flutter build/analyze commands (`flutter build apk`, `flutter analyze`) on the local machine. All Flutter CEO Mobile App builds MUST trigger via GitHub Actions.
-- **DESKTOP BUILDS ALLOWED LOCALLY:** Web/Electron Desktop App commands (`npm run build`, `npx vite build`) CAN be run locally when verifying desktop app code.
-- **AUTOMATIC COMMIT & PUSH FOR FLUTTER APP:** Whenever changes are made to the CEO Mobile App (`ceo_mobile_app_v2/**`), ALWAYS automatically stage (`git add`), commit with a descriptive message, and push (`git push origin main`) to GitHub so the GitHub Actions workflow (`build-ceo-android-apk-v2.yml`) triggers automatically to build the APK artifact in the cloud.
+- **GSTACK WORKFLOW INTEGRATION (Garry Tan / YC Standard):** gstack (`C:\Users\HP\.claude\skills\gstack`) is installed and active. All development, refactoring, and auditing must strictly adhere to gstack's multi-role methodology:
+  1. **`/office-hours` & `/plan-ceo-review` (CEO / Product Lead):** Validate product value, eliminate feature slop, ensure clear UX flow for Dilawar Khan & Accountants.
+  2. **`/plan-eng-review` (Staff Architect):** Enforce strict double-entry money ledger rules, dual-write synchronization, case-insensitive schema mapping, and zero side-effects.
+  3. **`/plan-design-review` & `/design-review` (Design Lead):** Premium dark-mode glassmorphism, clean micro-animations, responsive layout, zero default browser aesthetics.
+  4. **`/cso` (Chief Security Officer):** Rigorous anti-spoofing, anti-tampering, role-scoped town isolation, and audited transaction receipts.
+  5. **`/review` & `/qa` (Reviewer & QA Lead):** Zero sugarcoating, empirical log evidence, 100% automated test suite pass (`npm run audit:all`), end-to-end flow validation.
+  6. **`/ship` (Release Engineer):** Automated production Electron setup builds (`npm run build`), clean git commits, and GitHub Release tags (`v1.0.3`).
 - **ALWAYS DISPLAY STEP-BY-STEP PLAN & SUMMARY:** Always state the plan before executing changes and show a clean summary after completion.
 
 
