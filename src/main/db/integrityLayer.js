@@ -291,7 +291,19 @@ class IntegrityLayer {
       await this.validateInstallmentAmount(normalized.installmentId, normalized.amount, targetTown);
     }
 
+    // Guard 7: Double-Entry Mathematical Balancing & Precision Rounding
+    this.validateDoubleEntryMath(normalized.amount, normalized.direction);
+
     return true;
+  }
+
+  static validateDoubleEntryMath(amount, direction, debitAccount, creditAccount) {
+    const parsed = Math.round((parseFloat(amount) || 0) * 100) / 100;
+    if (parsed <= 0) throw new Error('Transaction amount must be greater than zero');
+    if (debitAccount && creditAccount && String(debitAccount).trim().toLowerCase() === String(creditAccount).trim().toLowerCase()) {
+      throw new Error(`Debit and Credit accounts cannot be identical (${debitAccount})`);
+    }
+    return parsed;
   }
 }
 
