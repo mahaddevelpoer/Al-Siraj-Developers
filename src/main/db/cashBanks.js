@@ -81,11 +81,18 @@ async function getPaymentAccounts(townName = '') {
   return accounts.map((account) => {
     const id = String(account.Account_ID || '').trim();
     const type = String(account.Account_Type || '').toLowerCase() === 'bank' ? 'bank' : 'cash';
+    const targetId = String(id).trim().toLowerCase();
+    const targetName = String(account.Account_Name || account.account_name || '').trim().toLowerCase();
     const related = ledger.filter((row) => {
-      const rowId = String(row.Payment_Account_ID || '').trim() || 'cash-in-hand';
+      const rowId = String(row.Payment_Account_ID || '').trim().toLowerCase() || 'cash-in-hand';
+      const rowName = String(row.Payment_Account_Name || '').trim().toLowerCase();
       const rowType = String(row.Payment_Account_Type || '').toLowerCase() || 'cash';
       if (id === 'cash-in-hand') return rowId === 'cash-in-hand' || (!row.Payment_Account_ID && rowType === 'cash');
-      return rowId === id;
+      return (
+        rowId === targetId ||
+        (targetName && rowId === targetName) ||
+        (targetName && rowName === targetName)
+      );
     });
     const totalCredit = related
       .filter((row) => String(row.Direction || '').toLowerCase() === 'income' && String(row.Source_Type || '').toLowerCase() !== 'bank_opening')

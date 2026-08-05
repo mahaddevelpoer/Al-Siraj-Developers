@@ -256,18 +256,21 @@ function mapTownToCloud(row) {
 }
 
 function mapTownFromCloud(row) {
+  const lat = getRowVal(row, 'Latitude') ?? getRowVal(row, 'latitude') ?? getRowVal(row, 'Location_Lat') ?? getRowVal(row, 'location_lat');
+  const lng = getRowVal(row, 'Longitude') ?? getRowVal(row, 'longitude') ?? getRowVal(row, 'Location_Lng') ?? getRowVal(row, 'location_lng');
+  const loc = getRowVal(row, 'Location') ?? getRowVal(row, 'town_location') ?? getRowVal(row, 'Location_Text') ?? getRowVal(row, 'location_text') ?? '';
   return {
-    Town_Name: getRowVal(row, 'Town_Name') || '',
-    Total_Plots: parseInt(getRowVal(row, 'Total_Plots')) || 0,
-    Total_Shops: parseInt(getRowVal(row, 'Total_Shops')) || 0,
-    Total_Income_PKR: parseFloat(getRowVal(row, 'Total_Income_PKR')) || 0,
-    Total_Expenses_PKR: parseFloat(getRowVal(row, 'Total_Expenses_PKR')) || 0,
-    Profit_Loss: parseFloat(getRowVal(row, 'Profit_Loss')) || 0,
-    Commission_Rate: parseFloat(getRowVal(row, 'Commission_Rate')) || 0,
-    Status: getRowVal(row, 'Status') || 'Active',
-    Location_Text: getRowVal(row, 'Location') || getRowVal(row, 'Town_Location') || '',
-    Location_Lat: getRowVal(row, 'Latitude') ?? '',
-    Location_Lng: getRowVal(row, 'Longitude') ?? '',
+    Town_Name: getRowVal(row, 'Town_Name') || getRowVal(row, 'town_name') || '',
+    Total_Plots: parseInt(getRowVal(row, 'Total_Plots') || getRowVal(row, 'total_plots')) || 0,
+    Total_Shops: parseInt(getRowVal(row, 'Total_Shops') || getRowVal(row, 'total_shops')) || 0,
+    Total_Income_PKR: parseFloat(getRowVal(row, 'Total_Income_PKR') || getRowVal(row, 'total_income_pkr')) || 0,
+    Total_Expenses_PKR: parseFloat(getRowVal(row, 'Total_Expenses_PKR') || getRowVal(row, 'total_expenses_pkr')) || 0,
+    Profit_Loss: parseFloat(getRowVal(row, 'Profit_Loss') || getRowVal(row, 'profit_loss')) || 0,
+    Commission_Rate: parseFloat(getRowVal(row, 'Commission_Rate') || getRowVal(row, 'commission_rate')) || 0,
+    Status: getRowVal(row, 'Status') || getRowVal(row, 'status') || 'Active',
+    Location_Text: String(loc || ''),
+    Location_Lat: lat !== undefined && lat !== null && lat !== '' ? parseFloat(lat) : '',
+    Location_Lng: lng !== undefined && lng !== null && lng !== '' ? parseFloat(lng) : '',
   };
 }
 function findPropertyStatus(type, number, town, sales, resellHistory) {
