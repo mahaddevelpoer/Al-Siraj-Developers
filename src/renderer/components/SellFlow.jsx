@@ -117,8 +117,12 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
 
   useEffect(() => {
     if (form.townName) {
-      const t = towns.find(t => t.Town_Name === form.townName);
-      if (t) setForm(f => ({ ...f, Commission_Rate: String(t.Commission_Rate || 0) }));
+      const targetLower = String(form.townName || '').trim().toLowerCase();
+      const t = towns.find(t => String(t.Town_Name || '').trim().toLowerCase() === targetLower);
+      if (t) {
+        const rate = parseFloat(t.Commission_Rate ?? t.commission_rate) || 5;
+        setForm(f => ({ ...f, Commission_Rate: String(rate) }));
+      }
     }
   }, [form.townName, towns]);
 

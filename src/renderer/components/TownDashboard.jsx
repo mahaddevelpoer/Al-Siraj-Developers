@@ -510,29 +510,38 @@ function TownOverview({ town, refreshKey = 0, onNavigate, showToast }) {
       </div>
 
       {/* Row 3 — Full width location + info panel */}
-      <div className="ui-town-map-card">
-        {townData.Location_Lat && townData.Location_Lng ? (
-          <LeafletMap
-            initialLat={parseFloat(townData.Location_Lat)}
-            initialLng={parseFloat(townData.Location_Lng)}
-            searchEnabled={false}
-            readOnly={true}
-            markerLabel={townData.Town_Name}
-          />
-        ) : (
-          <div className="ui-town-map-empty">
-            <span><PinIcon size={18}/></span> No location set for this town
+      {(() => {
+        const townLat = parseFloat(townData.Location_Lat ?? townData.latitude ?? townData.location_lat);
+        const townLng = parseFloat(townData.Location_Lng ?? townData.longitude ?? townData.location_lng);
+        const hasLocation = !isNaN(townLat) && !isNaN(townLng) && townLat !== 0 && townLng !== 0;
+        const commRate = parseFloat(townData.Commission_Rate ?? townData.commission_rate) || 5;
+        const locText = townData.Location_Text || townData.town_location || townData.location || '';
+        return (
+          <div className="ui-town-map-card">
+            {hasLocation ? (
+              <LeafletMap
+                initialLat={townLat}
+                initialLng={townLng}
+                searchEnabled={false}
+                readOnly={true}
+                markerLabel={townData.Town_Name}
+              />
+            ) : (
+              <div className="ui-town-map-empty">
+                <span><PinIcon size={18}/></span> No location set for this town
+              </div>
+            )}
+            <div className="ui-town-map-footer">
+              <div><span className="ui-town-map-footer-lbl">Commission</span><div className="ui-town-map-footer-val">{commRate}%</div></div>
+              <div><span className="ui-town-map-footer-lbl">Status</span><div className="ui-town-map-footer-val">{townData.Status || townData.status || 'Active'}</div></div>
+              <div><span className="ui-town-map-footer-lbl">Expenses</span><div className="ui-town-map-footer-val" style={{ color: '#ef4444' }}>{fmtPkr(expenses)}</div></div>
+              {locText && (
+                <div><span className="ui-town-map-footer-lbl">Location</span><div className="ui-town-map-footer-val" style={{ fontWeight: 600 }}>{locText}</div></div>
+              )}
+            </div>
           </div>
-        )}
-        <div className="ui-town-map-footer">
-          <div><span className="ui-town-map-footer-lbl">Commission</span><div className="ui-town-map-footer-val">{townData.Commission_Rate || 0}%</div></div>
-          <div><span className="ui-town-map-footer-lbl">Status</span><div className="ui-town-map-footer-val">{townData.Status || 'Active'}</div></div>
-          <div><span className="ui-town-map-footer-lbl">Expenses</span><div className="ui-town-map-footer-val" style={{ color: '#ef4444' }}>{fmtPkr(expenses)}</div></div>
-          {townData.Location_Text && (
-            <div><span className="ui-town-map-footer-lbl">Location</span><div className="ui-town-map-footer-val" style={{ fontWeight: 600 }}>{townData.Location_Text}</div></div>
-          )}
-        </div>
-      </div>
+        );
+      })()}
       <ReportViewerModal
         isOpen={!!viewerModal}
         onClose={() => setViewerModal(null)}

@@ -255,11 +255,21 @@ async function findMany(table, match) {
 // ─── PROPERTIES ────────────────────────────────────────────────
 
 async function getProperty(type, number, townName) {
-  return await findOne('properties', {
-    Property_Type: type,
-    Property_Number: String(number),
-    Town_Name: townName,
-  });
+  let query = supabase
+    .from('properties')
+    .select('*')
+    .eq('property_type', type)
+    .ilike('town_name', String(townName || '').trim());
+
+  const cleanNum = String(number || '').trim();
+  const { data, error } = await query;
+  if (error) throw error;
+  const rows = normalizeCloudRows('properties', data || []);
+  return rows.find(p => {
+    const num = String(p.Property_Number || p.property_number || '').trim().toLowerCase();
+    const target = cleanNum.toLowerCase();
+    return num === target || num.replace(/[^a-z0-9]/g, '') === target.replace(/[^a-z0-9]/g, '');
+  }) || null;
 }
 
 async function getAllProperties() {
