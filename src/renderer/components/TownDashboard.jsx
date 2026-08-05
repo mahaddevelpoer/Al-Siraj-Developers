@@ -582,6 +582,12 @@ export default function TownDashboard({
   // Sync when selectedTown changes
   useEffect(() => {
     setTownData(selectedTown || {});
+    // Also immediately refresh from backend to get latest financial data for Quick Stats
+    if (selectedTown?.Town_Name) {
+      window.api.getTownDetails(selectedTown.Town_Name).then(updated => {
+        if (updated && !updated.error) setTownData(updated);
+      }).catch(() => {});
+    }
   }, [selectedTown]);
 
   useEffect(() => {

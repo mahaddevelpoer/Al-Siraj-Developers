@@ -1178,7 +1178,7 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
         },
         async () => {
           await purgeCloudTownBusinessData(data.Town_Name);
-          return await onlineDb.insert('towns', { Town_Name: data.Town_Name, Location: data.Location || '', Status: data.Status || 'Active', Total_Plots: parseInt(data.Total_Plots) || 0, Total_Shops: parseInt(data.Total_Shops) || 0 });
+          return await onlineDb.insert('towns', { Town_Name: data.Town_Name, Location: data.Location || data.Location_Text || '', Status: data.Status || 'Active', Total_Plots: parseInt(data.Total_Plots) || 0, Total_Shops: parseInt(data.Total_Shops) || 0, Commission_Rate: parseFloat(data.Commission_Rate) || 0, Location_Text: data.Location_Text || '', Location_Lat: data.Location_Lat || '', Location_Lng: data.Location_Lng || '' });
         },
         { tableName: 'towns', payload: data, clientWriteId: `town-${String(data.Town_Name).trim().toLowerCase()}` }
       );
