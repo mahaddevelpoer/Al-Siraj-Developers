@@ -190,7 +190,11 @@ export default function DailyLedger({ townName, showToast, onEntryAdded, refresh
       const r = await window.api.addDailyEntry(nextPayload);
       if (r?.error) showToast?.(r.error, 'error');
       else {
-        showToast?.('Entry saved');
+        if (r?.summary) {
+          showToast?.(`Entry saved. Town Balance is now PKR ${Number(r.summary.cashBalance || 0).toLocaleString()}`, 'success');
+        } else {
+          showToast?.('Entry saved', 'success');
+        }
         setSelectedDate(new Date().toISOString().split('T')[0]);
         await loadEntries();
         onEntryAdded?.();

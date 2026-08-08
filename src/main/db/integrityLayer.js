@@ -16,7 +16,7 @@ class IntegrityLayer {
     if (num < 0) {
       throw new Error(`${context}: Amount cannot be negative: ${amount}`);
     }
-    if (num === 0) {
+    if (num === 0 && context !== 'sell-property') {
       throw new Error(`${context}: Amount cannot be zero`);
     }
     if (num > 999999999) {
@@ -280,11 +280,6 @@ class IntegrityLayer {
     
     // Guard 4: Payment Account Validation
     await this.validatePaymentAccount(targetTown, normalized.paymentAccountId, normalized.paymentMethod);
-
-    // Guard 5: Property availability check (only for brand-new sales)
-    if (operation === 'sell-property') {
-      await this.validatePropertyAvailable(targetTown, data.type, data.number);
-    }
 
     // Guard 6: Installment due verification
     if (operation === 'mark-installment-paid' && normalized.installmentId) {

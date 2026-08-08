@@ -1866,6 +1866,27 @@ function registerIpcHandlers(ipcMain, dbPath, win) {
     } catch(e) { return { error: e.message || String(e) || 'Unknown error' }; }
   });
 
+  ipcMain.handle('get-pending-sync-count', async () => {
+    try {
+      const rows = await pendingSync.getPendingSyncRows();
+      const pending = rows.filter(r => String(r.Status || '').toLowerCase() === 'pending');
+      return { success: true, count: pending.length };
+    } catch(e) { return { success: false, count: 0, error: e.message || String(e) }; }
+  });
+
+  ipcMain.handle('open-pending-sync-file', async () => {
+    try {
+      const core = require('./db/core');
+      const filePath = path.join(core.getGlobalsPath(), 'Pending_Sync.xlsx');
+      if (fs.existsSync(filePath)) {
+        const { shell } = require('electron');
+        await shell.openPath(filePath);
+        return { success: true };
+      }
+      return { success: false, error: 'Pending_Sync.xlsx not found' };
+    } catch(e) { return { success: false, error: e.message || String(e) }; }
+  });
+
   ipcMain.handle('run-business-audit', async () => {
     try {
       const rootPath = dbPath;

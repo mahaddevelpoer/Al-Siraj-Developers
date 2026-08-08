@@ -66,6 +66,11 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
     Agent_Name: '', Commission_Rate: '', Expense_Total: '0',
   });
 
+  const approvedDateKey = () => `al_siraj_approved_date_sale_${form.type}_${form.number}_${form.townName}`;
+  const persistApprovedSaleDate = (date, appealData) => {
+    localStorage.setItem(approvedDateKey(), JSON.stringify({ date, appealId: appealData?.id }));
+  };
+
   useEffect(() => {
     if (window.api) {
       window.api.getTowns().then(d => { if (Array.isArray(d)) setTowns(d); });
@@ -816,7 +821,8 @@ export default function SellFlow({ showToast, loadNotifications, panel, lockedTo
         loadNotifications?.();
       }
     } catch (e) { 
-      showToast('Sale failed', 'error'); 
+      showToast('Sale failed: ' + (e.message || e), 'error'); 
+      console.error('Sale error:', e);
     }
     setLoading(false);
   };

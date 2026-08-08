@@ -974,7 +974,7 @@ async function getTownPerformance(townName) {
 
   return {
     actualIncome: income,
-    totalExpenses: opExp,
+    totalExpenses: money.totalExpenses,
     cashBalance: money.cashBalance,
     netProfit: money.cashBalance,
     estimateTotal: estimatePlots + estimateShops,

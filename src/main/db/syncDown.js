@@ -134,6 +134,12 @@ function scopedRows(rows, townName) {
 
 async function performFullSync(reportProgress = () => {}) {
   try {
+    const pendingSync = require('./pendingSync');
+    if (await pendingSync.hasPendingSyncRows()) {
+      console.warn('[syncDown] Aborting performFullSync: local pending changes exist.');
+      return { skipped: true, reason: 'Pending local changes exist' };
+    }
+
     reportProgress(5, 'Fetching global data from cloud...');
 
     const safeGetAll = async (table) => {

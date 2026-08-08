@@ -4,6 +4,7 @@
 Complete dual-write integration (Excel + Supabase for all writes with user-visible sync warnings) and redesign auth/registration system (only Agent self-registers; CEO creates Accountant accounts).
 
 ## Client Context & Domain Rules
+- **User / Developer Name:** MAHAD DEVELOPER
 - **Client Name:** Dilawar Khan (Owner of 4 towns).
 - **Core Motivation / Fraud Prevention:** Designed to prevent accountant financial fraud, date manipulation, illegal cash retention, and unauthorized edits.
 - **Business Entities & Ledger Rules:**

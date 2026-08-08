@@ -77,6 +77,9 @@ const UPSERT_CONFLICT = {
   town_financial_summary: 'town_name',
   town_map_shapes: 'shape_id',
   daily_reports: 'report_id',
+  audit_schedules: 'id',
+  locker_audits: 'id',
+  resell_history: 'resell_id',
 };
 
 function normalizeCloudRow(table, row) {
@@ -101,15 +104,21 @@ function isMissingConflictConstraint(error) {
 }
 
 function extractMissingColumn(error) {
-  const text = String(error?.message || error || '');
+  const text = String(error?.message || error?.details || error?.hint || error || '');
   const patterns = [
-    /Could not find the '([^']+)' column/,
-    /column "([^"]+)" does not exist/,
-    /column ([a-zA-Z0-9_]+) does not exist/,
+    /Could not find the '([^']+)' column/i,
+    /Could not find the "([^"]+)" column/i,
+    /Could not find column '([^']+)'/i,
+    /Could not find column "([^"]+)"/i,
+    /column "([^"]+)" does not exist/i,
+    /column ([a-zA-Z0-9_]+) does not exist/i,
+    /'([^']+)' column of '[^']+'/i,
+    /"([^"]+)" of relation "[^"]+"/i,
+    /schema cache for column ([a-zA-Z0-9_]+)/i,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match) return String(match[1] || '').toLowerCase();
+    if (match && match[1]) return String(match[1]).toLowerCase();
   }
   return '';
 }
@@ -655,8 +664,8 @@ async function createCommissionRecord(sale) {
   const noAgent = !String(agentName || '').trim() || /^(no agent|none|n\/a|na|null|undefined|-|select agent)$/i.test(String(agentName || '').trim());
   if (commissionAmount <= 0 || noAgent) return;
 
-  const saleId = sale.id || sale.Sale_ID || `${sale.Town_Name || ''}-${sale.Type || ''}-${sale.Plot_Shop_Number || ''}`;
-  const stableId = `COM-${String(saleId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)}`;
+  const saleId = sale.Sale_ID || sale.sale_id || sale.id || `${sale.Town_Name || ''}-${sale.Type || ''}-${sale.Plot_Shop_Number || ''}`;
+  const stableId = saleId;
 
   await insert('commissions', {
     id: stableId,
@@ -1026,6 +1035,23 @@ async function resellProperty(data) {
     Profit_Loss: totalAmount - refundAmount,
     File_Status: property.File_Status || '',
     Status: 'Resold',
+  });
+
+  const resellId = data.Resell_ID || generateId();
+  await upsert('resell_history', {
+    Resell_ID: resellId,
+    Plot_Shop_Number: String(number),
+    Type: type,
+    Town_Name: townName,
+    Original_Customer: property.Customer_Name || '',
+    Original_Sell_Date: property.Sell_Date || '',
+    Original_Amount: property.Total_Amount_PKR || 0,
+    Resell_Amount: totalAmount,
+    Refund_Amount: refundAmount,
+    Resell_Date: sellDate,
+    Receipt_Number: data.Receipt_Number || '',
+    Agent_Name: data.Agent_Name || property.Agent_Name || '',
+    Profit_Loss: totalAmount - refundAmount,
   });
 
   if (totalInstallments > 0 && remaining > 0) {

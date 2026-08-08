@@ -105,7 +105,7 @@ async function performFullSyncUp(reportProgress, options = {}) {
   try {
     empV2 = await empDB.getEmployees();
   } catch (_) {}
-  await upsertAllSafe(_admin, 'employees', scopedRows(empV2, scopedTown).map(mapEmployeeToCloud).filter((e) => e.Employee_ID));
+  await upsertAllSafe(_admin, 'employees', scopedRows(empV2, scopedTown).map(mapEmployeeToCloud).filter((e) => e.Employee_ID && e.Employee_Name));
 
   reportProgress(74, 'Uploading Advance_Salaries.xlsx -> advance_salaries...');
   let advances = [];

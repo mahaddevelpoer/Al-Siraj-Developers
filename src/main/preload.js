@@ -155,6 +155,8 @@ contextBridge.exposeInMainWorld('api', {
   syncFromCloud: () => ipcRenderer.invoke('sync-from-cloud'),
   syncToCloud: () => ipcRenderer.invoke('sync-to-cloud'),
   getPendingSyncStatus: () => ipcRenderer.invoke('get-pending-sync-status'),
+  getPendingSyncCount: () => ipcRenderer.invoke('get-pending-sync-count'),
+  openPendingSyncFile: () => ipcRenderer.invoke('open-pending-sync-file'),
   runBusinessAudit: () => ipcRenderer.invoke('run-business-audit'),
   runHandoverAudit: () => ipcRenderer.invoke('run-handover-audit'),
   getPaymentAccounts: (townName) => ipcRenderer.invoke('get-payment-accounts', townName),

@@ -28,10 +28,10 @@ ADD COLUMN IF NOT EXISTS property_category VARCHAR(20) DEFAULT 'Residential';
 
 -- Commissions table (NEW)
 CREATE TABLE IF NOT EXISTS commissions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  agent_id UUID REFERENCES users(id) NOT NULL,
+  id TEXT PRIMARY KEY,
+  agent_id UUID REFERENCES users(id),
   agent_name VARCHAR(255),
-  sale_id UUID,
+  sale_id TEXT,
   town_name VARCHAR(255),
   property_number VARCHAR(100),
   total_price NUMERIC,

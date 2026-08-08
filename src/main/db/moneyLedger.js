@@ -320,8 +320,9 @@ async function _recordMoneyEvent(data) {
   };
   await appendToExcel(fp, 'Data', row);
   await archiveLedgerReceipt(row, sourceType);
-  if (row.Town_Name) await refreshTownFinancialSummary(row.Town_Name);
-  return row;
+  let summary = null;
+  if (row.Town_Name) summary = await refreshTownFinancialSummary(row.Town_Name);
+  return { ...row, summary };
 }
 
 function computeLedgerSummary(rows = []) {

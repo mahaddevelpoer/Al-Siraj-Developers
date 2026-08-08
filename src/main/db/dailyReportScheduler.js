@@ -41,6 +41,14 @@ function normalizeDate(val) {
   if (!s) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2} /.test(s)) return s.split(' ')[0];
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+    const parts = s.split('/');
+    const p1 = parts[0].padStart(2, '0');
+    const p2 = parts[1].padStart(2, '0');
+    const y = parts[2];
+    return `${y}-${p1}-${p2}`;
+  }
   const d = new Date(s);
   if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
   return s;
@@ -52,38 +60,142 @@ function generateTownSummary(towns, sales, expenses, entries, ledger, reportDate
 
   for (const town of towns) {
     const townName = town.Town_Name;
+    const townLower = String(townName || '').trim().toLowerCase();
+
+    // Today's items
     const townSalesToday = (sales || []).filter(s => 
-      String(s.Town_Name || '').trim().toLowerCase() === String(townName).trim().toLowerCase() && 
+      String(s.Town_Name || '').trim().toLowerCase() === townLower && 
       normalizeDate(s.Sell_Date || s.date || s.Date) === todayStr
     );
     const townEntriesToday = (entries || []).filter(e => 
-      String(e.Town_Name || e.townName || '').trim().toLowerCase() === String(townName).trim().toLowerCase() && 
+      String(e.Town_Name || e.townName || '').trim().toLowerCase() === townLower && 
       normalizeDate(e.Date || e.date) === todayStr
     );
     const townLedgerToday = (ledger || []).filter(r => 
-      String(r.Town_Name || r.town_name || '').trim().toLowerCase() === String(townName).trim().toLowerCase() && 
+      String(r.Town_Name || r.town_name || '').trim().toLowerCase() === townLower && 
       normalizeDate(r.Date || r.date) === todayStr &&
       String(r.Status || 'approved').toLowerCase() === 'approved'
     );
 
-    const totalReceived = townLedgerToday
+    // All-time cumulative items for this town
+    const townSalesAll = (sales || []).filter(s => 
+      String(s.Town_Name || '').trim().toLowerCase() === townLower
+    );
+    const townEntriesAll = (entries || []).filter(e => 
+      String(e.Town_Name || e.townName || '').trim().toLowerCase() === townLower
+    );
+    const townLedgerAll = (ledger || []).filter(r => 
+      String(r.Town_Name || r.town_name || '').trim().toLowerCase() === townLower &&
+      String(r.Status || 'approved').toLowerCase() === 'approved'
+    );
+
+    // Today's Totals
+    const todayReceived = townLedgerToday
       .filter(r => String(r.Direction || '').toLowerCase() === 'income')
       .reduce((sum, r) => sum + (parseFloat(r.Amount) || 0), 0);
       
-    const totalExpenses = townLedgerToday
+    const todayExpenses = townLedgerToday
       .filter(r => String(r.Direction || '').toLowerCase() === 'expense')
       .reduce((sum, r) => sum + (parseFloat(r.Amount) || 0), 0);
       
-    const dailyEntries = townEntriesToday.reduce((sum, e) => sum + (parseFloat(e.Amount) || 0), 0);
-    const propertiesSold = townSalesToday.filter(s => String(s.Status || '').toLowerCase() === 'sold').length;
+    const todayDailyEntries = townEntriesToday.reduce((sum, e) => sum + (parseFloat(e.Amount) || 0), 0);
+    const todayPropertiesSold = townSalesToday.filter(s => String(s.Status || '').toLowerCase() === 'sold').length;
+    const todayNet = todayReceived - todayExpenses;
+
+    // All-Time Cumulative Totals
+    const allTimeReceived = townLedgerAll
+      .filter(r => String(r.Direction || '').toLowerCase() === 'income')
+      .reduce((sum, r) => sum + (parseFloat(r.Amount) || 0), 0);
+
+    const allTimeExpenses = townLedgerAll
+      .filter(r => String(r.Direction || '').toLowerCase() === 'expense')
+      .reduce((sum, r) => sum + (parseFloat(r.Amount) || 0), 0);
+
+    const allTimeDailyEntries = townEntriesAll.reduce((sum, e) => sum + (parseFloat(e.Amount) || 0), 0);
+    const allTimePropertiesSold = townSalesAll.filter(s => String(s.Status || '').toLowerCase() === 'sold').length;
+    const allTimeNet = allTimeReceived - allTimeExpenses;
+
+    // Final values: If today has activity, use today's values; otherwise fallback to cumulative values
+    const finalReceived = todayReceived > 0 ? todayReceived : (allTimeReceived > 0 ? allTimeReceived : (parseFloat(town.Total_Income_PKR) || 0));
+    const finalExpenses = todayExpenses > 0 ? todayExpenses : (allTimeExpenses > 0 ? allTimeExpenses : (parseFloat(town.Total_Expenses_PKR) || 0));
+    const finalNet = (todayReceived > 0 || todayExpenses > 0) ? todayNet : (allTimeNet !== 0 ? allTimeNet : (finalReceived - finalExpenses));
+    const finalEntries = todayDailyEntries > 0 ? todayDailyEntries : allTimeDailyEntries;
+    const finalSold = todayPropertiesSold > 0 ? todayPropertiesSold : allTimePropertiesSold;
 
     summaries.push({
       townName,
-      propertiesSold,
-      totalReceived: Math.round(totalReceived),
-      totalExpenses: Math.round(totalExpenses),
-      dailyEntries: Math.round(dailyEntries),
-      net: Math.round(totalReceived - totalExpenses),
+      town_name: townName,
+      date: todayStr,
+      report_date: todayStr,
+      
+      // Top level fields (both Today & Final)
+      propertiesSold: finalSold,
+      properties_sold: finalSold,
+      Properties_Sold: finalSold,
+      
+      totalReceived: Math.round(finalReceived),
+      total_received: Math.round(finalReceived),
+      Total_Received: Math.round(finalReceived),
+      income: Math.round(finalReceived),
+      
+      totalExpenses: Math.round(finalExpenses),
+      total_expenses: Math.round(finalExpenses),
+      Total_Expenses: Math.round(finalExpenses),
+      expenses: Math.round(finalExpenses),
+      
+      dailyEntries: Math.round(finalEntries),
+      daily_entries: Math.round(finalEntries),
+      Daily_Entries: Math.round(finalEntries),
+      
+      net: Math.round(finalNet),
+      net_balance: Math.round(finalNet),
+      Net_Balance: Math.round(finalNet),
+      netBalance: Math.round(finalNet),
+      cash_balance: Math.round(finalNet),
+      cash_in_hand: Math.round(finalNet),
+
+      // Today specific
+      today_received: Math.round(todayReceived),
+      today_expenses: Math.round(todayExpenses),
+      today_net: Math.round(todayNet),
+      today_entries: Math.round(todayDailyEntries),
+      today_sold: todayPropertiesSold,
+
+      // Cumulative specific
+      all_time_received: Math.round(allTimeReceived),
+      all_time_expenses: Math.round(allTimeExpenses),
+      all_time_net: Math.round(allTimeNet),
+      all_time_sold: allTimePropertiesSold,
+
+      // Detailed breakdown arrays for PDF rendering
+      ledger_entries: townLedgerAll.slice(-50).map(r => ({
+        id: r.Ledger_ID,
+        source_type: r.Source_Type,
+        direction: r.Direction,
+        amount: parseFloat(r.Amount) || 0,
+        party_name: r.Party_Name || '',
+        description: r.Description || '',
+        date: r.Date,
+        account: r.Payment_Account_Name || r.Credit_Account || r.Debit_Account || ''
+      })),
+      daily_entries_list: townEntriesAll.slice(-50).map(e => ({
+        id: e.Entry_ID,
+        type: e.Type,
+        category: e.Category,
+        amount: parseFloat(e.Amount) || 0,
+        description: e.Description || '',
+        date: e.Date
+      })),
+      sales_list: townSalesAll.slice(-50).map(s => ({
+        id: s.Sale_ID,
+        property_number: s.Plot_Shop_Number,
+        type: s.Type,
+        customer_name: s.Customer_Name,
+        deal_amount: parseFloat(s.Deal_Amount_PKR || s.Total_Amount_PKR) || 0,
+        advance_amount: parseFloat(s.Advance_Amount_PKR) || 0,
+        status: s.Status,
+        date: s.Sell_Date
+      }))
     });
   }
   return summaries;

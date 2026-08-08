@@ -31,11 +31,14 @@ const UPSERT_CONFLICT = {
   collection_payments: 'payment_id',
   receipt_archive: 'receipt_id',
   media_library: 'media_id',
+  cash_bank_accounts: 'account_id',
   money_ledger: 'source_type,source_id,direction',
   town_financial_summary: 'town_name',
   town_map_shapes: 'shape_id',
   audit_schedules: 'id',
   locker_audits: 'id',
+  resell_history: 'resell_id',
+  daily_reports: 'report_id',
 };
 
 const GLOBAL_KEY_MAP = {
@@ -135,10 +138,54 @@ const TABLE_KEY_MAP = {
     Audited_By: 'audited_by',
     Audit_Report_JSON: 'audit_report',
   },
+  daily_reports: {
+    Report_ID: 'report_id',
+    Town_Name: 'town_name',
+    Date: 'date',
+    Generated_At: 'generated_at',
+    Total_Received: 'total_received',
+    Total_Expenses: 'total_expenses',
+    Daily_Entries: 'daily_entries',
+    Net_Balance: 'net_balance',
+    Properties_Sold: 'properties_sold',
+    Report_Data: 'report_data',
+  },
+  town_financial_summary: {
+    Town_Name: 'town_name',
+    Total_Received: 'total_received',
+    Total_Expenses: 'total_expenses',
+    Cash_Balance: 'cash_balance',
+    Pending_Collection: 'pending_collection',
+    Investor_Balance: 'investor_balance',
+    Updated_At: 'updated_at',
+  },
+  media_library: {
+    Media_ID: 'media_id',
+    Town_Name: 'town_name',
+    Type: 'type',
+    Title: 'title',
+    File_Path: 'file_path',
+    Pdf_Path: 'pdf_path',
+    Excel_Path: 'excel_path',
+    Html_Path: 'html_path',
+    Account_Name: 'account_name',
+    Property_Number: 'property_number',
+    Receipt_Number: 'receipt_number',
+    Report_Date: 'report_date',
+    From_Date: 'from_date',
+    To_Date: 'to_date',
+    Created_At: 'created_at',
+  },
 };
 
 const TABLE_SKIP_KEYS = {
   commissions: new Set(['agent_email']),
+  towns: new Set(['total_plots', 'total_shops']),
+  all_sales: new Set(['file_delivery_image', 'sale_type']),
+  advance_salaries: new Set(['updated_at']),
+  salary_records: new Set(['payment_method']),
+  collection_payments: new Set(['receipt_number']),
+  media_library: new Set(['pdf_base64', 'html_content', 'report_data_json', 'Pdf_Base64', 'Html_Content', 'Report_Data_Json']),
 };
 
 const PROPERTY_TYPES = new Set(['Plot', 'Shop']);
@@ -146,8 +193,26 @@ const PROPERTY_TYPES = new Set(['Plot', 'Shop']);
 const DATE_COLUMNS = new Set([
   'sell_date', 'due_date', 'paid_date', 'date', 'date_recorded',
   'created_date', 'payment_date', 'start_date', 'month_year',
+  'paid_at', 'last_paid_at', 'created_at', 'updated_at', 'audit_date', 'scheduled_date',
 ]);
 
+/**
+ * TABLE_COLUMNS — Canonical column list for each synced Excel table.
+ *
+ * Custom Column Definitions:
+ *   towns.Total_Plots       (integer, default 0)  — Total number of plot units in the town.
+ *   towns.Total_Shops       (integer, default 0)  — Total number of shop units in the town.
+ *   towns.Total_Income_PKR  (numeric, default 0)  — Aggregated income from all sales.
+ *   towns.Total_Expenses_PKR(numeric, default 0)  — Aggregated expenses for the town.
+ *   towns.Profit_Loss       (numeric, computed)    — Income minus expenses.
+ *   all_sales.Sale_Type     (text, nullable)       — 'advance' | 'installment' | 'full'.
+ *   all_sales.Payment_Method(text, nullable)       — 'cash' | 'cheque' | 'bank_transfer'.
+ *   all_sales.File_Delivery_Image (text, nullable) — Path/URL to scanned file delivery image.
+ *   properties.Road_Key     (text, nullable)       — Reference key for road pricing.
+ *   properties.Per_Marla_Price (numeric, nullable) — Calculated per-marla rate.
+ *   daily_entries.Review_Status (text, default 'approved') — Appeal review status.
+ *   cash_bank_accounts.Sync_Status (text, default 'synced') — Cloud sync state.
+ */
 const TABLE_COLUMNS = {
   towns: ['Town_Name', 'Location', 'Commission_Rate', 'Latitude', 'Longitude', 'Total_Plots', 'Total_Shops', 'Total_Income_PKR', 'Total_Expenses_PKR', 'Profit_Loss', 'Status'],
   all_sales: ['Sale_ID', 'Plot_Shop_Number', 'Type', 'Town_Name', 'Customer_Name', 'CNIC', 'Phone_Number', 'Sell_Date', 'Expected_Amount_PKR', 'Deal_Amount_PKR', 'Discount_Amount_PKR', 'Total_Amount_PKR', 'Advance_Amount_PKR', 'Total_Installments', 'Total_Period_Months', 'Gap_Days', 'Gap_Label', 'Monthly_Installment', 'Received_Amount', 'Remaining_Amount', 'Agent_Name', 'Commission_Rate', 'Commission_Amount', 'Company_Income', 'Expense_Total', 'Profit_Loss', 'Receipt_Number', 'File_Status', 'File_Delivery_Image', 'Status', 'Sale_Type', 'Payment_Method', 'Cheque_Number', 'Cheque_Bank', 'Cheque_Image', 'Transaction_ID', 'Transfer_Bank', 'Transfer_Image','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type'],
@@ -178,6 +243,7 @@ const TABLE_COLUMNS = {
   town_map_shapes: ['Shape_ID','Town_Name','Property_Type','Property_Number','Shape_Type','Label','Status','Geometry_JSON','Style_JSON','Sort_Order','Updated_At'],
   audit_schedules: ['Schedule_ID','Town_Name','Scheduled_Date','Status'],
   locker_audits: ['Audit_ID','Town_Name','Audit_Date','System_Balance','Physical_Balance','Discrepancy','Audited_By','Audit_Report_JSON'],
+  daily_reports: ['Report_ID', 'Town_Name', 'Date', 'Generated_At', 'Total_Received', 'Total_Expenses', 'Daily_Entries', 'Net_Balance', 'Properties_Sold', 'Report_Data', 'Sync_Status'],
 };
 
 function getRowVal(row, key) {
@@ -531,14 +597,15 @@ function mapGenericFromCloud(table, row) {
 }
 
 function mapEmployeeToCloud(e) {
+  const empName = String(e.name || e.Employee_Name || e.Name || '').trim();
   return {
     Employee_ID: String(e.id || e.Employee_ID || ''),
-    Employee_Name: String(e.name || e.Employee_Name || ''),
+    Employee_Name: empName,
     CNIC: String(e.cnic || e.CNIC || ''),
-    Phone: String(e.phone || e.Phone || ''),
-    Role: String(e.designation || e.Role || 'Employee'),
+    Phone: String(e.phone || e.Phone || e.Phone_Number || ''),
+    Role: String(e.designation || e.Role || e.Designation || 'Employee'),
     Town_Name: String(e.townName || e.Town_Name || ''),
-    Salary: parseFloat(e.baseSalary || e.Salary || 0),
+    Salary: parseFloat(e.baseSalary || e.Salary || e.Base_Salary || 0),
     Status: String(e.status || e.Status || 'Active'),
   };
 }
@@ -743,16 +810,19 @@ function toCloudKey(table, key) {
 
 function sanitizeCloudValue(col, val) {
   if (val === undefined || val === null) return null;
+  if (typeof val === 'string' && val.trim() === '') return null;
   if (col === 'is_over_limit') return boolFromExcel(val);
   if (DATE_COLUMNS.has(col)) {
     const s = String(val).trim();
     if (!s || s === 'Invalid Date' || s === 'null' || s === 'undefined') return null;
-    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      return col.endsWith('_at') && s.includes('T') ? s : s.split('T')[0];
+    }
     const d = new Date(s);
-    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+    if (!isNaN(d.getTime())) return col.endsWith('_at') ? d.toISOString() : d.toISOString().split('T')[0];
     return null;
   }
-  // Preserve string values as string (e.g. description, names, notes, references)
+  // Preserve non-empty string values as string (e.g. description, names, notes, references)
   if (typeof val === 'string') return val;
   return val;
 }
@@ -768,25 +838,26 @@ function toCloudRow(table, row) {
   }
 
   const now = new Date();
-  const timeStr = now.toTimeString().split(' ')[0];
   const dateStr = now.toISOString().split('T')[0];
 
   if (!out.created_at) {
     const origDate = getRowVal(row, 'Created_At') || getRowVal(row, 'Date') || getRowVal(row, 'Sell_Date') || getRowVal(row, 'Payment_Date') || dateStr;
     out.created_at = sanitizeCloudValue('created_at', origDate);
   }
-  if (!out.time) {
-    out.time = getRowVal(row, 'Time') || getRowVal(row, 'time') || timeStr;
+
+  const rawTime = getRowVal(row, 'Time') || getRowVal(row, 'time');
+  if (rawTime && out.time === undefined) {
+    out.time = rawTime;
   }
-  const creator = getRowVal(row, 'Created_By') || getRowVal(row, 'Added_By') || getRowVal(row, 'Recorded_By') || getRowVal(row, 'Paid_By') || getRowVal(row, 'done_by') || 'System';
-  if (!out.created_by) out.created_by = creator;
-  if (!out.done_by) out.done_by = creator;
 
-  const editor = getRowVal(row, 'Updated_By') || getRowVal(row, 'Edited_By') || getRowVal(row, 'edited_by') || creator;
-  if (!out.updated_by) out.updated_by = editor;
-  if (!out.edited_by) out.edited_by = editor;
-  out.updated_at = now.toISOString();
+  const creator = getRowVal(row, 'Created_By') || getRowVal(row, 'Added_By') || getRowVal(row, 'Recorded_By') || getRowVal(row, 'Paid_By') || getRowVal(row, 'created_by');
+  if (creator && out.created_by === undefined && ['daily_entries', 'user_activity', 'money_ledger'].includes(table)) {
+    out.created_by = creator;
+  }
 
+  if (!skip.has('updated_at')) {
+    out.updated_at = now.toISOString();
+  }
   return out;
 }
 

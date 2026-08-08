@@ -210,7 +210,8 @@ async function getPropertyFile(type, number, townName) {
     }
 
     if (fs.existsSync(townDir)) {
-      const files = fs.readdirSync(townDir).catch(() => []);
+      let files = [];
+      try { files = fs.readdirSync(townDir); } catch (_) { files = []; }
       for (const f of files) {
         const fLower = String(f).toLowerCase();
         if (!fLower.startsWith(`${prefixLower}_`) || !fLower.endsWith('.xlsx')) continue;
@@ -799,10 +800,11 @@ async function updateTownFinancials(townName) {
 }
 
 async function resellProperty(data) {
+  const propType = data.type || data.Type || 'Plot';
+  const propNum = data.number || data.Plot_Shop_Number || data.plot_shop_number || '';
+  const town = data.townName || data.Town_Name || '';
+
   const {
-    type,
-    number,
-    townName,
     Resell_Amount,
     Refund_Amount,
     Receipt_Number,
@@ -824,7 +826,7 @@ async function resellProperty(data) {
   } = data;
   
   // Get current property data
-  const property = await getPropertyFile(type, number, townName);
+  const property = await getPropertyFile(propType, propNum, town);
   if (!property) throw new Error('Property not found');
 
   const resellAmount = parseFloat(Resell_Amount) || 0;
@@ -848,7 +850,7 @@ async function resellProperty(data) {
   const resellDate = new Date().toISOString().split('T')[0];
 
   // Update property file
-  await updatePropertyFile(type, number, townName, {
+  await updatePropertyFile(propType, propNum, town, {
     Customer_Name: Customer_Name || property.Customer_Name || '',
     CNIC: CNIC || property.CNIC || '',
     Phone_Number: Phone_Number || property.Phone_Number || '',
@@ -873,9 +875,9 @@ async function resellProperty(data) {
   const resellId = generateId();
   const resellData = {
     Resell_ID: resellId,
-    Plot_Shop_Number: number,
-    Type: type,
-    Town_Name: townName,
+    Plot_Shop_Number: propNum,
+    Type: propType,
+    Town_Name: town,
     Original_Customer: property.Customer_Name || '',
     Original_Sell_Date: property.Sell_Date || '',
     Original_Amount: property.Total_Amount_PKR || 0,
@@ -924,10 +926,10 @@ async function resellProperty(data) {
       sourceId: resellId,
       direction: 'expense',
       amount: refundAmount,
-      townName,
+      townName: town,
       date: resellDate,
       partyName: property.Customer_Name || '',
-      description: `${type} ${number} resell refund`,
+      description: `${propType} ${propNum} resell refund`,
       receiptNumber: Receipt_Number || '',
     });
   }
@@ -937,9 +939,9 @@ async function resellProperty(data) {
   const allSales = await readExcelFile(salesPath, 'Data');
   const match = allSales
     .filter(s => 
-      String(s.Type) === String(type) &&
-      String(s.Plot_Shop_Number) === String(number) &&
-      String(s.Town_Name) === String(townName) &&
+      String(s.Type) === String(propType) &&
+      String(s.Plot_Shop_Number) === String(propNum) &&
+      String(s.Town_Name) === String(town) &&
       String(s.Status).toLowerCase() === 'sold'
     )
     .sort((a, b) => (b._rowNumber || 0) - (a._rowNumber || 0));
@@ -965,9 +967,9 @@ async function resellProperty(data) {
   await ensureSheetColumns(salesPath, 'Data', ['Sale_ID', 'Received_Amount','Remaining_Amount','Payment_Method','Cheque_Number','Cheque_Bank','Transaction_ID','Transfer_Bank', 'Sale_Type','Payment_Account_ID','Payment_Account_Name','Payment_Account_Type']);
   await appendToExcel(salesPath, 'Data', {
     Sale_ID: saleId,
-    Plot_Shop_Number: number,
-    Type: type,
-    Town_Name: townName,
+    Plot_Shop_Number: propNum,
+    Type: propType,
+    Town_Name: town,
     Customer_Name: Customer_Name || property.Customer_Name || '',
     CNIC: CNIC || property.CNIC || '',
     Phone_Number: Phone_Number || property.Phone_Number || '',
@@ -1006,10 +1008,10 @@ async function resellProperty(data) {
       sourceId: saleId,
       direction: 'income',
       amount: advanceAmount,
-      townName,
+      townName: town,
       date: resellDate,
       partyName: Customer_Name || property.Customer_Name || '',
-      description: `${type} ${number} resell advance received`,
+      description: `${propType} ${propNum} resell advance received`,
       receiptNumber: Receipt_Number || '',
       paymentAccountId: data.paymentAccountId || data.Payment_Account_ID,
       paymentAccountName: data.paymentAccountName || data.Payment_Account_Name,
@@ -1022,10 +1024,10 @@ async function resellProperty(data) {
       sourceId: saleId,
       direction: 'expense',
       amount: refundAmount,
-      townName,
+      townName: town,
       date: resellDate,
       partyName: property.Customer_Name || 'Previous Owner',
-      description: `${type} ${number} resell - previous owner refund`,
+      description: `${propType} ${propNum} resell - previous owner refund`,
       receiptNumber: Receipt_Number || '',
       paymentAccountId: data.paymentAccountId || data.Payment_Account_ID || 'cash-in-hand',
       paymentAccountName: data.paymentAccountName || data.Payment_Account_Name || 'Cash in Hand',
@@ -1035,9 +1037,9 @@ async function resellProperty(data) {
   if (remaining <= 0) {
     await upsertCommissionForSaleLocal({
       Sale_ID: saleId,
-      Plot_Shop_Number: number,
-      Type: type,
-      Town_Name: townName,
+      Plot_Shop_Number: propNum,
+      Type: propType,
+      Town_Name: town,
       Agent_Name: property.Agent_Name || '',
       Commission_Amount: property.Commission_Amount || 0,
       Sell_Date: resellDate,
@@ -1059,9 +1061,9 @@ async function resellProperty(data) {
       await appendToExcel(path.join(getGlobalsPath(), 'Installments_Tracker.xlsx'), 'Data', {
         Tracker_ID: generateId(),
         Sale_ID: saleId,
-        Plot_Shop_Number: number,
-        Type: type,
-        Town_Name: townName,
+        Plot_Shop_Number: propNum,
+        Type: propType,
+        Town_Name: town,
         Customer_Name: Customer_Name || property.Customer_Name || '',
         Phone_Number: Phone_Number || property.Phone_Number || '',
         Monthly_Amount: installmentAmount,
@@ -1081,9 +1083,9 @@ async function resellProperty(data) {
   const notifData = {
     Notification_ID: generateId(),
     Type: 'Resell',
-    Message: `${type} ${number} in ${townName} has been resold`,
-    Plot_Shop_Number: number,
-    Town_Name: townName,
+    Message: `${propType} ${propNum} in ${town} has been resold`,
+    Plot_Shop_Number: propNum,
+    Town_Name: town,
     Customer_Name: property.Customer_Name || '',
     Due_Date: '',
     Created_Date: new Date().toISOString().split('T')[0],
@@ -1092,7 +1094,7 @@ async function resellProperty(data) {
   };
   await appendToExcel(path.join(getGlobalsPath(), 'Notifications_Log.xlsx'), 'Data', notifData);
 
-  await updateTownFinancials(townName);
+  await updateTownFinancials(town);
   return resellData;
 }
 

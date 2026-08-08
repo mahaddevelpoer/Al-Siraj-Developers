@@ -145,6 +145,7 @@ async function addDailyEntry(data) {
   // NEVER mirror Income entries into All_Sales — that caused double-counting bugs:
   // backfillMoneyLedger would re-process All_Sales and create a 2nd ledger entry
   // with sourceType=sale_advance (different key from daily_entry), bypassing deduplication.
+  let summary = null;
   if (!skipLedgerWrite && townName && amount && parseFloat(amount) > 0) {
     try {
       const globalsPath = getGlobalsPath();
@@ -170,12 +171,14 @@ async function addDailyEntry(data) {
 
       // Update town financials (refresh from Money_Ledger — source of truth)
       await updateTownFinancials(townName);
+      const { getMoneySummary } = require('./moneyLedger');
+      summary = await getMoneySummary(townName);
     } catch (e) {
       console.error('Failed to update town financials from daily entry:', e);
     }
   }
 
-  return newEntry;
+  return { ...newEntry, summary };
 }
 
 async function deleteMatchingMirrorRows(filePath, predicate) {

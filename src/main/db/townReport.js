@@ -398,15 +398,37 @@ async function buildTownLedgerReport({ townName, fromDate, toDate }) {
     }))
     .sort((a, b) => clean(b.receiptDate).localeCompare(clean(a.receiptDate)) || clean(a.receiptNumber).localeCompare(clean(b.receiptNumber)));
 
+  const totalReceivedAllTime = ledgerRows
+    .filter((row) => sameTown(row, town))
+    .filter((row) => clean(row.Status || 'approved').toLowerCase() === 'approved')
+    .filter((row) => clean(row.Direction || '').toLowerCase() !== 'expense')
+    .reduce((sum, row) => sum + money(row.Amount), 0);
+
+  const totalPaidAllTime = ledgerRows
+    .filter((row) => sameTown(row, town))
+    .filter((row) => clean(row.Status || 'approved').toLowerCase() === 'approved')
+    .filter((row) => clean(row.Direction || '').toLowerCase() === 'expense')
+    .reduce((sum, row) => sum + money(row.Amount), 0);
+
+  const finalTotalReceived = totalReceived > 0 ? totalReceived : totalReceivedAllTime;
+  const finalTotalPaid = totalPaid > 0 ? totalPaid : totalPaidAllTime;
+  const finalCashBalance = (totalReceived > 0 || totalPaid > 0) ? (totalReceived - totalPaid) : (totalReceivedAllTime - totalPaidAllTime);
+
   return {
     townName: town,
     fromDate: from,
     toDate: to,
     generatedAt: new Date().toISOString(),
     summary: {
-      totalReceived,
-      totalPaid,
-      cashBalance: totalReceived - totalPaid,
+      totalReceived: finalTotalReceived,
+      totalPaid: finalTotalPaid,
+      cashBalance: finalCashBalance,
+      todayReceived: totalReceived,
+      todayPaid: totalPaid,
+      todayCashBalance: totalReceived - totalPaid,
+      allTimeReceived: totalReceivedAllTime,
+      allTimePaid: totalPaidAllTime,
+      allTimeCashBalance: totalReceivedAllTime - totalPaidAllTime,
       receivable: pendingReceivable,
       payable,
       investorCredit: investorTx.reduce((sum, row) => sum + (clean(row.Type).toLowerCase() === 'debit' ? 0 : money(row.Amount)), 0),

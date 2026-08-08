@@ -21,6 +21,7 @@ import LockerAuditBlock from './components/LockerAuditBlock';
 import TermsScreen from './components/TermsScreen';
 import AppealDashboard from './systems/AppealSystem/AppealDashboard';
 import PendingCollections from './components/PendingCollections';
+import SyncStatus from './components/SyncStatus';
 import { LanguageProvider } from './LanguageContext';
 import { useAuth } from './contexts/AuthContext';
 import { supabase } from './lib/supabase';
@@ -1269,6 +1270,7 @@ function AppInner() {
         />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         <CloudRefreshStatus state={cloudRefresh} />
+        <SyncStatus />
       </>
     );
   }
@@ -1296,6 +1298,7 @@ function AppInner() {
           {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
           {bellNode}
           <CloudRefreshStatus state={cloudRefresh} />
+          <SyncStatus />
         </>
       );
     }
@@ -1327,6 +1330,7 @@ function AppInner() {
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         {bellNode}
         <CloudRefreshStatus state={cloudRefresh} />
+        <SyncStatus />
       </>
     );
   }
@@ -1389,6 +1393,7 @@ function AppInner() {
         />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         <CloudRefreshStatus state={cloudRefresh} />
+        <SyncStatus />
       </ErrorBoundary>
     );
   }
@@ -1422,6 +1427,7 @@ function AppInner() {
         />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         <CloudRefreshStatus state={cloudRefresh} />
+        <SyncStatus />
       </ErrorBoundary>
     );
   }
@@ -1516,6 +1522,7 @@ function AppInner() {
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {panel === 'choose' ? bellNode : null}
       <CloudRefreshStatus state={cloudRefresh} />
+      <SyncStatus />
     </div>
   );
 }
